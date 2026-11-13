@@ -24,7 +24,7 @@ CHAR_W = 0.6       # glyph advance as a share of text size (wide display fonts; 
 LINE_H = 1.2
 
 SHOT_VARIETY_RULE = (
-    "Shot variety: no two shots may share one composition. Between any two shots change at least "
+    "Shot variety: no two shots within two of each other may share one composition. Between those shots change at least "
     "one of: camera side (azimuth 30 degrees or more), height (elevation 12 degrees or more), or "
     "distance/lens scale (25 percent or more). Place content so it reaches the upper third as well "
     "as the middle (an empty top third is reported as a warning only; it does not block). Keep every readout and equation fully "
@@ -78,8 +78,22 @@ def text_extent(body, size, scale=1.0, char_w=CHAR_W):
 
 
 def find_readouts_behind_subject(samples):
-    """Return (frame, name, readout_depth, subject_depth) where a readout is not in front."""
-    return [(f, n, rd, sd) for f, n, rd, sd in samples if sd is not None and rd >= sd]
+    """Keep overlap samples whose subject is strictly nearer than the readout."""
+    return [sample for sample in samples if sample[3] is not None and sample[2] > sample[3]]
+
+
+def subject_in_readout_box(objects, box, margin=0.01):
+    """Nearest (name, depth) among non-scenery vertices inside this readout's screen box.
+
+    The margin is one percent of the frame; off-screen and behind-camera vertices never count.
+    This is a sampled-vertex overlap check, not a full mesh occlusion test.
+    """
+    xmin, xmax, ymin, ymax, _ = box
+    candidates = ((obj["name"], d) for obj in objects if not obj.get("scenery")
+                  for x, y, d in obj["pts"]
+                  if d > MIN_DEPTH and 0 <= x <= 1 and 0 <= y <= 1
+                  and xmin - margin <= x <= xmax + margin and ymin - margin <= y <= ymax + margin)
+    return min(candidates, key=lambda item: item[1], default=None)
 
 
 def readout_too_wide(box, max_share=MAX_READOUT_FRAME_SHARE):
@@ -147,13 +161,13 @@ def shot_signature(pos, target, lens=50.0):
             dist / lens)
 
 
-def check_shot_variety(shots, min_azimuth=30.0, min_elevation=12.0, min_scale=0.25):
+def check_shot_variety(shots, min_azimuth=30.0, min_elevation=12.0, min_scale=0.25, neighbour_span=2):
     """shots: dicts pos, target, lens (one representative pose per shot). Returns (i, j) pairs that
-    share one composition: azimuth, elevation and distance/lens scale are all too close."""
+    share one composition within neighbour_span shots: all three signature values are too close."""
     sigs = [shot_signature(s["pos"], s["target"], s.get("lens", 50.0)) for s in shots]
     same = []
     for i in range(len(sigs)):
-        for j in range(i + 1, len(sigs)):
+        for j in range(i + 1, min(len(sigs), i + neighbour_span + 1)):
             (a1, e1, s1), (a2, e2, s2) = sigs[i], sigs[j]
             da = abs((a1 - a2 + 180) % 360 - 180)
             if da < min_azimuth and abs(e1 - e2) < min_elevation and abs(s1 - s2) / max(s1, s2, 1e-9) < min_scale:
@@ -299,16 +313,18 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
         apply(f)
         probe.update()
         checked += 1
-        content_depth = probe.subject_depth() if hasattr(probe, "subject_depth") else None
+        content = probe.content()
         for o in probe.text_objects():
             if getattr(o, "get", lambda *_: False)("codebuilt_readout", False):
                 readout_names.add(o.name)
             box = probe.text_box(o)
             if box is not None:
                 text_samples.append((f, o.name, box))
-                if content_depth is not None and getattr(o, "get", lambda *_: False)("codebuilt_readout", False):
-                    depth_samples.append((f, o.name, box[4], content_depth))
-        if f in upper_frames and upper_area_empty(upper_area_points(probe.content()), min_top):
+                if getattr(o, "get", lambda *_: False)("codebuilt_readout", False):
+                    subject = subject_in_readout_box(content, box)
+                    if subject is not None:
+                        depth_samples.append((f, o.name, box[4], subject[1], subject[0], _shot_name(ranges, f)))
+        if f in upper_frames and upper_area_empty(upper_area_points(content), min_top):
             upper_warnings.append((f, _shot_name(ranges, f)))
         if f in pose_at:
             target = probe.cam_target()
@@ -318,7 +334,8 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
                 pos, lens = probe.cam_pose()
                 poses[pose_at[f]] = {"pos": tuple(pos), "target": tuple(target), "lens": lens}
     order = sorted(poses)
-    same = [(order[i], order[j]) for i, j in check_shot_variety([poses[k] for k in order])]
+    same = [(order[i], order[j]) for i, j in check_shot_variety([poses[k] for k in order])
+            if order[j] - order[i] <= 2]
     clipped = find_text_clipped(text_samples, safe)
     too_wide = [(f, n, b) for f, n, b in text_samples if n in readout_names and readout_too_wide(b)]
     behind = find_readouts_behind_subject(depth_samples)
@@ -341,7 +358,19 @@ def describe(report, include_warnings=False):
     if report.get("readout_too_wide"):
         parts.append(f"readout exceeds {MAX_READOUT_FRAME_SHARE:.0%} of frame width")
     if report.get("readout_behind_subject"):
-        parts.append(f"readout is behind subject at frames {sorted({x[0] for x in report['readout_behind_subject']})[:MAX_LISTED]}")
+        groups = {}
+        for frame, name, rd, sd, subject, shot in report["readout_behind_subject"]:
+            key = (name, subject, shot)
+            if key not in groups:
+                if len(groups) >= MAX_LISTED:
+                    continue
+                groups[key] = [frame, frame, rd, sd]
+            groups[key][1] = frame
+        for (name, subject, shot), (first, last, rd, sd) in groups.items():
+            frames = str(first) if first == last else f"{first}-{last}"
+            parts.append(f"readout {name[:80]!r} in {str(shot)[:80]} is behind {subject[:80]!r} "
+                         f"(readout {rd:.2f} m, object {sd:.2f} m) at frames {frames}: "
+                         "move the readout nearer to the camera or move the object")
     if report["same_composition"]:
         parts.append(f"shots share one composition (indices): {report['same_composition'][:MAX_LISTED]}")
     if report["missing_target"]:
@@ -349,7 +378,7 @@ def describe(report, include_warnings=False):
                      "cam.set(pos, target, ...) (stage.Camera.set) in each shot function")
     if include_warnings and report["upper_warnings"]:
         parts.append(f"warning (does not block): top third of the frame shows no content (frame, shot): {report['upper_warnings'][:MAX_LISTED]}")
-    return "; ".join(parts) or ("QA failed" if not report.get("ok") else "QA passed")
+    return ("; ".join(parts) or ("QA failed" if not report.get("ok") else "QA passed"))[:FAILURE_MAX_CHARS]
 
 
 FAILURE_FILE = "/job/work/qa_failure.txt"
@@ -474,7 +503,7 @@ class BlenderProbe:
 
     def content(self):
         """Visible MESH objects: dicts name, pts [(x, y, depth)] of (a stride sample of) the base-mesh vertices, scenery (the
-        codebuilt_role='scenery' mark; used by the advisory top-third check only)."""
+        codebuilt_role='scenery' mark; excluded from subject checks)."""
         np, out = self.np, []
         m = self._camera_matrix()
         for o in visible_objects(self.scene.collection, kinds={"MESH"}):
@@ -499,7 +528,6 @@ class BlenderProbe:
             out.append({"name": o.name, "pts": list(zip(x.tolist(), y.tolist(), w.tolist())), "scenery": o.get("codebuilt_role") == SCENERY_ROLE})
         return out
 
-    def subject_depth(self):
-        """Nearest positive camera-space vertex among visible subject meshes."""
-        pts = [d for obj in self.content() if not obj.get("scenery") for _, _, d in obj["pts"] if d > MIN_DEPTH]
-        return min(pts) if pts else None
+    def subject_depth(self, box):
+        """Nearest (object name, depth) overlapping this readout's projected box, or None."""
+        return subject_in_readout_box(self.content(), box)
