@@ -13,7 +13,7 @@ function safeSkillText(root, name) {
   const file = path.join(dir, 'SKILL.md');
   for (const [target, label] of [[skillRoot, 'skill root'], [dir, 'skill directory'], [file, 'skill file']]) {
     const stat = fs.lstatSync(target);
-    if (stat.isSymbolicLink() || (stat.attributes & 0x400)) throw new Error(`${label} is a link or reparse point: ${target}`);
+    if (stat.isSymbolicLink()) throw new Error(`${label} is a link or reparse point: ${target}`);
   }
   const realRoot = fs.realpathSync.native(skillRoot);
   const realDir = fs.realpathSync.native(dir);

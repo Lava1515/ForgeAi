@@ -66,6 +66,6 @@ export function createCb6RunnerAdapter(runIsolatedJob, launch, { observationPoli
       limits: { ...selected.limits },
       useGpuQueue: selected.gpu,
       ...(selected.readonlyMounts ? { readonlyMounts: selected.readonlyMounts.map((m) => ({ ...m })) } : {}),
-    }, { signal: deps.signal })).then((report) => applyObservationPolicy(report, { policy: observationPolicy, expectGpu: selected.gpu }));
+    }, { signal: deps.signal })).then((report) => applyObservationPolicy(report, { policy: observationPolicy, expectGpu: selected.gpu, expectKind: selected.kind }));
   };
 }

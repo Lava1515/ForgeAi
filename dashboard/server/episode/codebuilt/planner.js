@@ -700,7 +700,9 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
     }
     return code;
   };
-  const skill = loadCodebuiltBuildSkill({ pack });
+  let skill;
+  try { skill = loadCodebuiltBuildSkill({ pack }); }
+  catch { throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid'); }
   const buildScript = await asker.run(buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices, skillGuidance: `### ${skill.skill}\n${skill.text}` }), check, input.signal);
   return { buildScript, calls: asker.calls, shotStarts, nframes, qaStructure: qaStructureState };
 }

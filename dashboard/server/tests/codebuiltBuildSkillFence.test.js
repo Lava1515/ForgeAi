@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { buildDockerArgv, CODEBUILT_SKILL_DIR, CODEBUILT_SKILL_DST, READONLY_MOUNT_ALLOWLIST, validateReadonlyMount } from '../episode/codebuilt/dockerFence.js';
 import { loadCodebuiltBuildSkill } from '../episode/codebuilt/skills.js';
 import { preventionEvidence } from '../episode/codebuilt/audit.js';
+import { preventionProblems } from '../episode/engines/codebuilt/acceptance.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -50,6 +51,9 @@ test('simulated generated-job argv applies exactly the two approved read-only mo
   ]);
   assert.equal(evidence.network, 'none');
   assert.equal(args.includes('--read-only'), true);
+  assert.deepEqual(preventionProblems(evidence, jobDir), []);
+  assert.deepEqual(preventionProblems({ ...evidence, readonlyHostMounts: [] }, jobDir, { expectKind: 'stub' }), []);
+  assert.notDeepEqual(preventionProblems({ ...evidence, readonlyHostMounts: [] }, jobDir), []);
 });
 
 test('build skill pack cannot widen the allowlist or mount its parent', () => {
