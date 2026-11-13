@@ -183,7 +183,12 @@ export function createBuildJobRunner({
         if (refused) throw new CodebuiltError('FENCE_REFUSED', message);
         throw new CodebuiltError(error instanceof CodebuiltError ? error.code : 'FENCE_FAILED', message, { ...(error instanceof CodebuiltError ? error.detail : {}), orphan: true });
       }
-      fenceTiming = first.value?.timing ?? null;
+      // Diagnostics must never mask the fence result when a simulated/future adapter
+      // returns a value that cannot be persisted as JSON.
+      try {
+        const hostPhases = first.value?.timing?.hostPhases;
+        fenceTiming = hostPhases && typeof hostPhases === 'object' ? JSON.parse(JSON.stringify({ hostPhases })) : null;
+      } catch { fenceTiming = null; }
       classifyResult(first.value);
       verifyInputs(paths, inputs);
       if (kind === 'generated-code') verifyBuildScript(paths, inputs[BUILD_SCRIPT]);

@@ -50,3 +50,20 @@ test('failed fence timings survive classification in host-owned job state', asyn
     assert.deepEqual(state.fenceTiming, timing);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('unserializable timing cannot mask a returned fence timeout', async () => {
+  const root = fixture();
+  const wav = path.join(root, 'source.wav');
+  fs.writeFileSync(wav, 'fixture audio');
+  const circular = {}; circular.self = circular;
+  try {
+    for (const [index, hostPhases] of [circular, { totalMs: 1n }].entries()) {
+      const runner = createBuildJobRunner({ root, inputRoots: [root], runIsolatedJob: async () => ({ status: 'timeout', timing: { hostPhases } }) });
+      const jobId = `bad-timing-${index}`;
+      await assert.rejects(runner.run({ jobId, timeoutMs: 1000, script: 'fixture script', brief: 'fixture brief', voWav: wav, words: {}, pathPack: {} }), { code: 'TIMEOUT' });
+      const state = JSON.parse(fs.readFileSync(jobPaths(root, jobId).state, 'utf8'));
+      assert.equal(state.status, 'failed');
+      assert.equal(state.fenceTiming, null);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
