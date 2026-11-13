@@ -12,9 +12,10 @@ import {
   Mic,
   RefreshCw
 } from 'lucide-react';
-import { formatLength } from './MediaToggle.jsx';
 import * as api from '../services/api.js';
 import PublishYouTube from './PublishYouTube.jsx';
+
+const formatLength = (seconds) => (seconds >= 60 ? `${seconds / 60} min` : `${seconds}s`);
 
 export default function ProductModal({ product, onClose, onDelete, onUpdate }) {
   if (!product) return null;

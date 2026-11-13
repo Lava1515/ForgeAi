@@ -189,16 +189,6 @@
       "reverify": true
     },
     {
-      "id": "pip:librosa",
-      "kind": "library",
-      "licence": "ISC",
-      "allowed": true,
-      "source": "https://github.com/librosa/librosa",
-      "checked": "2026-11-13",
-      "checked_how": "from memory",
-      "reverify": true
-    },
-    {
       "id": "pip:soundfile",
       "kind": "library",
       "licence": "BSD-3-Clause",

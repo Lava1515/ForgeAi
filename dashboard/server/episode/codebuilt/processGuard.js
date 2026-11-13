@@ -11,6 +11,8 @@
 // job folder is a writable, executable bind mount and the code runs as the same user. So the cap catches an honest
 // mistake (a script that starts a third Blender) and nothing more. What limits a hostile job is the hard bounds:
 // container pids/memory/cpu, network none, the timeout and the single GPU lease. See docs/codebuilt-isolation.md.
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { buildDockerArgv } from './dockerFence.js';
 import { JOB_ROOT, samePath, assertNoLinksInTree } from './jobPaths.js';
@@ -58,6 +60,26 @@ export function looksLikeBlender(line) {
 
 export function countBlenderProcesses(commandLines) {
   return commandLines.slice(0, MAX_TOP_LINES).filter(looksLikeBlender).length;
+}
+
+const STDERR_TAIL_CHARS = 6000;
+// Tab, newline and printable ASCII only: control characters and escape sequences never reach a file or a prompt.
+const printable = (text) => [...String(text ?? '')].filter((ch) => ch === '\t' || ch === '\n' || (ch >= ' ' && ch <= '~')).join('');
+export const STDERR_TAIL_FILE = 'stderr_tail.txt';
+
+/**
+ * Writes the end of a failed container's stderr to <job>/work/stderr_tail.txt. Called after the docker client closed.
+ * Flag 'wx' creates the file or fails: an existing name (a file or a link the job left) is never written through.
+ */
+export function saveStderrTail(jobDir, text) {
+  try {
+    const clean = printable(text).trim();
+    if (!clean || typeof jobDir !== 'string') return false;
+    const work = path.join(jobDir, 'work');
+    if (!fs.lstatSync(work).isDirectory()) return false;
+    fs.writeFileSync(path.join(work, STDERR_TAIL_FILE), clean.slice(-4000), { flag: 'wx' });
+    return true;
+  } catch { return false; }
 }
 
 /** `docker top <name>` text -> command lines (column CMD / COMMAND, header row skipped). */
@@ -162,6 +184,7 @@ export async function runFenced(config, deps = {}) {
   return new Promise((resolve) => {
     let settled = false, stopping = false, polling = false, failures = 0, ready = false, clientDone = false, neverStarted = false;
     let child, pollTimer, limitTimer, onClosed, onAbort = () => {};
+    let stderrTail = '';
     const startedAt = Date.now();
     const closed = new Promise(r => { onClosed = r; });
     const markClosed = () => { clientDone = true; onClosed(); };
@@ -209,7 +232,14 @@ export async function runFenced(config, deps = {}) {
     };
 
     try {
-      child = spawnFn(docker.command, docker.args, { shell: false, windowsHide: true, stdio: 'ignore' });
+      // stdin and stdout stay closed. stderr is read only to keep its last few KB: when generated code crashes, the Python
+      // traceback is the one thing that lets the build model fix it (job mwf06gtw-069893, 2026-11-13: abs(Vector) crashed the
+      // preview and nothing said why). The text is untrusted: it is only written as a small file beside the job's own files.
+      child = spawnFn(docker.command, docker.args, { shell: false, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      if (child?.stderr && typeof child.stderr.on === 'function') {
+        child.stderr.on('data', (chunk) => { stderrTail = (stderrTail + String(chunk)).slice(-STDERR_TAIL_CHARS); });
+        child.stderr.on('error', () => { /* a broken pipe only loses the diagnostic */ });
+      }
     } catch (e) {
       neverStarted = true; markClosed(); // no docker client exists, so nothing can create the container
       finish({ status: 'spawn_failed', reason: String(e?.message ?? e), exitCode: null });
@@ -218,6 +248,7 @@ export async function runFenced(config, deps = {}) {
     child.on('error', (e) => { if (!stopping) neverStarted = true; markClosed(); if (!stopping) finish({ status: 'spawn_failed', reason: String(e?.message ?? e), exitCode: null }); });
     child.on('close', (code, signal) => {
       markClosed();
+      if (code !== 0) saveStderrTail(docker.jobDir, stderrTail);
       if (!stopping) finish({ status: code === 0 ? 'ok' : 'failed', exitCode: code, signal: signal ?? null });
     });
 

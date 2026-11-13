@@ -76,7 +76,7 @@ export async function runVisualBuildLoop(input, deps = {}) {
   fs.mkdirSync(stage, { recursive: true });
   const fail = (error) => {
     const typed = error instanceof LoopError ? error : new LoopError('look_failed', 'the visual loop stopped on an unexpected error', { reason: 'internal', cause: String(error?.message ?? error).slice(0, 200) });
-    try { writeJson(path.join(stage, 'loop-error.json'), { code: typed.code, message: LOOP_MESSAGES[typed.code] ?? LOOP_MESSAGES.look_failed, at: new Date(now()).toISOString() }); } catch { /* the typed error is what matters */ }
+    try { writeJson(path.join(stage, 'loop-error.json'), { code: typed.code, message: LOOP_MESSAGES[typed.code] ?? LOOP_MESSAGES.look_failed, reason: typeof typed.detail?.reason === 'string' ? typed.detail.reason.slice(0, 60) : (typeof typed.reason === 'string' ? typed.reason.slice(0, 60) : null), at: new Date(now()).toISOString() }); } catch { /* the typed error is what matters */ }
     return typed;
   };
   try {
@@ -220,7 +220,7 @@ async function loop(input, deps, { now, newCode, stage }) {
         const options = { model: lookModel, timeoutMs: lookTimeoutMs, signal };
         answer = textOnly ? await deps.askText(text, options) : await deps.askLook(text, images, options);
       } catch (error) {
-        const entry = callEntry({ r, attempt, model: lookModel, wallS: (now() - t0) / 1000, usage: null, status: 'error', images: images.length, validation: error?.timedOut ? 'timed out' : error?.quota ? 'quota' : 'call failed' });
+        const entry = callEntry({ r, attempt, model: lookModel, wallS: (now() - t0) / 1000, usage: null, status: 'error', images: images.length, validation: error?.timedOut ? 'timed out' : error?.quota ? 'quota' : `call failed: ${String(error?.message ?? error).replace(/[A-Za-z]:[^ ]*/g, '<path>').slice(0, 160)}` });
         emit(entry); roundCalls.push(entry);
         if (signal?.aborted || error?.aborted) throw aborted();
         if (error?.timedOut) throw new LoopError('loop_timeout', 'a look call timed out', { reason: 'call' });

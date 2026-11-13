@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { askGemini, GEMINI_MID_MODEL } from './gemini.js';
 import { skillsPrompt } from '../camera/knowledgeLoader.js'; // KAN-716: verification digest is policy-gated
-import { PRESCHOOL_HERO } from './studioPlan.js';
+import { PRESCHOOL_HERO } from './storyText.js';
 import { stripEnvironmentStyles } from './preschoolEnvironments.js';
 import { OFFICIAL_MANIFEST, OFFICIAL_MODE, isTrustedOfficialSource, matchOfficialEntry, officialSourceSearch } from './storySources.js';
 

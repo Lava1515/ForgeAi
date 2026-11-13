@@ -525,7 +525,9 @@ export function validateBuildScript(code, { nframes, shotStarts }) {
   why.push(...settingProblems(bare, 'samples', '(?:8|9|1[0-6])(?:\\.0+)?', 'scene.cycles.samples must be an integer from 8 through 16'));
   why.push(...settingProblems(bare, 'hold', '1(?:\\.0+)?', 'hold must be exactly 1 in every render_frames and run_qa call', { required: false }));
   // Collections shot-0 .. shot-(n-1): each name as a literal, or built from a format inside the meshes.coll(...) call itself ('shot-%d', f'shot-{i}', 'shot-' + str(i)) when a helper makes them in a loop.
-  const dynamicName = /\bcoll\s*\([^)]*['"]shot-(?:%[sd]|\{[^}'"]*\}|['"]\s*\+)/.test(noComments);
+  // The format may also sit in a variable first (name = 'shot-%d' % i; meshes.coll(scene, name)): a 13-shot script written that way was refused
+  // as "collection 'shot-0' is missing" (job mwf06gtw-069893, 2026-11-13). Any shot-name format in the code counts when meshes.coll is called.
+  const dynamicName = /\bcoll\s*\(/.test(bare) && /['"]shot-(?:%[sd]['"]|\{[^}'"]*\}['"]|['"]\s*\+)/.test(noComments);
   if (!dynamicName) for (let i = 0; i < shotStarts.length; i += 1) if (!new RegExp(`['"]shot-${i}['"]`).test(noComments)) why.push(`collection 'shot-${i}' is missing`);
   if (!/apply_frame\s*\(/.test(bare)) why.push('must switch shots with timeline.apply_frame');
   const sceneWeight = sceneWeightOf(bare);

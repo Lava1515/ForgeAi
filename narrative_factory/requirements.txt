@@ -5,5 +5,3 @@ Pillow==13.0.0
 qwen-tts
 # KAN-200 word timestamps (CPU tiny Whisper; imported lazily after TTS)
 stable-ts==2.19.1
-# KAN-380 music_sync_v1 beat grid (ISC; imported lazily, only when the flag is on and the track tempo is unknown)
-librosa==1.0.0

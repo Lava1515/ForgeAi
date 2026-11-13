@@ -24,8 +24,10 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { writeCreationCost, normalizeJobCalls } from '../../perf/creationCost.js';
 import { getChannelById, resolveChannelPolicy } from '../../routes/channelsManager.js';
-import { EPISODE_MARKER_VERSION } from '../toDraft.js';
 import { episodeGate } from '../../routes/episodeReview.js';
+
+// Version of the `episode_draft` marker written into a draft's metadata; routes/episodeReview.js reads it.
+const EPISODE_MARKER_VERSION = 1;
 import { CODEBUILT_DRAFT_VERSION, MB, ROLES, CB5_SOURCES, CB5_PNG_SHEET, CB5_REPORT_VERSION, specForFile, isObject, sha256, bundleDigest, safeLinks, hashFile, isCodebuiltDraft, verifyCodebuiltDraft } from './bundle.js';
 
 export { CODEBUILT_DRAFT_VERSION, ROLES, CB5_SOURCES, bundleDigest, safeLinks, isCodebuiltDraft, verifyCodebuiltDraft };

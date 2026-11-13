@@ -1,9 +1,9 @@
-import { enforceWhatIfPremise } from './studioPlan.js';
+import { enforceWhatIfPremise } from './storyText.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { askGemini, GEMINI_MID_MODEL, isQuotaExceeded } from './gemini.js';
-import { VIDEO_KINDS } from './studioPlan.js';
+import { VIDEO_KINDS } from './storyText.js';
 import { boundedResearch } from './storyVerification.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

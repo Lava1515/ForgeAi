@@ -11,16 +11,25 @@ import { CodebuiltError } from './errors.js';
 
 export const PREVIEW_TIMEOUT_MS = 8 * 60 * 1000;
 const DIAGNOSTIC_MAX_BYTES = 4096;
+// Tab, newline and printable ASCII only.
+const PRINTABLE = (text) => [...String(text ?? '')].filter((ch) => ch === '\t' || ch === '\n' || (ch >= ' ' && ch <= '~')).join('');
 
-/** The QA failure text the kit left in <job>/work/qa_failure.txt (a regular file of at most 4 KB), cleaned, or null. */
+/**
+ * Why a preview failed, cleaned, or null: the QA failure text the kit left in <job>/work/qa_failure.txt, else the end of the
+ * container's stderr the host saved in <job>/work/stderr_tail.txt (a Python traceback when the generated code crashed).
+ * Either must be a regular file of at most 4 KB.
+ */
 export function readPreviewDiagnostic(jobRoot, jobId) {
-  try {
-    const file = path.join(jobRoot, jobId, 'work', 'qa_failure.txt');
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size === 0 || stat.size > DIAGNOSTIC_MAX_BYTES) return null;
-    const text = fs.readFileSync(file, 'utf8').replace(/[^\x09\x0a\x20-\x7e]/g, '').trim();
-    return text ? text.slice(0, DIAGNOSTIC_MAX_BYTES) : null;
-  } catch { return null; }
+  for (const name of ['qa_failure.txt', 'stderr_tail.txt']) {
+    try {
+      const file = path.join(jobRoot, jobId, 'work', name);
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size === 0 || stat.size > DIAGNOSTIC_MAX_BYTES) continue;
+      const text = PRINTABLE(fs.readFileSync(file, 'utf8')).trim();
+      if (text) return text.slice(0, DIAGNOSTIC_MAX_BYTES);
+    } catch { /* try the next file */ }
+  }
+  return null;
 }
 
 /**

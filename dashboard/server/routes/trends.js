@@ -1,4 +1,4 @@
-import { enforceWhatIfPremise } from './studioPlan.js';
+import { enforceWhatIfPremise } from './storyText.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

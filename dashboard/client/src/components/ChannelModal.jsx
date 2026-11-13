@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import * as api from '../services/api.js';
 import Button from '../ui/Button.jsx';
-import { useVideoStatus } from './MediaToggle.jsx';
 import Banner from '../ui/Banner.jsx';
 
 const PRESET_GENRES = [
@@ -52,7 +51,6 @@ export default function ChannelModal({
   const [captions, setCaptions] = useState(channel?.captions == null ? '' : String(channel.captions));
   const [madeForKids, setMadeForKids] = useState(channel?.made_for_kids == null ? '' : String(channel.made_for_kids));
   const [kidsLength, setKidsLength] = useState(channel?.kids_length_s ? String(channel.kids_length_s) : '');
-  const videoStatus = useVideoStatus();
   const [kidsVideoModel, setKidsVideoModel] = useState(channel?.kids_video_model || '');
   const [kidsClipSeconds, setKidsClipSeconds] = useState(channel?.kids_clip_seconds || 5);
   const [style, setStyle] = useState(channel?.style || '');
@@ -366,30 +364,6 @@ export default function ChannelModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Video engine</label>
-                  <select
-                    value={engine}
-                    onChange={(e) => setEngine(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner"
-                  >
-                    <option value="classic">Classic (AI images + clips)</option>
-                    <option value="cutaway3d">3D cutaway (Blender)</option>
-                    <option value="director">Director (any topic: 3D + AI)</option>
-                    <option value="preschool_3d">Kids 3D</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Style</label>
-                  <select
-                    value={style}
-                    onChange={(e) => setStyle(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner"
-                  >
-                    <option value="">Default</option>
-                    <option value="viral_v1">Viral v1</option>
-                  </select>
-                </div>
-                <div>
                   <label className="block text-xs font-medium text-ink-300 mb-1.5">Max videos going public per day</label>
                   <input
                     type="number"
@@ -402,49 +376,7 @@ export default function ChannelModal({
                 </div>
               </div>
 
-              <div className="max-w-sm">
-                <label className="block text-xs font-medium text-ink-300 mb-1.5">Kids clip engine</label>
-                <select value={kidsVideoModel} onChange={(e) => setKidsVideoModel(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner">
-                  <option value="">Auto (Wan)</option>
-                  <option value="wan">Wan 2.2 5B</option>
-                  <option value="wan14b">Wan 2.2 14B (4-step)</option>
-                  <option value="minimax_h3" disabled={!videoStatus.minimax_h3_enabled}>MiniMax H3</option>
-                </select>
-                {kidsVideoModel === 'wan14b' && (
-                  <div className="mt-3">
-                    <label className="block text-xs font-medium text-ink-300 mb-1.5">Clip length (14B)</label>
-                    <select value={kidsClipSeconds} onChange={(e) => setKidsClipSeconds(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner">
-                      <option value={5}>5 s (native, best identity)</option>
-                      <option value={7.5}>7.5 s (121 frames)</option>
-                      <option value={10}>10 s (161 frames)</option>
-                    </select>
-                    <p className="mt-1.5 text-xs text-ink-400">Longer clips mean fewer scenes in a 30 s video and use more memory; identity can drift past 5 s.</p>
-                  </div>
-                )}
-                <p className="mt-1.5 text-xs text-ink-400">{videoStatus.minimax_h3_enabled ? 'MiniMax H3 output has territory restrictions: see KAN-239 (internal evaluation only)' : videoStatus.message}</p>
-              </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Audio</label>
-                  <select value={audioMode} onChange={(e) => setAudioMode(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner">
-                    <option value="">Auto</option>
-                    <option value="narration">Narration</option>
-                    <option value="music_sfx">Music + SFX</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Captions</label>
-                  <select value={captions} onChange={(e) => setCaptions(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner">
-                    <option value="">Auto</option>
-                    <option value="true">On</option>
-                    <option value="false">Off</option>
-                  </select>
-                </div>
                 <div>
                   <label className="block text-xs font-medium text-ink-300 mb-1.5">Made for Kids</label>
                   <select value={madeForKids} onChange={(e) => setMadeForKids(e.target.value)}
@@ -454,16 +386,6 @@ export default function ChannelModal({
                     <option value="false">No</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Kids video length</label>
-                  <select value={kidsLength} onChange={(e) => setKidsLength(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner">
-                    <option value="">Auto (30 s)</option>
-                    <option value="30">30 s</option>
-                    <option value="60">1 min</option>
-                  </select>
-                </div>
-                <p className="col-span-full text-[11px] text-ink-500">Auto follows the engine</p>
               </div>
 
               <div>

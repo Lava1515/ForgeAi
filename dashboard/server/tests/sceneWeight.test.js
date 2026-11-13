@@ -23,3 +23,17 @@ test('a helper of helpers counts, capped per call', () => {
   const w = sceneWeightOf(src);
   assert.ok(w >= 8 && w <= 20, `got ${w}`);
 });
+
+// Bug of 2026-11-13 (job mwf06gtw-069893): shot collections named through a variable were reported as missing.
+import { validateBuildScript } from '../episode/codebuilt/planner.js';
+
+test('shot collections named through a variable are found', () => {
+  const src = "for _i in range(3):\n    _name = 'shot-%d' % _i\n    _c = meshes.coll(scene, _name)\n";
+  const why = validateBuildScript(src, { nframes: 90, shotStarts: [0, 1, 2] });
+  assert.ok(!why.some((r) => /collection 'shot-\d+' is missing/.test(r)), why.join('; '));
+});
+
+test('a script with no shot collections at all is still refused', () => {
+  const why = validateBuildScript("x = 1\n", { nframes: 90, shotStarts: [0, 1, 2] });
+  assert.ok(why.some((r) => /collection 'shot-0' is missing/.test(r)));
+});

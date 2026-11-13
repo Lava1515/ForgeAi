@@ -103,26 +103,8 @@ export async function getStatus() {
   return request('/api/status');
 }
 
-export async function getVideoStatus() {
-  return request('/api/video/status');
-}
-
 export async function getNarrativeServiceStatus() {
   return request('/api/service/narrative');
-}
-
-export async function testServiceUrl(url) {
-  return request('/api/service/test-url', {
-    method: 'POST',
-    body: JSON.stringify({ url })
-  });
-}
-
-export async function setRemoteUrls({ tts_url, comfyui_url } = {}) {
-  return request('/api/control', {
-    method: 'POST',
-    body: JSON.stringify({ action: 'set_urls', tts_url, comfyui_url })
-  });
 }
 
 export async function sendControl(action, payload = {}) {
@@ -153,50 +135,9 @@ export async function updateProduct(draftId, flags) {
   return request(`/api/products/${encodeURIComponent(draftId)}`, { method: 'PATCH', body: JSON.stringify(flags) });
 }
 
-export async function regenerateVoiceover(draftId, { voice, instruct, dynamicTone, script } = {}) {
-  return request(`/api/drafts/${encodeURIComponent(draftId)}/regenerate-voiceover`, {
-    method: 'POST',
-    body: JSON.stringify({ voice, instruct, dynamicTone, script }),
-  });
-}
-
 export async function deleteProduct(draftId) {
   return request(`/api/products/${draftId}`, {
     method: 'DELETE'
-  });
-}
-
-export async function getMemory() {
-  return request('/api/memory');
-}
-
-export async function triggerRun(params = {}) {
-  return request('/api/run', {
-    method: 'POST',
-    body: JSON.stringify(params)
-  });
-}
-
-export async function startStudio(params = {}, channelId) {
-  return request('/api/studio', {
-    method: 'POST',
-    body: JSON.stringify(params),
-    ...(channelId ? { channelId } : {}),
-  });
-}
-
-export async function getStudioPrompt(params = {}, channelId) {
-  return request('/api/studio/prompt', {
-    method: 'POST',
-    body: JSON.stringify(params),
-    ...(channelId ? { channelId } : {}),
-  });
-}
-
-export async function validateStudioAssetPlan(asset_plan, generation_profile) {
-  return request('/api/studio/assets/validate', {
-    method: 'POST',
-    body: JSON.stringify({ asset_plan, generation_profile }),
   });
 }
 
@@ -228,72 +169,7 @@ export async function animateApprovedScenes(runId, params = {}) {
   });
 }
 
-export async function getStudioAuto() {
-  return request('/api/studio/auto');
-}
-
-export async function startStudioAuto(countOrObj, seconds, niche) {
-  const body = typeof countOrObj === 'object' && countOrObj !== null
-    ? countOrObj
-    : { count: countOrObj, seconds, niche };
-  return request('/api/studio/auto', {
-    method: 'POST',
-    body: JSON.stringify(body)
-  });
-}
-
-export async function stopStudioAuto() {
-  return request('/api/studio/auto/stop', { method: 'POST' });
-}
-
-export async function retryStudioAuto(runId) {
-  return request('/api/studio/auto/retry', {
-    method: 'POST',
-    body: JSON.stringify({ runId })
-  });
-}
-
 // Standalone Voiceover Studio
-export async function startVoiceover(params = {}) {
-  return request('/api/voiceover', {
-    method: 'POST',
-    body: JSON.stringify(params)
-  });
-}
-
-export async function generateVoiceoverScript(params = {}) {
-  return request('/api/voiceover/script', {
-    method: 'POST',
-    body: JSON.stringify(params)
-  });
-}
-
-export async function getThemes(contentMode = 'factual') {
-  const query = contentMode && contentMode !== 'factual' ? `?contentMode=${encodeURIComponent(contentMode)}` : '';
-  return request(`/api/trends/themes${query}`);
-}
-
-export async function scanThemes(forceOrObj = false, options = {}) {
-  const payload = typeof forceOrObj === 'object' && forceOrObj !== null
-    ? forceOrObj
-    : typeof forceOrObj === 'string'
-      ? { niche: forceOrObj, ...options }
-      : { force: Boolean(forceOrObj), ...options };
-  return request('/api/trends/themes/scan', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function getKidsTrends() {
-  return request('/api/trends/kids');
-}
-
-export async function scanKidsTrends() {
-  return request('/api/trends/kids/scan', {
-    method: 'POST'
-  });
-}
 
 // Channels Management & Psychology Research
 export async function getChannels() {
@@ -301,9 +177,6 @@ export async function getChannels() {
 }
 
 // Read-only: the server reports blockers for a Wan backend and never starts work.
-export async function getReadiness({ backend, engine, route } = {}) {
-  return request(`/api/readiness?${new URLSearchParams({ backend: backend || '', engine: engine || '', ...(route ? { route } : {}) })}`);
-}
 
 export async function createChannel(channelData) {
   return request('/api/channels', {
@@ -399,16 +272,8 @@ export async function publishToYoutube(draftId, { privacy, madeForKids, tags, ti
   return request(`/api/youtube/publish/${encodeURIComponent(draftId)}`, { method: 'POST', body: JSON.stringify({ privacy, madeForKids, tags, title, publishAt }) });
 }
 
-export async function cancelYoutubeSchedule(draftId) {
-  return request(`/api/youtube/schedule/${encodeURIComponent(draftId)}/cancel`, { method: 'POST' });
-}
-
 export async function getYoutubeDrafts() {
   return request('/api/youtube/drafts');
-}
-
-export async function getShortsQueue() {
-  return request('/api/shorts/queue');
 }
 
 export async function suggestYoutubeTags(draftId) {
@@ -421,24 +286,6 @@ export async function getChannel() {
 
 export async function scanChannel() {
   return request('/api/channel/scan', { method: 'POST' });
-}
-
-
-export async function getModels3d() {
-  return request('/api/models3d');
-}
-
-export async function buildModel3d(payload) {
-  return request('/api/models3d/build', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function deleteModel3d(slug) {
-  return request(`/api/models3d/${encodeURIComponent(slug)}`, {
-    method: 'DELETE',
-  });
 }
 
 export async function testAgy() {
@@ -504,48 +351,8 @@ export async function saveGrowthABChannel({ channelId, growth_ab_channel } = {})
 }
 
 // Generation Profile (Story3D T11 / KAN-299)
-export async function getGenerationProfileDefaults(channelId) {
-  return request('/api/generation-profile/defaults', { channelId });
-}
-
-export async function getBackgroundOptions(channelId) {
-  return request('/api/generation-profile/backgrounds', { channelId });
-}
 
 // Channel-explicit shared creator reads and revisioned preset mutations.
-export function getStudioOptions(channelId, engine) {
-  const query = engine ? `?${new URLSearchParams({ engine })}` : '';
-  return request(`/api/studio/options${query}`, { channelId });
-}
-
-export function listStudioPresets(channelId) {
-  return request('/api/studio/presets', { channelId });
-}
-
-export function createStudioPreset(channelId, body) {
-  return request('/api/studio/presets', { method: 'POST', body: JSON.stringify(body), channelId });
-}
-
-export function updateStudioPreset(channelId, id, body) {
-  return request(`/api/studio/presets/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), channelId });
-}
-
-export function deleteStudioPreset(channelId, id, expectedRevision) {
-  return request(`/api/studio/presets/${encodeURIComponent(id)}`, {
-    method: 'DELETE', body: JSON.stringify({ expected_revision: expectedRevision }), channelId,
-  });
-}
-
-export function getCreatorVoices(channelId) {
-  return request('/api/voices/fish', { channelId });
-}
-
-export async function validateGenerationProfile(profile, context = {}) {
-  return request('/api/generation-profile/validate', {
-    method: 'POST',
-    body: JSON.stringify({ profile, ...context }),
-  });
-}
 
 // Claude CLI account (data/claude): status, the manual login (link, then the pasted code) and a one-call test.
 export async function getClaude() {
@@ -569,33 +376,8 @@ export async function testClaude() {
 }
 
 // Episodes (KAN-885 / KAN-824)
-export async function createEpisode(body) {
-  return request('/api/episodes', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
-export async function getEpisode(id) {
-  return request('/api/episodes/' + encodeURIComponent(id));
-}
-
-export async function listEpisodes() {
-  return request('/api/episodes');
-}
 
 // Episode Room (KAN-886): run stages and decide the animatic gate through the existing admin-token routes.
-export async function runEpisode(id) {
-  return request('/api/episodes/' + encodeURIComponent(id) + '/run', { method: 'POST' });
-}
-
-export async function approveEpisodeGate(id, gate) {
-  return request('/api/episodes/' + encodeURIComponent(id) + '/gates/' + encodeURIComponent(gate) + '/approve', { method: 'POST' });
-}
-
-export async function rejectEpisodeGate(id, gate) {
-  return request('/api/episodes/' + encodeURIComponent(id) + '/gates/' + encodeURIComponent(gate) + '/reject', { method: 'POST' });
-}
 
 // Code-built start (owner UI): queued background job, status poll, abort.
 export async function startCodebuiltJob(body) {

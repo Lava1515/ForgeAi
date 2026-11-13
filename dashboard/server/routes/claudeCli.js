@@ -120,7 +120,7 @@ Answer directly from your own knowledge with only the JSON object described abov
       const why = timedOut ? `timed out after ${Math.round(timeoutMs / 1000)}s` : (text || String(out).trim().split('\n').pop() || `exit ${code}`).slice(0, 300);
       const err = Object.assign(new Error(`Claude CLI failed: ${why}`), { timedOut });
       if (/not logged in|\/login|authenticat/i.test(why)) err.unavailable = true;
-      if (/usage limit|rate limit|limit reached|quota/i.test(why)) { err.quota = true; blockedUntil = Date.now() + 30 * 60000; }
+      if (/usage limit|rate limit|limit reached|quota|hit your limit|out of (?:extra )?usage|limit will reset|resets? at/i.test(why)) { err.quota = true; blockedUntil = Date.now() + 30 * 60000; }
       reject(err);
     });
     child.stdin?.end(prompt);
