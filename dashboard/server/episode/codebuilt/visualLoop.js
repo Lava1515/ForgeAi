@@ -1,7 +1,7 @@
 // Visual loop (KAN-934): the host controller that replaces the blind one-reply build. Per round: preview the current build.py in
 // the SAME offline executor (a few small frames), make contact sheets with a fresh pixel code, show them to the model in ONE fresh
-// CLI call, apply its scoped edits, and look again. At most 3 looks in total (the first plus two fix rounds); the last look cannot
-// edit, so a fix is never rendered unseen. Only the accepted script is returned; the caller runs the unchanged final render with it.
+// CLI call, apply its scoped edits, and look again. Each resume gets a fresh budget of at most 3 looks (the first plus two fix rounds).
+// The caller gets an accepted script or the newest successfully previewed and looked-at script, explicitly marked unapproved.
 //
 // Honest limits: this is a controller around a model call, not an agent session with tools; the model process runs on the host on
 // the existing subscription login, and every line of generated code still runs only in the offline container. A receipt proves what
@@ -116,7 +116,8 @@ async function loop(input, deps, { now, newCode, stage }) {
   }
   const frameListSha256 = sha256(JSON.stringify(frames));
 
-  const state = { version: 1, jobId, startedAt: new Date(started).toISOString(), status: 'running', rounds: [] };
+  const savedHistory = Array.isArray(input.resumeHistory) ? input.resumeHistory.slice(-12) : [];
+  const state = { version: 1, jobId, startedAt: new Date(started).toISOString(), status: 'running', rounds: [], ...(savedHistory.length ? { resumedHistory: savedHistory.map(({ round, findings, buildSha256 }) => ({ round, findings, buildSha256 })) } : {}) };
   const saveState = (extra = {}) => writeJson(path.join(stage, 'loop.json'), { ...state, ...extra, updatedAt: new Date(now()).toISOString() });
   saveState();
 
@@ -126,13 +127,25 @@ async function loop(input, deps, { now, newCode, stage }) {
   let usedTokens = 0;
   let consecutiveCrashes = 0;
   let script = input.buildScript;
-  const previous = [];
+  const previous = savedHistory.map(({ round, findings }) => ({ round, findings }));
   const rounds = [];
+  const looked = savedHistory.filter((x) => typeof x.buildScript === 'string' && sha256(x.buildScript) === x.buildSha256).map((x) => ({ buildScript: x.buildScript, buildSha256: x.buildSha256, findings: x.findings }));
 
   let looks = 0;
   let crashFixes = 0;
-  for (let r = 0; looks < MAX_LOOKS; r += 1) {
-    if (r >= MAX_LOOKS + MAX_CRASH_FIXES) throw new LoopError('look_failed', 'the visual loop used all its rounds', { reason: 'rounds_exhausted' });
+  const unapprovedResult = () => {
+    const newest = looked.at(-1);
+    const receipt = buildReceipt({ input, rounds, calls, accepted: null });
+    writeJson(path.join(stage, 'receipt.json'), receipt);
+    saveState({ status: 'unapproved', unapprovedSha256: newest.buildSha256 });
+    return { accepted: false, unapproved: true, buildScript: newest.buildScript, sha256: newest.buildSha256, findings: newest.findings, rounds, receipt, calls };
+  };
+  for (let n = 0; looks < MAX_LOOKS; n += 1) {
+    const r = (Number.isInteger(input.startRound) && input.startRound >= 0 ? input.startRound : 0) + n;
+    if (n >= MAX_LOOKS + MAX_CRASH_FIXES) {
+      if (looked.length) return unapprovedResult();
+      throw new LoopError('look_failed', 'the visual loop used all its rounds', { reason: 'rounds_exhausted' });
+    }
     let finalRound = looks === MAX_LOOKS - 1; // the last LOOK cannot ask for a fix; a text-only crash round never is the last look
     guard();
     if (usedTokens > maxInputTokens) throw new LoopError('look_failed', 'the input token budget of the visual loop is used up', { reason: 'budget' });
@@ -165,7 +178,10 @@ async function loop(input, deps, { now, newCode, stage }) {
         };
       }
       if (crash) {
-        if (crashFixes >= MAX_CRASH_FIXES || consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) throw new LoopError('preview_failed', 'the preview kept ending without frames', { reason: 'repeated', code: crash.code });
+        if (crashFixes >= MAX_CRASH_FIXES || consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
+          if (looked.length) return unapprovedResult();
+          throw new LoopError('preview_failed', 'the preview kept ending without frames', { reason: 'repeated', code: crash.code });
+        }
         consecutiveCrashes += 1;
         crashFixes += 1;
         finalRound = false;
@@ -192,6 +208,7 @@ async function loop(input, deps, { now, newCode, stage }) {
       });
     }
     rounds.push(record.summary);
+    if (!record.crashed) looked.push({ buildScript: script, buildSha256, findings: record.reply.findings });
     state.rounds.push({ round: r, buildSha256, verdict: record.reply.verdict, crashed: record.crashed });
     saveState();
 
@@ -203,7 +220,10 @@ async function loop(input, deps, { now, newCode, stage }) {
       saveState({ status: 'accepted', acceptedSha256: buildSha256 });
       return { accepted: true, buildScript: script, sha256: buildSha256, rounds, receipt, calls };
     }
-    if (finalRound) throw new LoopError('look_failed', 'the last look still found a problem', { reason: 'rounds_exhausted' });
+    if (finalRound) {
+      if (looked.length) return unapprovedResult();
+      throw new LoopError('look_failed', 'the last look still found a problem', { reason: 'rounds_exhausted' });
+    }
     if (!record.crashed) looks += 1;
     previous.push({ round: r, findings: record.reply.findings });
     script = record.nextScript;

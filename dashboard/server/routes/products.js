@@ -135,6 +135,7 @@ export function scanDrafts() {
       future_upload: Boolean(meta.future_upload_at && !meta.youtube),
       ...(isSemanticDraft({ folder: draftFolder, meta }) && (isEpisodeDraft({ meta }) ? { episode_draft: true } : { semantic_explainer: true })), // KAN-778: only semantic drafts get the key; KAN-828: Episode drafts get episode_draft
       ...(isCodebuiltDraft({ meta }) && { codebuilt_links: safeLinks(draftId, meta.codebuilt.files) }), // KAN-923: editable code/audio/subtitles/contact sheets/report
+      ...(generation.visual_check?.approved === false && { visual_check: generation.visual_check }),
       comfyui_prompt: generation.comfyui_prompt || '',
       negative_prompt: generation.negative_prompt || '',
       has_graphic: hasGraphic,
