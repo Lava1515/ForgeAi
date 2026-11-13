@@ -389,6 +389,7 @@ export default function ProductsCatalog() {
                     </div>
 
                     <SemanticReviewNote review={product.semantic_review} />
+                    {product.visual_check?.approved === false && <div className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-200" data-testid="visual-check-warning"><p className="font-semibold">Visual check not approved</p><ul className="mt-1 list-disc pl-4 text-amber-100">{(product.visual_check.findings || []).map((finding, index) => <li key={index}>{finding.severity}: {finding.issue}{finding.fix ? ` — ${finding.fix}` : ''}</li>)}</ul></div>}
 
                     {/* Tags Preview & Actions */}
                     <div className="flex flex-wrap items-center gap-y-1 pt-2 border-t border-ink-800/50">

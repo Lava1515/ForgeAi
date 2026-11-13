@@ -17,7 +17,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { atomicWrite, episodeRoot, createEpisodeDir } from '../artifacts.js';
 import { jobsRoot, codebuiltToDraft, draftIdForJob } from './draftAdapter.js';
-import { runCodebuiltVoice, LEAD_S, TAIL_S, REASONS as VOICE_ERROR_REASONS } from './voice.js';
+import { runCodebuiltVoice, checkVoiceFiles, LEAD_S, TAIL_S, REASONS as VOICE_ERROR_REASONS } from './voice.js';
+import { normaliseScript } from '../voice.js';
 import { normalizeJobCalls } from '../../perf/creationCost.js';
 import { lengthCheck } from './lengthCheck.js';
 import { GENERATED_GPU_EXECUTOR_ID } from '../engines/codebuilt/launch.js';
@@ -32,6 +33,7 @@ import { createPreviewRunFn } from '../engines/codebuilt/composePreview.js';
 import { sanitizeRouterCall } from './routerCalls.js';
 import { defaultFactCheckStage } from './factCheckStage.js';
 import { normalizeProductionChoices } from './productionChoices.js';
+import { frameCountFor, shotStartsFor, validateBuildScript } from './planner.js';
 
 // Production default is the real router. Under `node --test` (NODE_TEST_CONTEXT is set by the runner) the default refuses before any CLI
 // is spawned, so a rig that never injects askRoleFn cannot reach a model; tests that want metadata inject askRoleFn or lightMetadataStage.
@@ -73,6 +75,7 @@ const MESSAGES = Object.freeze({
   retrieval_unavailable: 'The fact check could not retrieve and validate independent sources; no voice or build was started',
   look_unavailable: 'The visual check could not run (the Claude CLI could not look at pictures, is not logged in, or hit its usage limit); nothing was rendered',
   look_failed: 'The visual check did not approve the build within three looks; nothing was rendered',
+  claude_limit: 'Claude usage limit reached; resume after the reset',
   loop_timeout: 'The visual check ran out of time; nothing was rendered',
   preview_failed: 'The preview render could not be made; nothing was rendered',
 });
@@ -139,7 +142,7 @@ export function checkStartRequest(input) {
 export function publicJob(rec) {
   if (!rec) return null;
   const { id, topic, duration, status, step, createdAt, updatedAt, error, draftId, steps, buildModel, length_check: lengthCheckRec, runId, batchIndex } = rec;
-  return { id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message } : null, ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}) };
+  return { id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message } : null, ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}) };
 }
 
 export function createCodebuiltStarter({
@@ -147,11 +150,12 @@ export function createCodebuiltStarter({
   scriptStage, planner, composeRunner, voiceStage = runCodebuiltVoice, toDraft = codebuiltToDraft, clock = now, newId = () => `${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
   postFactoryFn, inputRoot, lightMetadataStage, askRoleFn = defaultAskRole, factCheckStage = defaultFactCheckStage,
   // KAN-934: the visual loop. On by default; only an injected `false` turns it off (tests). An object injects its pieces (probe, askLook, askText, runPreview, sheetMaker, validate, runLoop).
-  visualLoop,
+  visualLoop, validateReusableBuild = validateBuildScript,
 } = {}) {
   const stateRoot = () => path.join(jobsDir, STAGE_DIR);
   const recFile = (id) => path.join(stateRoot(), id, 'status.json');
   const live = new Map(); // id -> { rec, controller }
+  const resumeData = new Map(); // private validated artifacts; never written to status.json
   const waiting = []; // queued ids, one job runs at a time (the fence holds the GPU lease anyway)
   let running = null;
 
@@ -160,6 +164,111 @@ export function createCodebuiltStarter({
     fs.mkdirSync(path.dirname(recFile(rec.id)), { recursive: true });
     atomicWrite(path.dirname(recFile(rec.id)), 'status.json', `${JSON.stringify(rec, null, 1)}\n`);
   };
+  const safeRegular = (file, maxBytes = 4 * 1024 * 1024) => {
+    try {
+      const root = path.resolve(jobsDir); const target = path.resolve(file);
+      if (target !== root && !target.startsWith(`${root}${path.sep}`)) return false;
+      let current = path.dirname(target);
+      while (current !== root && current.startsWith(`${root}${path.sep}`)) {
+        const st = fs.lstatSync(current); if (!st.isDirectory() || st.isSymbolicLink()) return false;
+        current = path.dirname(current);
+      }
+      const st = fs.lstatSync(target); return st.isFile() && !st.isSymbolicLink() && st.nlink === 1 && st.size > 0 && st.size <= maxBytes;
+    } catch { return false; }
+  };
+  const safeDirectory = (directory) => {
+    try {
+      const root = path.resolve(jobsDir); const target = path.resolve(directory);
+      if (target === root || !target.startsWith(`${root}${path.sep}`)) return false;
+      let current = target;
+      while (current !== root && current.startsWith(`${root}${path.sep}`)) {
+        const st = fs.lstatSync(current); if (!st.isDirectory() || st.isSymbolicLink()) return false;
+        current = path.dirname(current);
+      }
+      return true;
+    } catch { return false; }
+  };
+  const readSafe = (file, encoding = 'utf8', maxBytes) => safeRegular(file, maxBytes) ? fs.readFileSync(file, encoding) : null;
+  function reusable(id) {
+    // Locks live outside container-writable folders. Refuse before reading any reuse artifact,
+    // including when cleanup of any preview belonging to this parent is uncertain.
+    const lockDirectory = path.join(jobsDir, '.cb6-locks');
+    let blockedReason = null;
+    try {
+      let stat;
+      try { stat = fs.lstatSync(lockDirectory); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (stat) {
+        if (!safeDirectory(lockDirectory)) throw new Error('invalid lock directory');
+        const names = fs.readdirSync(lockDirectory);
+        if (names.some((name) => name === `${id}.lock` || (name.startsWith(`${id}-pv`) && /^\d+\.lock$/.test(name.slice(id.length + 3))))) {
+          blockedReason = 'Job or preview lock is held; cleanup must be confirmed before resuming';
+        }
+      }
+    } catch { blockedReason = 'Job lock directory is unreadable; cleanup must be confirmed before resuming'; }
+    if (blockedReason) return { blockedReason, reused: [], resumeFrom: null };
+    const stage = path.join(stateRoot(), id);
+    const script = readSafe(path.join(stage, 'script.txt')); const brief = readSafe(path.join(stage, 'brief.md'));
+    let pathPack = null; try { pathPack = JSON.parse(readSafe(path.join(stage, 'pathpack.json')) || 'null'); } catch {}
+    const scriptOk = typeof script === 'string' && !!script.trim() && typeof brief === 'string' && !!brief.trim() && pathPack?.id === 'codebuilt' && Array.isArray(pathPack.skills);
+    let voice = null; let words = null; let voiceOk = false;
+    try {
+      const manifestText = readSafe(path.join(stage, 'voice.json')); const wav = readSafe(path.join(stage, 'vo.wav'), null, 64 * 1024 * 1024); const wordText = readSafe(path.join(stage, 'words.json'), 'utf8', 32 * 1024 * 1024);
+      const manifest = JSON.parse(manifestText || 'null'); words = JSON.parse(wordText || 'null');
+      const wavHash = wav ? sha(wav) : null;
+      voiceOk = scriptOk && !!wavHash && manifest?.script_sha256 === sha(normaliseScript(script).text) && manifest?.audio_sha256 === wavHash && Array.isArray(words?.words) && words.words.length > 0;
+      const integrityText = readSafe(path.join(stage, 'resume-integrity.json'));
+      if (integrityText) {
+        const integrity = JSON.parse(integrityText);
+        voiceOk = voiceOk && integrity.script_sha256 === sha(script) && integrity.voice_sha256 === sha(manifestText) && integrity.audio_sha256 === wavHash && integrity.words_sha256 === sha(wordText);
+      }
+      if (voiceOk) checkVoiceFiles({ wav, doc: words, scriptWords: normaliseScript(script).words, source: manifest.word_timing_source });
+      if (voiceOk) voice = { voPath: path.join(stage, 'vo.wav'), wordsPath: path.join(stage, 'words.json'), manifestPath: path.join(stage, 'voice.json'), metrics: manifest };
+    } catch { voiceOk = false; voice = null; }
+    let build = null;
+    if (scriptOk && voiceOk) {
+      try {
+      const planWords = words;
+      if (Number.isFinite(planWords?.dur)) {
+        const shotStarts = shotStartsFor(planWords); const nframes = frameCountFor(planWords);
+        const numbered = [];
+        for (const base of [path.join(stage, 'loop')]) {
+          if (!safeDirectory(base)) continue;
+          try { for (const name of fs.readdirSync(base)) if (/^r\d+$/.test(name)) numbered.push({ base, n: Number(name.slice(1)) }); } catch {}
+        }
+        numbered.sort((a, b) => b.n - a.n);
+        const candidates = [path.join(stage, 'loop', 'accepted.build.py'), ...numbered.map(({ base, n }) => path.join(base, `r${n}`, 'build.py')), path.join(stage, 'planner.build.py')];
+        for (const file of candidates) {
+          const code = readSafe(file); if (!code || !code.trim()) continue;
+          const why = validateReusableBuild(code, { nframes, shotStarts });
+          if (!why.length) {
+            let startRound = 0; const match = file.match(/[\\/]r(\d+)[\\/]build\.py$/);
+            if (match) startRound = Number(match[1]) + 1;
+            else if (file.includes(`${path.sep}loop${path.sep}`) && numbered.length) startRound = numbered[0].n + 1;
+            const history = [];
+            for (const { base, n } of numbered.slice().sort((a, b) => a.n - b.n)) {
+              if (n >= startRound) continue;
+              try {
+                const looked = JSON.parse(readSafe(path.join(base, `r${n}`, 'look.json')) || 'null');
+                const priorCode = readSafe(path.join(base, `r${n}`, 'build.py'));
+                if (looked?.status === 'complete' && Array.isArray(looked.reply?.findings)) {
+                  history.push({ round: n, findings: looked.reply.findings, ...(looked.crashed !== true && priorCode && !validateReusableBuild(priorCode, { nframes, shotStarts }).length && sha(priorCode) === looked.buildSha256 ? { buildScript: priorCode, buildSha256: looked.buildSha256 } : {}) });
+                }
+              } catch {}
+            }
+            build = { code, path: file, sha256: sha(code), nframes, shotStarts, startRound, history }; break;
+          }
+        }
+      }
+      } catch { build = null; }
+    }
+    const reused = [];
+    if (scriptOk) reused.push('script');
+    if (voiceOk) reused.push('voice');
+    if (build) reused.push('buildScript');
+    const resumeFrom = !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : !build ? 'planning' : 'visual_loop';
+    let scriptMeta = {}; try { scriptMeta = JSON.parse(readSafe(path.join(stage, 'script-meta.json')) || '{}'); } catch {}
+    return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [] } : null, voice, words, reused, resumeFrom };
+  }
   const load = (id) => {
     if (!JOB_ID.test(id)) throw new StartError('invalid_id');
     if (live.has(id)) return live.get(id).rec;
@@ -278,8 +387,8 @@ export function createCodebuiltStarter({
       makeCanary: (args) => sheetMaker.makeCanary(args), askFn: (prompt, images, options) => (injected.askLook ?? defaultAskLook)(prompt, images, options),
     });
   }
-  /** The loop between planning and building. Returns { buildScript, receipt }; throws a StartError and never returns a script that was not looked at. */
-  async function runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, onPhase }) {
+  /** The loop between planning and building. Returns an accepted or explicitly unapproved looked-at script; never an unlooked script. */
+  async function runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, onPhase, resumeBuild }) {
     const injected = loopPieces();
     const { nframes, shotStarts } = plan;
     if (!Number.isInteger(nframes) || !Array.isArray(shotStarts) || !shotStarts.length) throw new StartError('look_failed', 502);
@@ -299,7 +408,7 @@ export function createCodebuiltStarter({
     const run = injected.runLoop ?? runVisualBuildLoop;
     try {
       return await run({
-        jobId: rec.id, stageDir: stage, brief: scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: plan.buildScript, kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
+        jobId: rec.id, stageDir: stage, brief: scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: resumeBuild?.code ?? plan.buildScript, startRound: resumeBuild?.startRound ?? 0, resumeHistory: resumeBuild?.history ?? [], kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
         validate, probe, lookModel: 'sonnet', signal,
       }, {
         runPreview, makeSheets: (args) => sheetMaker.makeSheets(args), askLook: injected.askLook ?? defaultAskLook, askText: injected.askText ?? defaultAskText,
@@ -307,6 +416,7 @@ export function createCodebuiltStarter({
       });
     } catch (error) {
       if (signal.aborted || error?.code === 'aborted') throw new StartError('aborted');
+      if (error?.detail?.reason === 'quota' || error?.quota === true) throw new StartError('claude_limit', 502);
       throw new StartError(LOOP_START_CODES.has(error?.code) ? error.code : 'look_failed', 502);
     }
   }
@@ -318,7 +428,10 @@ export function createCodebuiltStarter({
 
   async function execute(rec, controller) {
     const { signal } = controller;
-    const allCalls = [];
+    const resume = resumeData.get(rec.id) ?? null;
+    let priorCalls = [];
+    if (resume) { try { const existing = JSON.parse(fs.readFileSync(path.join(stateRoot(), rec.id, 'cost_calls.json'), 'utf8')); priorCalls = Array.isArray(existing.calls) ? existing.calls : []; } catch {} }
+    const allCalls = priorCalls;
     // Planners report calls both through onCall and in their result. Preserve each event once by object identity.
     const addCall = (c) => {
       if (c && typeof c === 'object' && !allCalls.includes(c)) { allCalls.push(c); writeCalls(rec.id, allCalls); }
@@ -344,32 +457,35 @@ export function createCodebuiltStarter({
     if (visualLoop !== false) {
       try { probe = await probeFor({ rec, stage, signal }); } catch (error) {
         if (signal.aborted || error?.code === 'aborted') throw new StartError('aborted');
+        if (error?.quota === true || error?.detail?.reason === 'quota') throw new StartError('claude_limit', 502);
         throw new StartError('look_unavailable', 502);
       }
       checkAbort();
     }
 
     // 2. Script
+    let scripted = resume?.scriptOk ? resume.scripted : null;
+    if (!scripted) {
     step(rec, 'scripting');
-    let scripted;
     try {
       const fn = scriptStage ?? pl.planCodebuiltScript;
       if (typeof fn !== 'function') throw new StartError('script_unavailable', 501);
       scripted = await fn({ topic: rec.topic, duration: rec.duration, signal, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall });
-    } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : new StartError('script_failed', 502); }
+    } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
+    }
     if (!scripted || typeof scripted.script !== 'string' || !scripted.script.trim() || typeof scripted.brief !== 'string') throw new StartError('script_failed', 502);
     for (const c of scripted.calls ?? []) addCall(c);
     // The real paths/codebuilt.json pack comes from the planner. A script result without one cannot be built, and nothing is spent on voice first.
     if (!scripted.pathPack || typeof scripted.pathPack !== 'object' || scripted.pathPack.id !== 'codebuilt' || !Array.isArray(scripted.pathPack.skills)) throw new StartError('script_failed', 502);
     // Private stage artifacts remain reviewable even when a later step fails. They contain no CLI output.
     try { fs.mkdirSync(stage, { recursive: true }); } catch { /* audit artifacts are best effort */ }
-    for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots, null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`]]) {
+    for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [] })}\n`]]) {
       try { fs.writeFileSync(path.join(stage, name), value); } catch { /* one failed audit artifact does not skip the others */ }
     }
     checkAbort();
 
     // 2b. Fact check (owner-started batch videos only; the single-job route is unchanged). Nothing is spent on voice or build when it does not verify.
-    if (rec.factCheck) {
+    if (rec.factCheck && !resume?.voiceOk) {
       step(rec, 'factchecking');
       if (typeof factCheckStage !== 'function') throw new StartError('fact_check_unavailable', 501);
       let verdict;
@@ -389,20 +505,23 @@ export function createCodebuiltStarter({
     }
 
     // 3. Voice: the existing TTS stage and measured word times (an estimate is refused by the voice module).
+    let voice = resume?.voiceOk ? resume.voice : null;
+    if (!voice) {
     step(rec, 'voicing');
     fs.mkdirSync(stage, { recursive: true });
     createEpisodeDir(episodesRoot, `cb-${rec.id}`);
-    let voice;
     try {
       voice = await voiceStage({ script: scripted.script, voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(postFactoryFn ? { postFactoryFn } : {}) });
+      const manifestBytes = fs.readFileSync(voice.manifestPath); const audioBytes = fs.readFileSync(voice.voPath); const wordsBytes = fs.readFileSync(voice.wordsPath);
+      fs.writeFileSync(path.join(stage, 'resume-integrity.json'), `${JSON.stringify({ script_sha256: sha(scripted.script), voice_sha256: sha(manifestBytes), audio_sha256: sha(audioBytes), words_sha256: sha(wordsBytes) })}\n`);
     } catch (error) {
       writeVoiceDiagnostic(rec.id, error);
       throw new StartError('voice_failed', 502);
     }
     checkAbort();
+    }
 
     // 4. Planner writes the build script from the topic, script, measured words and path pack.
-    step(rec, 'planning');
     const words = JSON.parse(fs.readFileSync(voice.wordsPath, 'utf8'));
     // The requested length is a promise: a voice that leaves the finished video well under it stops the job before the planner and the build spend anything.
     const measured = measuredVideoSeconds(voice, words);
@@ -411,13 +530,16 @@ export function createCodebuiltStarter({
       throw new StartError('too_short', 422);
     }
     const pathPack = scripted.pathPack;
-    let plan;
-    try {
+    let plan = resume?.build ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT } : null;
+    if (!plan) try {
+      step(rec, 'planning');
       if (typeof pl.planCodebuiltBuild !== 'function') throw new StartError('planner_unavailable', 501);
       plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, words, pathPack, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
+      try { fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript); fs.writeFileSync(path.join(stage, 'planner-plan.json'), JSON.stringify({ nframes: plan.nframes, shotStarts: plan.shotStarts })); } catch {}
     } catch (error) {
       if (signal.aborted) throw new StartError('aborted');
       writePlannerDiagnostic(rec.id, error);
+      if (error?.quota === true || error?.code === 'CLI_LIMIT') throw new StartError('claude_limit', 502);
       if (error?.code === 'build_model_unavailable' || error?.message === 'build_model_unavailable') {
         throw new StartError('build_model_unavailable', 501);
       }
@@ -430,16 +552,20 @@ export function createCodebuiltStarter({
     for (const c of plan.calls ?? []) addCall(c);
     checkAbort();
 
-    // 4b. The visual loop (KAN-934): preview the planned build in the same offline executor, look at the sheets, fix what is wrong, look again
-    // (three looks at most). Only the accepted script goes on to the final render; a build that cannot be looked at is never rendered unseen.
+    // 4b. The visual loop: preview the planned build, look at the sheets and fix what is wrong. Exhaustion may continue with a marked draft only
+    // when at least one successful preview was looked at; no code reaches the final render without a look.
     let buildScript = plan.buildScript;
     let loopReceipt = null;
     if (visualLoop !== false) {
-      const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
+      if (resume?.build) step(rec, 'visual_loop');
+      const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build ? { code: resume.build.code, startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
         .finally(() => writeCalls(rec.id, allCalls));
-      if (!outcome || outcome.accepted !== true || typeof outcome.buildScript !== 'string' || !outcome.buildScript.trim() || sha(outcome.buildScript) !== outcome.sha256) throw new StartError('look_failed', 502);
+      if (!outcome || (!outcome.accepted && outcome.unapproved !== true) || typeof outcome.buildScript !== 'string' || !outcome.buildScript.trim() || sha(outcome.buildScript) !== outcome.sha256) throw new StartError('look_failed', 502);
       buildScript = outcome.buildScript;
-      loopReceipt = outcome.receipt;
+      loopReceipt = outcome.unapproved === true
+        ? { ...outcome.receipt, visual_check: { approved: false, findings: Array.isArray(outcome.findings) ? outcome.findings : [] } }
+        : outcome.receipt;
+      if (outcome.unapproved === true) rec.visual_check = loopReceipt.visual_check;
       checkAbort();
     }
 
@@ -495,6 +621,7 @@ export function createCodebuiltStarter({
       rec.status = e.code === 'aborted' ? 'aborted' : 'failed'; rec.error = { code: e.code, message: e.message };
     }
     try { save(rec); live.delete(rec.id); } catch { /* Keep the terminal record live and queryable when persistence fails. */ }
+    resumeData.delete(rec.id);
   }
 
   return {
@@ -517,11 +644,26 @@ export function createCodebuiltStarter({
       void pump();
       return publicJob(rec);
     },
-    get(id) { const rec = load(id); if (!rec) throw new StartError('not_found', 404); return publicJob(rec); },
+    get(id) { const rec = load(id); if (!rec) throw new StartError('not_found', 404); return jobStatus(rec); },
     list() {
       const out = new Map([...live.values()].map(({ rec }) => [rec.id, rec]));
       try { for (const name of fs.readdirSync(stateRoot())) if (!out.has(name) && JOB_ID.test(name)) { const rec = load(name); if (rec) out.set(name, rec); } } catch { /* none yet */ }
-      return [...out.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 50).map(publicJob);
+      return [...out.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 50).map(jobStatus);
+    },
+    resume(id) {
+      const rec = load(id);
+      if (!rec) throw new StartError('not_found', 404);
+      if (!['failed', 'aborted'].includes(rec.status)) throw new StartError('conflict', 409);
+      if ((running !== null && running !== id) || waiting.some((queuedId) => queuedId !== id) || [...live.values()].some(({ rec: item }) => item.id !== id && ACTIVE.includes(item.status))) throw new StartError('conflict', 409);
+      const artifacts = reusable(id);
+      if (artifacts.blockedReason) throw new StartError('conflict', 409);
+      rec.resumes = Array.isArray(rec.resumes) ? rec.resumes : [];
+      rec.resumes.push({ at: clock(), fromStep: artifacts.resumeFrom, reused: artifacts.reused });
+      rec.status = 'queued'; rec.step = 'queued'; rec.error = null; rec.resumeFrom = artifacts.resumeFrom; resumeData.set(rec.id, artifacts);
+      rec.steps = Array.isArray(rec.steps) ? rec.steps : [];
+      rec.steps.push({ step: 'resume', at: clock() });
+      save(rec); live.set(id, { rec, controller: new AbortController() }); waiting.push(id); void pump();
+      return jobStatus(rec);
     },
     /** Aborts a queued or running job. The runner stops the fence; a finished job cannot be aborted. */
     abort(id) {
@@ -536,6 +678,15 @@ export function createCodebuiltStarter({
     /** Resolves when the job has settled (tests and graceful shutdown). */
     async idle() { while (running || waiting.length) await new Promise((r) => setTimeout(r, 5)); },
   };
+
+  function jobStatus(rec) {
+    const otherActive = (running !== null && running !== rec.id) || waiting.some((queuedId) => queuedId !== rec.id) || [...live.values()].some(({ rec: item }) => item.id !== rec.id && ACTIVE.includes(item.status));
+    const resumable = ['failed', 'aborted'].includes(rec.status);
+    const artifacts = resumable ? reusable(rec.id) : null;
+    const blockedReason = artifacts?.blockedReason ?? (resumable && otherActive ? 'Another code-built job is active' : null);
+    const priorResume = rec.resumes?.at(-1);
+    return { ...publicJob(rec), resumable: resumable && !blockedReason, resumeFrom: resumable ? artifacts.resumeFrom : priorResume?.fromStep ?? null, reuses: resumable ? artifacts.reused : priorResume?.reused ?? [], ...(blockedReason ? { resumeBlockedReason: blockedReason } : {}) };
+  }
 }
 
 let shared = null;

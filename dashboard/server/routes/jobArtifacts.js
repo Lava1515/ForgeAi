@@ -28,33 +28,38 @@ function safeSnapshot(root, id, scanner) {
   if (!JOB_ID.test(id) || id.includes('..') || RESERVED.test(id)) return null;
   try {
     const realRoot = assertRealDir(path.resolve(root), 'job root');
-    // Scan before opening even the status marker: WSL-created reparse points can look like ordinary files to lstat.
-    // Scanning the root once also covers parent components and both artifact trees; no result is cached across requests.
-    const tree = findLinks(realRoot, { reparseScan: scanner });
-    if (!tree || tree.complete !== true || tree.truncated || tree.errors?.length || tree.links?.length) return null;
+    assertRealDir(path.join(realRoot, '.start'), 'job state root');
     const stage = path.join(realRoot, '.start', id);
     const job = path.join(realRoot, id);
-    const statusFile = path.join(stage, 'status.json');
-    const statusSt = fs.lstatSync(statusFile);
-    if (!statusSt.isFile() || statusSt.isSymbolicLink() || statusSt.nlink !== 1) return null;
-    const status = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
-    if (status.id !== id || !TERMINAL.has(status.status)) return null;
     // A terminal dashboard record alone cannot prove a runner is gone (including a quarantined/orphaned container).
     const lockDir = path.join(realRoot, '.cb6-locks');
     let jobExists = false;
     try { assertRealDir(job, 'job output'); jobExists = true; } catch (error) { if (error?.code !== 'ENOENT') return null; }
     try {
       const lockDirReal = assertRealDir(lockDir, 'job lock folder');
-      if (fs.readdirSync(lockDirReal).includes(`${id}.lock`)) return null;
+      if (fs.readdirSync(lockDirReal).some((name) => name === `${id}.lock` || (name.startsWith(`${id}-pv`) && /^\d+\.lock$/.test(name.slice(id.length + 3))))) return null;
     } catch (error) { if (error?.code !== 'ENOENT' || jobExists) return null; }
     for (const dir of [stage, job]) {
-      try { assertRealDir(dir, 'artifact tree'); } catch (error) { if (error?.code === 'ENOENT') continue; return null; }
+      try { assertRealDir(dir, 'artifact tree'); } catch (error) { if (dir === job && error?.code === 'ENOENT') continue; return null; }
+      // Scan only this job's trees before opening even its status marker. An unrelated
+      // job's links or entry count must not block this one. No cross-request caching.
+      const tree = findLinks(dir, { reparseScan: (target) => {
+        const result = scanner(target);
+        if (!result || result.complete !== true) throw new Error('incomplete reparse scan');
+        return result;
+      } });
+      if (!tree.complete || tree.truncated || tree.errors?.length || tree.links?.length) return null;
     }
+    const statusFile = path.join(stage, 'status.json');
+    const statusSt = fs.lstatSync(statusFile);
+    if (!statusSt.isFile() || statusSt.isSymbolicLink() || statusSt.nlink !== 1 || statusSt.size > 1024 * 1024) return null;
+    const status = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+    if (status.id !== id || !TERMINAL.has(status.status)) return null;
     return { root: realRoot, stage, job };
   } catch { return null; }
 }
 
-function readChecked(snapshot, key, budget) {
+function readChecked(snapshot, key, budget, keepMediaFd = false) {
   if (!Object.hasOwn(specs, key)) return { status: 'unavailable' };
   const [area, rel] = specs[key];
   const base = area === 'stage' ? snapshot.stage : snapshot.job;
@@ -82,7 +87,11 @@ function readChecked(snapshot, key, budget) {
     if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== before.dev || opened.ino !== before.ino || after.dev !== before.dev || after.ino !== before.ino) {
       fs.closeSync(fd); return { status: 'unavailable' };
     }
-    if (media) return { status: 'available', fd, type, size: opened.size };
+    if (media) {
+      if (keepMediaFd) return { status: 'available', fd, type, size: opened.size };
+      fs.closeSync(fd); fd = undefined;
+      return { status: 'available', type, size: opened.size };
+    }
     if (opened.size > budget.remaining) { fs.closeSync(fd); return { status: 'unavailable' }; }
     budget.remaining -= opened.size;
     const raw = fs.readFileSync(fd, 'utf8');
@@ -107,7 +116,12 @@ export function createJobArtifactHandlers({ root = jobsRoot(), reparseScan = sca
     const artifacts = snapshot ? {} : unavailable();
     if (snapshot) {
       const budget = { remaining: LIST_BUDGET };
-      for (const key of Object.keys(specs).filter((name) => name !== 'stageCost')) artifacts[key] = readChecked(snapshot, key, budget);
+      for (const key of Object.keys(specs).filter((name) => name !== 'stageCost')) {
+        artifacts[key] = readChecked(snapshot, key, budget);
+        if (artifacts[key].status === 'available' && /^(?:image|video)\//.test(artifacts[key].type)) {
+          artifacts[key].url = `/api/codebuilt/jobs/${encodeURIComponent(id)}/artifacts/${key}`;
+        }
+      }
       if (artifacts.cost?.status === 'missing') artifacts.cost = readChecked(snapshot, 'stageCost', budget);
       if (artifacts.cost?.status === 'available') {
         const calls = artifacts.cost.internalCost;
@@ -123,7 +137,7 @@ export function createJobArtifactHandlers({ root = jobsRoot(), reparseScan = sca
     const key = String(req.params.key ?? '');
     const snapshot = safeSnapshot(root, id, reparseScan);
     if (!snapshot) return res.status(404).json({ error: 'Artifact unavailable' });
-    const result = readChecked(snapshot, key, { remaining: Infinity });
+    const result = readChecked(snapshot, key, { remaining: Infinity }, true);
     if (result.status !== 'available' || result.fd === undefined) return res.status(404).json({ error: 'Artifact unavailable' });
     res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Type': result.type, 'Content-Length': String(result.size) });
     return createReadStream(null, { fd: result.fd, autoClose: true }).on('error', () => { if (!res.headersSent) res.status(404).end(); else res.destroy(); }).pipe(res);

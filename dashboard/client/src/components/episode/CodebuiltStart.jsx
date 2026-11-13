@@ -6,6 +6,29 @@ import Button from '../../ui/Button.jsx';
 import Banner from '../../ui/Banner.jsx';
 import JobDetailArtifacts from './JobDetailArtifacts.jsx';
 
+function TypeChannelResearch({ disabled, duration, onCreated }) {
+  const [channels, setChannels] = useState([]), [channelId, setChannelId] = useState(''), [type, setType] = useState('what-if');
+  const [query, setQuery] = useState(''), [result, setResult] = useState(null), [picked, setPicked] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
+  useEffect(() => { api.getChannels().then((r) => setChannels(Array.isArray(r?.channels) ? r.channels : Array.isArray(r) ? r : [])).catch(() => {}); }, []);
+  const research = async (e) => { e.preventDefault(); setBusy(true); setMessage(''); setResult(null); try { const r = await api.researchVideoCandidates({ channelId, type, query }); setResult(r); setPicked(r.candidates?.[0]?.id || ''); } catch (err) { setMessage(err?.data?.error || err.message); } finally { setBusy(false); } };
+  const create = async (auto) => { setBusy(true); setMessage(''); try { const r = await api.createResearchedVideo({ action: 'create', researchId: result.id, duration, ...(auto ? { auto: true } : { candidateId: picked }) }); onCreated(r.job); setMessage(`Run queued for review: ${r.job?.id || 'ready'}.`); } catch (err) { setMessage(err?.data?.error || err.message); } finally { setBusy(false); } };
+  return <section className="space-y-3 rounded-lg border border-ink-800 p-3" data-video-research>
+    <h3 className="text-sm font-semibold">Research a video topic</h3>
+    <p className="text-xs text-ink-400">Choose a channel first, then a type. Review the cited candidates before creating a draft run.</p>
+    <fieldset disabled={disabled || busy} className="space-y-3">
+    <p className="text-xs text-ink-400">Draft length: {duration} seconds (selected below).</p>
+    <form onSubmit={research} className="space-y-2">
+      <label className="block text-xs">Channel<select className="ml-2 rounded bg-ink-900 border border-ink-700 px-2 py-1" aria-label="Research channel" value={channelId} onChange={(e) => { setChannelId(e.target.value); setResult(null); }}><option value="">Choose channel</option>{channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+      <label className="block text-xs">Type<select className="ml-2 rounded bg-ink-900 border border-ink-700 px-2 py-1" aria-label="Research type" value={type} onChange={(e) => { setType(e.target.value); setResult(null); }}><option value="what-if">What if</option><option value="history">History</option><option value="teardown">Teardown</option></select></label>
+      <input className="w-full rounded bg-ink-900 border border-ink-700 px-2 py-1 text-xs" aria-label="Research direction" maxLength={200} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Optional direction" />
+      <Button type="submit" disabled={busy || !channelId}>{busy ? 'Researching…' : 'Find candidates'}</Button>
+    </form>
+    {message && <p role="status" className="text-xs text-ink-300">{message}</p>}
+    {result && <div className="space-y-2" aria-label="Research candidates"><p className="text-xs text-ink-400">{result.provenance}</p>{result.candidates.map((c) => <article key={c.id} className="rounded border border-ink-800 p-2 text-xs"><label><input type="radio" name="research-candidate" checked={picked === c.id} onChange={() => setPicked(c.id)} /> <span className="ml-1">{c.topic}</span></label><p className="my-1 text-ink-300">{c.why}</p><ul className="list-disc pl-5">{c.sources.map((s) => <li key={s.url}><a className="underline" href={s.url} target="_blank" rel="noopener noreferrer">{s.title || s.url}</a></li>)}</ul></article>)}<div className="flex gap-2"><Button disabled={busy || !picked} onClick={() => create(false)}>Create selected</Button><Button disabled={busy} onClick={() => create(true)}>Auto then Create</Button></div></div>}
+    </fieldset>
+  </section>;
+}
+
 // --- Pure functions and constants (exported for testing) ---
 export const CODEBUILT_DURATIONS = Object.freeze([30, 45, 60, 90]);
 export const BUILD_MODELS = Object.freeze(['Auto', 'Sonnet', 'Opus', 'Fable', 'Codex Sol']);
@@ -137,10 +160,16 @@ export default function CodebuiltStart() {
   const [type, setType] = useState('Auto');
   const [voice, setVoice] = useState('Auto');
   const [job, setJob] = useState(null);
+  const [jobs, setJobs] = useState([]);
   const [run, setRun] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef(null);
+
+  useEffect(() => {
+    const poll = async () => { try { const result = await api.listCodebuiltJobs(); setJobs(Array.isArray(result?.jobs) ? result.jobs : []); } catch {} };
+    void poll(); const id = setInterval(poll, 3000); return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!isActiveJob(job)) return undefined;
@@ -178,15 +207,22 @@ export default function CodebuiltStart() {
   const abort = async () => {
     try { setJob(await api.abortCodebuiltJob(job.id)); } catch (err) { setError(err?.data?.error || err.message || 'Could not abort'); }
   };
+  const resume = async (id) => {
+    setError(null);
+    try { const resumed = await api.resumeCodebuiltJob(id); setJob(resumed); setJobs((rows) => [resumed, ...rows.filter((row) => row.id !== id)]); }
+    catch (err) { setError(err?.data?.error || err.message || 'Could not resume'); }
+  };
   const abortRun = async () => {
     try { setRun(await api.abortCodebuiltRun(run.id)); } catch (err) { setError(err?.data?.error || err.message || 'Could not abort'); }
   };
 
-  const active = isActiveJob(job) || isActiveRun(run);
+  const otherActive = jobs.some((row) => row.id !== job?.id && isActiveJob(row));
+  const active = isActiveJob(job) || isActiveRun(run) || otherActive;
   const several = count > 1;
   const problem = runFormProblem({ count, topic, type: blankOrAuto(type) ? undefined : type });
   return (
     <Panel title="Code-built video" className="space-y-4" data-codebuilt-start>
+      <TypeChannelResearch disabled={active} duration={duration} onCreated={setRun} />
       <p className="text-xs text-ink-400">
         Builds the video with generated code in the isolated runner, then hands it to review as a draft. Press Start to begin; nothing runs until you do.
       </p>
@@ -275,8 +311,14 @@ export default function CodebuiltStart() {
           <div>{jobLabel(job)}</div>
           <JobDetailArtifacts job={job} />
           {job.status === 'done' && job.draftId && <div>Draft: <code className="text-ink-200">{job.draftId}</code> (review it in Drafts)</div>}
+          {job.visual_check?.approved === false && <div className="text-amber-300">Visual check not approved: {(job.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</div>}
         </div>
       )}
+      {jobs.length > 0 && <div className="space-y-2" data-codebuilt-job-rows>{jobs.map((row) => <div key={row.id} className="rounded-lg border border-ink-800 p-3 text-xs text-ink-300" data-codebuilt-job={row.id} data-codebuilt-status={row.status}>
+        <div className="flex items-center justify-between gap-3"><span>{row.topic} · {jobLabel(row)}</span>{(row.status === 'failed' || row.status === 'aborted') && <Button type="button" size="sm" variant="secondary" disabled={!row.resumable || otherActive || busy} onClick={() => resume(row.id)} data-codebuilt-resume={row.id}>Resume</Button>}</div>
+        {((row.status === 'failed' || row.status === 'aborted') || row.resumes?.length > 0) && <p className="mt-1 text-ink-400">Resumes from {row.resumeFrom || 'the first missing step'}{row.reuses?.length ? ` · reuses ${row.reuses.join(', ')}` : ''}{row.resumeBlockedReason ? ` · ${row.resumeBlockedReason}` : ''}</p>}
+        {row.visual_check?.approved === false && <p className="mt-1 text-amber-300">Visual check not approved: {(row.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</p>}
+      </div>)}</div>}
       {run && (
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-run={run.id} data-codebuilt-run-status={run.status}>
           <div className="text-ink-200">{runLabel(run)}</div>

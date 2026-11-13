@@ -388,8 +388,16 @@ export async function getCodebuiltJob(id) {
   return request('/api/codebuilt/jobs/' + encodeURIComponent(id));
 }
 
+export async function listCodebuiltJobs() {
+  return request('/api/codebuilt/jobs');
+}
+
 export async function abortCodebuiltJob(id) {
   return request('/api/codebuilt/jobs/' + encodeURIComponent(id) + '/abort', { method: 'POST' });
+}
+
+export async function resumeCodebuiltJob(id) {
+  return request('/api/codebuilt/jobs/' + encodeURIComponent(id) + '/resume', { method: 'POST' });
 }
 
 // Code-built batch (KAN-928): one Start for 1..10 videos, a status poll, and an explicit run abort.
@@ -403,4 +411,12 @@ export async function getCodebuiltRun(id) {
 
 export async function abortCodebuiltRun(id) {
   return request('/api/codebuilt/runs/' + encodeURIComponent(id) + '/abort', { method: 'POST' });
+}
+
+export async function researchVideoCandidates(body) {
+  return request('/api/video-research', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function createResearchedVideo(body) {
+  return request('/api/video-research', { method: 'POST', body: JSON.stringify(body) });
 }
