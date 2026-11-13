@@ -136,10 +136,16 @@ export default function CodebuiltStart() {
   const [type, setType] = useState('Auto');
   const [voice, setVoice] = useState('Auto');
   const [job, setJob] = useState(null);
+  const [jobs, setJobs] = useState([]);
   const [run, setRun] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef(null);
+
+  useEffect(() => {
+    const poll = async () => { try { const result = await api.listCodebuiltJobs(); setJobs(Array.isArray(result?.jobs) ? result.jobs : []); } catch {} };
+    void poll(); const id = setInterval(poll, 3000); return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!isActiveJob(job)) return undefined;
@@ -177,11 +183,17 @@ export default function CodebuiltStart() {
   const abort = async () => {
     try { setJob(await api.abortCodebuiltJob(job.id)); } catch (err) { setError(err?.data?.error || err.message || 'Could not abort'); }
   };
+  const resume = async (id) => {
+    setError(null);
+    try { const resumed = await api.resumeCodebuiltJob(id); setJob(resumed); setJobs((rows) => [resumed, ...rows.filter((row) => row.id !== id)]); }
+    catch (err) { setError(err?.data?.error || err.message || 'Could not resume'); }
+  };
   const abortRun = async () => {
     try { setRun(await api.abortCodebuiltRun(run.id)); } catch (err) { setError(err?.data?.error || err.message || 'Could not abort'); }
   };
 
-  const active = isActiveJob(job) || isActiveRun(run);
+  const otherActive = jobs.some((row) => row.id !== job?.id && isActiveJob(row));
+  const active = isActiveJob(job) || isActiveRun(run) || otherActive;
   const several = count > 1;
   const problem = runFormProblem({ count, topic, type: blankOrAuto(type) ? undefined : type });
   return (
@@ -273,8 +285,14 @@ export default function CodebuiltStart() {
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-job={job.id} data-codebuilt-status={job.status}>
           <div>{jobLabel(job)}</div>
           {job.status === 'done' && job.draftId && <div>Draft: <code className="text-ink-200">{job.draftId}</code> (review it in Drafts)</div>}
+          {job.visual_check?.approved === false && <div className="text-amber-300">Visual check not approved: {(job.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</div>}
         </div>
       )}
+      {jobs.length > 0 && <div className="space-y-2" data-codebuilt-job-rows>{jobs.map((row) => <div key={row.id} className="rounded-lg border border-ink-800 p-3 text-xs text-ink-300" data-codebuilt-job={row.id} data-codebuilt-status={row.status}>
+        <div className="flex items-center justify-between gap-3"><span>{row.topic} · {jobLabel(row)}</span>{(row.status === 'failed' || row.status === 'aborted') && <Button type="button" size="sm" variant="secondary" disabled={!row.resumable || otherActive || busy} onClick={() => resume(row.id)} data-codebuilt-resume={row.id}>Resume</Button>}</div>
+        {((row.status === 'failed' || row.status === 'aborted') || row.resumes?.length > 0) && <p className="mt-1 text-ink-400">Resumes from {row.resumeFrom || 'the first missing step'}{row.reuses?.length ? ` · reuses ${row.reuses.join(', ')}` : ''}{row.resumeBlockedReason ? ` · ${row.resumeBlockedReason}` : ''}</p>}
+        {row.visual_check?.approved === false && <p className="mt-1 text-amber-300">Visual check not approved: {(row.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</p>}
+      </div>)}</div>}
       {run && (
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-run={run.id} data-codebuilt-run-status={run.status}>
           <div className="text-ink-200">{runLabel(run)}</div>
