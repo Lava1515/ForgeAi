@@ -27,6 +27,7 @@ const same = (a, b) => typeof a === 'string' && typeof b === 'string'
 // The one read-only host folder a code-built job may see: the engine kit, at the mount point launch.js uses (kept in step
 // by a test). Resolved through the real path because the fence mounts the real path.
 const KIT_DST = '/kit/blender_worker/codebuilt';
+const SKILL_DST = '/skills/codebuilt-scene-generation';
 const realOrResolved = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
 // The complete environment key set of a job (jobEnv builds it from nothing; no extra key is ever passed). Names only.
 const EXPECTED_ENV_KEYS = Object.freeze(Object.keys(buildJobEnv({ jobDir: '/job', jobId: 'job' })).sort());
@@ -35,7 +36,7 @@ const memoryMb = (v) => (typeof v === 'string' && /^[0-9]+m$/.test(v) ? Number(v
 const inRange = (n, lo, hi) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
 
 /** The trusted fence argv facts a job must have run under. Returns a list of what is wrong (empty = boundary holds). */
-export function preventionProblems(prevention, jobDir, { expectGpu = false } = {}) {
+export function preventionProblems(prevention, jobDir, { expectGpu = false, expectKind = 'generated-code' } = {}) {
   const p = prevention;
   if (!p || typeof p !== 'object' || p.source !== 'docker_argv_policy') return ['prevention evidence from the docker argv is missing'];
   const bad = [];
@@ -61,8 +62,14 @@ export function preventionProblems(prevention, jobDir, { expectGpu = false } = {
   if (writable.length !== 1 || writable[0]?.dst !== '/job' || !same(writable[0]?.src, jobDir)) bad.push('the only writable host mount must be the job folder at /job');
   const readonly = Array.isArray(p.readonlyHostMounts) ? p.readonlyHostMounts : null;
   if (!readonly) bad.push('read-only mount evidence is missing');
-  else if (readonly.length > 1 || readonly.some((m) => m?.dst !== KIT_DST || !same(realOrResolved(m?.src), realOrResolved(READONLY_MOUNT_ALLOWLIST[0])))) {
-    bad.push(`the only read-only host mount allowed is the engine kit at ${KIT_DST}`);
+  else {
+    const expected = expectKind === 'stub' ? [] : [
+      { src: READONLY_MOUNT_ALLOWLIST[0], dst: KIT_DST },
+      { src: READONLY_MOUNT_ALLOWLIST[1], dst: SKILL_DST },
+    ];
+    if (readonly.length !== expected.length || expected.some((want) => !readonly.some((got) => got?.dst === want.dst && same(realOrResolved(got?.src), realOrResolved(want.src))))) {
+      bad.push(`read-only host mounts must be exactly the engine kit at ${KIT_DST} and the approved scene skill at ${SKILL_DST}`);
+    }
   }
   return bad;
 }
@@ -79,7 +86,7 @@ const errorsAreGaps = (outside) => {
  *   { policy, accepted, blocking: string[], cb6Status, trustedBoundary, supplementary }
  * `accepted` is true only for a `audit_incomplete` report under prevention-primary-v1 with nothing blocking.
  */
-export function evaluateFenceReport(report, { policy = 'strict', expectGpu = false } = {}) {
+export function evaluateFenceReport(report, { policy = 'strict', expectGpu = false, expectKind = 'generated-code' } = {}) {
   if (!OBSERVATION_POLICIES.includes(policy)) throw new TypeError(`observation policy must be one of ${OBSERVATION_POLICIES.join(', ')}`);
   const blocking = [];
   const r = report && typeof report === 'object' ? report : {};
@@ -102,7 +109,7 @@ export function evaluateFenceReport(report, { policy = 'strict', expectGpu = fal
   if (r.started !== true) blocking.push('the container did not start');
   if (r.run?.status !== 'ok') blocking.push(`the container run ended ${JSON.stringify(r.run?.status ?? null)}, not ok`);
   if (r.orphan === true || r.lockRetained === true || r.leaseRetained === true || r.cleanup?.verified !== true) blocking.push('container removal was not confirmed');
-  blocking.push(...preventionProblems(r.containment?.prevention, r.jobDir, { expectGpu }));
+  blocking.push(...preventionProblems(r.containment?.prevention, r.jobDir, { expectGpu, expectKind }));
   // The evidence must be about the container of this very run, not a re-derivation for another token.
   if (typeof r.containerName !== 'string' || r.containment?.prevention?.containerName !== r.containerName) blocking.push('the prevention evidence names a different container than this run');
 
@@ -131,7 +138,7 @@ export function evaluateFenceReport(report, { policy = 'strict', expectGpu = fal
   const accepted = policy === 'prevention-primary' && blocking.length === 0;
   return {
     policy: policy === 'prevention-primary' ? POLICY_ID : 'strict', accepted, blocking, cb6Status,
-    trustedBoundary: { source: 'docker_argv_policy', holds: preventionProblems(r.containment?.prevention, r.jobDir, { expectGpu }).length === 0, prevention: r.containment?.prevention ?? null, cleanupVerified: r.cleanup?.verified === true },
+    trustedBoundary: { source: 'docker_argv_policy', holds: preventionProblems(r.containment?.prevention, r.jobDir, { expectGpu, expectKind }).length === 0, prevention: r.containment?.prevention ?? null, cleanupVerified: r.cleanup?.verified === true },
     supplementary,
   };
 }
@@ -140,9 +147,9 @@ export function evaluateFenceReport(report, { policy = 'strict', expectGpu = fal
  * Applies the policy to a fence report: returns it unchanged unless it is an accepted audit_incomplete report, which
  * becomes ok:true/status:'ok' with the original status and the evidence kept (`cb6Status`, `acceptance`).
  */
-export function applyObservationPolicy(report, { policy = 'strict', expectGpu = false } = {}) {
+export function applyObservationPolicy(report, { policy = 'strict', expectGpu = false, expectKind = 'generated-code' } = {}) {
   if (policy === 'strict' || !report || typeof report !== 'object' || report.status !== 'audit_incomplete') return report;
-  const acceptance = evaluateFenceReport(report, { policy, expectGpu });
+  const acceptance = evaluateFenceReport(report, { policy, expectGpu, expectKind });
   if (!acceptance.accepted) return { ...report, acceptance };
   return { ...report, ok: true, status: 'ok', cb6Status: report.status, acceptance };
 }

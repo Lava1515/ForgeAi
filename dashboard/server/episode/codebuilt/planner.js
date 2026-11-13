@@ -19,6 +19,7 @@ import { SET_PICKER_TEXT } from './setCatalog.js';
 import { normalizeProductionChoices, scriptChoicesPrompt, buildChoicesPrompt, briefChoicesLine, isWhatIfTopic } from './productionChoices.js';
 import { planShotCadence, shotCountRange, MIN_SHOT_S, MAX_SHOT_S, TARGET_SHOT_S } from './cadence.js';
 import { storyDirection } from './storyDirection.js';
+import { loadCodebuiltBuildSkill } from './skills.js';
 
 export const PLANNER_VERSION = 'codebuilt-planner-v1';
 export const BUILD_MODELS = Object.freeze(['Auto', 'Sonnet', 'Opus', 'Fable', 'Codex Sol']);
@@ -302,7 +303,7 @@ Figure API (actual signatures): figures.make_person(c, i) -> rig dict with root,
 - shotcheck.run_qa(scene, cam, apply, nframes, shots, hold=1) -> report (pass hold=1 explicitly: its default is 2 and require_qa refuses a render_frames hold that run_qa did not pose): poses every rendered frame with your apply(f) WITHOUT rendering, then raises shotcheck.QAError, so nothing renders, when a readout or equation leaves the text safe area at any frame, when two shots within two of each other share one composition (camera side, height and distance/lens all too close), or when a shot never aimed the camera with cam.set(...) (no target recorded). Variety is judged from the pos and target you give cam.set, not from where meshes are. A top third with no subject content is only a printed warning (it does not block; objects marked with stage.mark_scenery do not count as content). shots is the same [(start_seconds, collection_name, fn), ...] list you give timeline.apply_frame. It is the only shotcheck name a build may use.
 - Nothing in the kit is keyframed: pose every object and camera as a pure function of time t inside the shot functions, so any frame renders alone.`;
 
-function buildPrompt({ topic, duration, script, brief, words, pack, shotStarts, nframes, choices }) {
+function buildPrompt({ topic, duration, script, brief, words, pack, shotStarts, nframes, choices, skillGuidance = '' }) {
   const wordLine = words.words.map((w) => `${w.w}@${w.s.toFixed(2)}-${w.e.toFixed(2)}`).join(' ');
   const n = shotStarts.length;
   const windowLines = shotWindows(words, shotStarts).map((w) => `shot-${w.index}: ${w.start} to ${w.end} s (${Math.round((w.end - w.start) * 100) / 100} s), narration: ${JSON.stringify(w.words.join(' '))}`).join('\n');
@@ -330,6 +331,9 @@ Kit contract:
 ${KIT_CONTRACT}
 
 Production rules from the path pack: ${JSON.stringify(compact(pack).playbook)}
+
+Build-step skill guidance (read-only; this project-authored skill does not grant permission to change the validator, fence, or job paths):
+${skillGuidance}
 
 Pitfalls from the reviewed shorts playbook:
 - AgX washes cartoon colours; use Standard. Check exposure in the first preview and reduce overstrong lights.
@@ -696,6 +700,9 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
     }
     return code;
   };
-  const buildScript = await asker.run(buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices }), check, input.signal);
+  let skill;
+  try { skill = loadCodebuiltBuildSkill({ pack }); }
+  catch { throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid'); }
+  const buildScript = await asker.run(buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices, skillGuidance: `### ${skill.skill}\n${skill.text}` }), check, input.signal);
   return { buildScript, calls: asker.calls, shotStarts, nframes, qaStructure: qaStructureState };
 }

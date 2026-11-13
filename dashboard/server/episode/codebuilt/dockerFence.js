@@ -3,6 +3,7 @@
 // no repo / .env / socket mounts, no inherited environment, dropped capabilities, resource limits, no network,
 // a content-addressed local image that is never pulled.
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { JOB_ROOT, assertJobDirSafe, assertJobId, assertRealDir, assertNoLinksInTree, samePath } from './jobPaths.js';
 import { buildJobEnv } from './jobEnv.js';
@@ -10,9 +11,14 @@ import { IMAGE_REF_RE, IsolationRefused } from './policy.js';
 
 export const CONTAINER_JOB_DIR = '/job';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-// The complete list of host folders a job may see read-only. Today: the engine kit (code only). Nothing else on the
-// host can be mounted, whatever its name. Adding a folder is a reviewed code change here.
-export const READONLY_MOUNT_ALLOWLIST = Object.freeze([path.join(REPO_ROOT, 'blender_worker', 'codebuilt')]);
+// The complete list of host folders a job may see read-only: the engine kit and one project-authored skill directory.
+// Parent folders, sibling skills and every other host path remain refused. Adding a folder is a reviewed code change.
+export const CODEBUILT_SKILL_DIR = path.join(REPO_ROOT, '.claude', 'skills', 'codebuilt-scene-generation');
+export const CODEBUILT_SKILL_DST = '/skills/codebuilt-scene-generation';
+export const READONLY_MOUNT_ALLOWLIST = Object.freeze([
+  path.join(REPO_ROOT, 'blender_worker', 'codebuilt'),
+  CODEBUILT_SKILL_DIR,
+]);
 const RUN_TOKEN_RE = /^[a-f0-9]{12}$/;
 
 /** One container name per run. A second run of the same job gets another name, so cleanup can only remove its own container. */
@@ -75,6 +81,13 @@ export function validateReadonlyMount({ src, dst } = {}, { allowlist = READONLY_
   if (!allowed) throw new Error(`mount src is not on the read-only mount allowlist (refused): ${src}`);
   if (BAD_PATH_CHARS.test(real)) throw new Error(`mount src contains a character not allowed in a mount (refused): ${real}`);
   try { assertNoLinksInTree(real, 'mount src'); } catch (e) { throw new Error(`${e.message} (refused)`); }
+  if (samePath(real, CODEBUILT_SKILL_DIR)) {
+    const entries = fs.readdirSync(real);
+    const file = fs.lstatSync(path.join(real, 'SKILL.md'), { throwIfNoEntry: false });
+    if (entries.length !== 1 || entries[0] !== 'SKILL.md' || !file?.isFile() || file.isSymbolicLink() || file.nlink !== 1) {
+      throw new Error('approved scene skill directory must contain only one regular SKILL.md (refused)');
+    }
+  }
   return `type=bind,src=${real},dst=${dst},readonly`;
 }
 
