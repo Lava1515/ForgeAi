@@ -83,6 +83,43 @@ class ResultCollectorTests(unittest.TestCase):
         self.assertEqual(report["timing"]["spread_seconds"], 2)
         self.assertIsNone(report["recommendation"])
 
+    def test_rejects_reused_paths_and_invalid_frame_numbers(self):
+        for expected, paths in [([1, 2], {"1": "frames/0001.png", "2": "frames/./0001.png"}),
+                                ([True], {"True": "frames/0001.png"}),
+                                ([1.5], {"1.5": "frames/0001.png"}),
+                                (["1"], {"1": "frames/0001.png"}),
+                                ([None], {"None": "frames/0001.png"}),
+                                ([-1], {"-1": "frames/0001.png"})]:
+            with self.subTest(expected=expected):
+                (self.job / "result-validation.json").unlink(missing_ok=True)
+                self.manifest.write_text(json.dumps({"expected_frames": expected, "frames": paths}), encoding="utf-8")
+                result = self.run_tool()
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse((self.job / "result-validation.json").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction regression")
+    def test_rejects_junction_frame_and_job_alias(self):
+        link = self.job / "junction"
+        alias = self.job.with_name(self.job.name + "-alias")
+        try:
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(self.job / "frames")], check=True, capture_output=True)
+            data = json.loads(self.manifest.read_text(encoding="utf-8"))
+            data["frames"]["1"] = "junction/0001.png"
+            self.manifest.write_text(json.dumps(data), encoding="utf-8")
+            result = self.run_tool()
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse((self.job / "result-validation.json").exists())
+        finally:
+            if os.path.lexists(link): os.rmdir(link)  # Unlink junction before recursive fixture cleanup.
+        self.manifest.write_text(json.dumps({"expected_frames": [1], "frames": {"1": "frames/0001.png"}}), encoding="utf-8")
+        try:
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(self.job)], check=True, capture_output=True)
+            result = self.run_tool(job=alias, manifest="manifest.json")
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse((self.job / "result-validation.json").exists())
+        finally:
+            if os.path.lexists(alias): os.rmdir(alias)
+
 
 if __name__ == "__main__":
     unittest.main()

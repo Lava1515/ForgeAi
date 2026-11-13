@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import statistics
+import stat
 import struct
 import sys
 from pathlib import Path
@@ -28,6 +29,11 @@ def inside(path, parent):
         return False
 
 
+def reject_link(path, info):
+    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_reparse_tag", 0) or getattr(info, "st_file_attributes", 0) & 0x400:
+        raise InputError(f"symlink or reparse point path is not allowed: {path}")
+
+
 def checked_file(path, job):
     """Require every existing path component to be non-symlink and final file single-link."""
     if not inside(path, job):
@@ -45,10 +51,11 @@ def checked_file(path, job):
             info = current.lstat()
         except OSError as exc:
             raise InputError(f"missing or inaccessible path: {current}") from exc
-        if current.is_symlink():
-            raise InputError(f"symlink path is not allowed: {current}")
-    if not current.is_file() or info.st_nlink != 1:
+        reject_link(current, info)
+    if not relative.parts or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         raise InputError(f"expected a regular single-link file: {current}")
+    if current.resolve(strict=True) != current:
+        raise InputError(f"file path passes through an alias: {current}")
     return current
 
 
@@ -61,10 +68,15 @@ def png_dimensions(path):
 
 
 def run(job_arg, manifest_arg, wall_times):
-    jobs_root = (Path(__file__).resolve().parent.parent / "output" / "agent-jobs").resolve()
-    job = Path(job_arg).resolve(strict=True)
-    if job == jobs_root or not inside(job, jobs_root) or not job.is_dir():
-        raise InputError("job folder must be an existing folder under output/agent-jobs")
+    jobs_root = Path(__file__).resolve().parent.parent / "output" / "agent-jobs"
+    job = Path(job_arg).absolute()
+    if ".." in job.parts or job.parent != jobs_root:
+        raise InputError("job folder must be a direct child of output/agent-jobs")
+    for directory in [jobs_root.parent, jobs_root, job]:
+        info = directory.lstat()
+        reject_link(directory, info)
+        if not stat.S_ISDIR(info.st_mode) or directory.resolve(strict=True) != directory:
+            raise InputError("job folder must be an existing canonical directory without aliases")
     manifest_path = Path(manifest_arg)
     if not manifest_path.is_absolute():
         manifest_path = job / manifest_path
@@ -75,19 +87,25 @@ def run(job_arg, manifest_arg, wall_times):
         files = manifest["frames"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
         raise InputError("manifest requires expected_frames and frames") from exc
-    if not isinstance(expected, list) or not expected or len(set(expected)) != len(expected):
-        raise InputError("expected_frames must be a nonempty list of unique frame numbers")
+    if not isinstance(expected, list) or not expected or any(type(frame) is not int or frame < 0 for frame in expected) or len(set(expected)) != len(expected):
+        raise InputError("expected_frames must be unique non-negative integer frame numbers")
     expected_keys = {str(frame) for frame in expected}
     if not isinstance(files, dict) or set(files) != expected_keys:
         raise InputError("manifest frame keys must exactly match expected_frames")
 
-    frames, hashes = [], {}
+    frames, hashes, seen_paths = [], {}, set()
     valid = True
     for frame in expected:
-        relative = Path(files[str(frame)])
-        if relative.is_absolute():
+        value = files[str(frame)]
+        if not isinstance(value, str) or not value:
+            raise InputError("frame paths must be nonempty strings")
+        relative = Path(value)
+        if relative.anchor or relative.drive:
             raise InputError(f"frame path must be relative to the job folder: {frame}")
         path = checked_file(job / relative, job)
+        if path in seen_paths:
+            raise InputError("manifest frames must reference unique file paths")
+        seen_paths.add(path)
         dimensions = png_dimensions(path)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if dimensions != (WIDTH, HEIGHT):
