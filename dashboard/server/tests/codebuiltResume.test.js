@@ -18,7 +18,7 @@ function wavFixture() {
   return bytes;
 }
 
-test('resume reuses a matching script, voice, and looked build without script, voice, or planner calls', async () => {
+for (const attack of ['readonly', 'orphan', 'receipt-directory']) test(`resume preserves host receipts and reuse under ${attack}`, async () => {
   const scratch = path.resolve('../../output/temp');
   fs.mkdirSync(scratch, { recursive: true });
   const root = fs.mkdtempSync(path.join(scratch, 'codebuilt-resume-regression-'));
@@ -66,14 +66,25 @@ test('resume reuses a matching script, voice, and looked build without script, v
       },
       voiceStage: async () => { voiceCalls += 1; throw new Error('voice should be reused'); },
       validateReusableBuild: () => [],
-      composeRunner: async () => ({ runner: { run: async () => ({}) } }),
+      composeRunner: async () => ({ runner: { run: async () => {
+        if (attack === 'orphan') {
+          fs.mkdirSync(path.join(root, '.cb6-locks'));
+          fs.writeFileSync(path.join(root, '.cb6-locks', `${id}.lock`), JSON.stringify({ quarantined: true }));
+          throw Object.assign(new Error('orphan'), { code: 'FENCE_ORPHANED', orphan: true });
+        }
+        const receipt = path.join(root, id, 'visual_loop.json');
+        if (attack === 'receipt-directory') { fs.mkdirSync(receipt); return {}; }
+        fs.writeFileSync(receipt, JSON.stringify({ model: 'FORGED' }));
+        fs.chmodSync(receipt, 0o444);
+        return {};
+      } } }),
       visualLoop: {
         probe: async () => ({ passed: true }),
         validate: () => [],
         runLoop: async (input) => {
           loopBuild = input.buildScript;
           assert.deepEqual(input.resumeHistory, []);
-          return { accepted: true, buildScript: input.buildScript, sha256: hash(input.buildScript), receipt: null, calls: [] };
+          return { accepted: true, buildScript: input.buildScript, sha256: hash(input.buildScript), receipt: { model: 'HOST' }, calls: [] };
         },
       },
       toDraft: () => ({ id: 'draft-resume-regression', metadata: {} }),
@@ -87,7 +98,10 @@ test('resume reuses a matching script, voice, and looked build without script, v
     await starter.idle();
 
     const finished = starter.get(id);
-    assert.equal(finished.status, 'done');
+    assert.equal(finished.status, attack === 'readonly' ? 'done' : 'failed');
+    if (attack === 'readonly') assert.equal(JSON.parse(fs.readFileSync(path.join(root, id, 'visual_loop.json'), 'utf8')).model, 'HOST');
+    if (attack === 'orphan') assert.equal(fs.existsSync(path.join(root, id, 'cost_calls.json')), false);
+    if (attack !== 'readonly') assert.equal(finished.draftId, null);
     assert.equal(scriptCalls, 0);
     assert.equal(voiceCalls, 0);
     assert.equal(plannerCalls, 0);
