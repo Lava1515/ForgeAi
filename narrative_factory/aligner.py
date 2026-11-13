@@ -41,7 +41,7 @@ def align_words(wav_path, text):
             else:
                 token, start, end = word.word, word.start, word.end
             start, end = float(start), float(end)
-            if not token.strip() or not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or end > duration + 0.5:
+            if not token.strip() or not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < start or end > duration + 0.5:
                 raise ValueError("aligner returned an invalid word span")
             start = round(max(0.0, min(start, duration)), 3)
             end = round(max(0.0, min(end, duration)), 3)
@@ -57,8 +57,6 @@ def align_words(wav_path, text):
         end = max(start, min(w["end"], next_start))
         w["start"] = round(start, 3)
         w["end"] = round(end, 3)
-        if not math.isfinite(w["start"]) or not math.isfinite(w["end"]) or w["end"] <= w["start"]:
-            raise ValueError("aligner returned a non-positive word span after normalization")
         prev_end = w["end"]
 
     script_words = text.split()
@@ -116,49 +114,51 @@ def words_for_job(wav_path, text, sentence_texts, spans, enabled, strict=False):
         return [], "estimated"
     if enabled:
         try:
-            return align_words(wav_path, text), "aligned"
+            words = align_words(wav_path, text)
+            if strict:
+                words = _recover_terminal(wav_path, text, sentence_texts, spans, words)
+            return words, "aligned"
         except Exception:
             if strict:
-                return _align_measured_windows(wav_path, text, sentence_texts, spans), "aligned"
+                raise
     return estimate_word_timings(sentence_texts, spans), "estimated"
 
 
-def _align_measured_windows(wav_path, text, sentence_texts, spans):
-    """Retry strict alignment on validated TTS sentence windows, retaining real timestamps only."""
-    if (not isinstance(sentence_texts, (list, tuple)) or not isinstance(spans, (list, tuple))
-            or len(sentence_texts) != len(spans) or " ".join(sentence_texts) != text):
-        raise ValueError("measured sentence windows do not match the script")
-    with wave.open(str(wav_path), "rb") as src:
+def _recover_terminal(wav_path, text, sentence_texts, spans, words):
+    """Recover only a terminal alignment in dead air using the measured final TTS window."""
+    if (not sentence_texts or len(sentence_texts) != len(spans)
+            or any(not isinstance(s, str) or not s.strip() for s in sentence_texts)
+            or ' '.join(sentence_texts).split() != text.split()):
+        raise ValueError('measured sentence windows do not match script')
+    with wave.open(str(wav_path), 'rb') as src:
         rate, frames = src.getframerate(), src.getnframes()
         duration = frames / rate
-        validated = []
-        for sentence, span in zip(sentence_texts, spans):
-            if not isinstance(sentence, str) or not sentence.strip() or not isinstance(span, (tuple, list)) or len(span) != 2:
-                raise ValueError("invalid measured sentence window")
-            start, end = map(float, span)
-            if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or end > duration:
-                raise ValueError("invalid measured sentence window")
-            validated.append((sentence, start, end))
-        if any(validated[i][1] < validated[i-1][2] for i in range(1, len(validated))):
-            raise ValueError("measured sentence windows are unordered")
-        original = src.readframes(frames)
+        start, end = map(float, spans[-1])
+        if not math.isfinite(start) or not math.isfinite(end) or not 0 <= start < end <= duration + .001:
+            raise ValueError('invalid terminal sentence window')
+        if words[-1]['end'] <= end + .02 and not (words[-1]['start'] == words[-1]['end'] and words[-1]['end'] >= duration - .02):
+            return words
+        count = len(sentence_texts[-1].split())
+        first, last = round(start * rate), min(frames, round(end * rate))
+        if first >= last:
+            raise ValueError('empty terminal sentence window')
         params = src.getparams()
-    results = []
-    with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(wav_path))) as temp_dir:
-        for i, (sentence, start, end) in enumerate(validated):
-            first, last = round(start * rate), round(end * rate)
-            crop_path = os.path.join(temp_dir, f"window-{i}.wav")
-            with wave.open(crop_path, "wb") as crop:
-                crop.setparams(params); crop.writeframes(original[first * params.nchannels * params.sampwidth:last * params.nchannels * params.sampwidth])
-            aligned = align_words(crop_path, sentence)
-            if len(aligned) != len(sentence.split()):
-                raise ValueError("window word count mismatch")
-            for word in aligned:
-                s, e = float(word["start"]), float(word["end"])
-                if not math.isfinite(s) or not math.isfinite(e) or s < 0 or e <= s or e > (last-first)/rate + .001:
-                    raise ValueError("invalid aligned sentence window")
-                results.append({"text": word["text"], "start": round(start+s, 3), "end": round(start+e, 3)})
-    expected = text.split()
-    if len(results) != len(expected) or [_normalize_token(w["text"]) for w in results] != [_normalize_token(t) for t in expected]:
-        raise ValueError("window word sequence does not match the script")
-    return [{"text": token, "start": w["start"], "end": w["end"]} for token, w in zip(expected, results)]
+        src.setpos(first)
+        audio = src.readframes(last - first)
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(wav_path))) as scratch:
+        crop_path = os.path.join(scratch, 'terminal.wav')
+        with wave.open(crop_path, 'wb') as crop:
+            crop.setparams(params)
+            crop.writeframes(audio)
+        aligned = align_words(crop_path, sentence_texts[-1])
+    expected = sentence_texts[-1].split()
+    if len(aligned) != count or [_normalize_token(w['text']) for w in aligned] != [_normalize_token(t) for t in expected]:
+        raise ValueError('terminal word sequence mismatch')
+    if aligned[-1]['end'] <= aligned[-1]['start'] or any(w['end'] > (last - first) / rate + .001 for w in aligned):
+        raise ValueError('terminal alignment is outside measured audio')
+    offset = first / rate
+    recovered = [{'text': token, 'start': round(offset + w['start'], 3), 'end': round(offset + w['end'], 3)} for token, w in zip(expected, aligned)]
+    result = words[:-count] + recovered
+    if len(result) != len(words) or any(result[i]['start'] < result[i-1]['end'] for i in range(1, len(result))):
+        raise ValueError('terminal alignment overlaps preceding words')
+    return result
