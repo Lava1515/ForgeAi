@@ -1,6 +1,6 @@
 // KAN-830: the Episode voice stage.
 // Two ways to get a narration track, one timing file:
-//  - local voice: the factory's /api/tts-timed with one allow-listed Qwen3 speaker id (never a Fish Speech or any "<engine>:<name>" id),
+//  - local voice: the factory's /api/tts-timed with one allow-listed Qwen3 speaker id (never an "<engine>:<name>" id),
 //  - owner recording: a WAV taken as-is (never a clone/reference voice), then the factory's /api/align gives the word timings.
 // Both write voice.wav and timing.json into the Episode folder (same timing.json shape) after every check has passed:
 //  - the folder is a real direct child of the episodes root (episode/artifacts.js; a symlink or junction is refused),
@@ -15,7 +15,7 @@ import { resolveEpisodeDir, atomicWrite, episodeRoot, EpisodeError } from './art
 
 export const VOICE_VERSION = 'episode-voice-v1';
 // The nine built-in Qwen3-TTS speakers, copied from QWEN_SPEAKERS in narrative_factory/tts_engine.py (a test keeps the two lists equal).
-// KAN-801 (docs/model-licences.md): Qwen3-TTS is Apache-2.0 and allowed; Fish Speech is CC-BY-NC-SA and never reachable from here.
+// Qwen3-TTS speakers are licensed for use; the active voice service exposes only these built-in ids.
 export const QWEN_SPEAKERS = Object.freeze(['aiden', 'dylan', 'eric', 'ono_anna', 'ryan', 'serena', 'sohee', 'uncle_fu', 'vivian']);
 export const LIMITS = Object.freeze({
   wavBytes: 100 * 1024 * 1024,
