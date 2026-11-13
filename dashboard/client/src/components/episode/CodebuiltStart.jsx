@@ -5,15 +5,17 @@ import Panel from '../../ui/Panel.jsx';
 import Button from '../../ui/Button.jsx';
 import Banner from '../../ui/Banner.jsx';
 
-function TypeChannelResearch() {
+function TypeChannelResearch({ disabled, duration, onCreated }) {
   const [channels, setChannels] = useState([]), [channelId, setChannelId] = useState(''), [type, setType] = useState('what-if');
   const [query, setQuery] = useState(''), [result, setResult] = useState(null), [picked, setPicked] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   useEffect(() => { api.getChannels().then((r) => setChannels(Array.isArray(r?.channels) ? r.channels : Array.isArray(r) ? r : [])).catch(() => {}); }, []);
   const research = async (e) => { e.preventDefault(); setBusy(true); setMessage(''); setResult(null); try { const r = await api.researchVideoCandidates({ channelId, type, query }); setResult(r); setPicked(r.candidates?.[0]?.id || ''); } catch (err) { setMessage(err?.data?.error || err.message); } finally { setBusy(false); } };
-  const create = async (auto) => { setBusy(true); setMessage(''); try { const r = await api.createResearchedVideo({ action: 'create', researchId: result.id, ...(auto ? { auto: true } : { candidateId: picked }) }); setMessage(`Run queued for review: ${r.job?.id || 'ready'}.`); } catch (err) { setMessage(err?.data?.error || err.message); } finally { setBusy(false); } };
+  const create = async (auto) => { setBusy(true); setMessage(''); try { const r = await api.createResearchedVideo({ action: 'create', researchId: result.id, duration, ...(auto ? { auto: true } : { candidateId: picked }) }); onCreated(r.job); setMessage(`Run queued for review: ${r.job?.id || 'ready'}.`); } catch (err) { setMessage(err?.data?.error || err.message); } finally { setBusy(false); } };
   return <section className="space-y-3 rounded-lg border border-ink-800 p-3" data-video-research>
     <h3 className="text-sm font-semibold">Research a video topic</h3>
     <p className="text-xs text-ink-400">Choose a channel first, then a type. Review the cited candidates before creating a draft run.</p>
+    <fieldset disabled={disabled || busy} className="space-y-3">
+    <p className="text-xs text-ink-400">Draft length: {duration} seconds (selected below).</p>
     <form onSubmit={research} className="space-y-2">
       <label className="block text-xs">Channel<select className="ml-2 rounded bg-ink-900 border border-ink-700 px-2 py-1" aria-label="Research channel" value={channelId} onChange={(e) => { setChannelId(e.target.value); setResult(null); }}><option value="">Choose channel</option>{channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       <label className="block text-xs">Type<select className="ml-2 rounded bg-ink-900 border border-ink-700 px-2 py-1" aria-label="Research type" value={type} onChange={(e) => { setType(e.target.value); setResult(null); }}><option value="what-if">What if</option><option value="history">History</option><option value="teardown">Teardown</option></select></label>
@@ -22,6 +24,7 @@ function TypeChannelResearch() {
     </form>
     {message && <p role="status" className="text-xs text-ink-300">{message}</p>}
     {result && <div className="space-y-2" aria-label="Research candidates"><p className="text-xs text-ink-400">{result.provenance}</p>{result.candidates.map((c) => <article key={c.id} className="rounded border border-ink-800 p-2 text-xs"><label><input type="radio" name="research-candidate" checked={picked === c.id} onChange={() => setPicked(c.id)} /> <span className="ml-1">{c.topic}</span></label><p className="my-1 text-ink-300">{c.why}</p><ul className="list-disc pl-5">{c.sources.map((s) => <li key={s.url}><a className="underline" href={s.url} target="_blank" rel="noopener noreferrer">{s.title || s.url}</a></li>)}</ul></article>)}<div className="flex gap-2"><Button disabled={busy || !picked} onClick={() => create(false)}>Create selected</Button><Button disabled={busy} onClick={() => create(true)}>Auto then Create</Button></div></div>}
+    </fieldset>
   </section>;
 }
 
@@ -218,7 +221,7 @@ export default function CodebuiltStart() {
   const problem = runFormProblem({ count, topic, type: blankOrAuto(type) ? undefined : type });
   return (
     <Panel title="Code-built video" className="space-y-4" data-codebuilt-start>
-      <TypeChannelResearch />
+      <TypeChannelResearch disabled={active} duration={duration} onCreated={setRun} />
       <p className="text-xs text-ink-400">
         Builds the video with generated code in the isolated runner, then hands it to review as a draft. Press Start to begin; nothing runs until you do.
       </p>

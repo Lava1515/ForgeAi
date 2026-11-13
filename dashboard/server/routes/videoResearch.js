@@ -54,7 +54,8 @@ export function createVideoResearch({ channels = getAllChannels, youtube = youtu
       if (sessions.size > 100) sessions.delete(sessions.keys().next().value);
       return result;
     },
-    create({ researchId, candidateId, auto } = {}) {
+    create({ researchId, candidateId, auto, duration = 60 } = {}) {
+      if (![30, 45, 60, 90].includes(duration)) throw Object.assign(new Error('Choose a supported duration'), { status: 400 });
       const session = sessions.get(researchId);
       if (!session || session.expires <= Date.now() || session.used) throw Object.assign(new Error('Research expired or already used'), { status: 400 });
       if (auto !== true && typeof candidateId !== 'string') throw Object.assign(new Error('Choose a candidate or Auto'), { status: 400 });
@@ -64,7 +65,7 @@ export function createVideoResearch({ channels = getAllChannels, youtube = youtu
       const channel = channels().find((c) => c.id === session.result.channelId);
       if (!channel) throw Object.assign(new Error('Channel no longer exists'), { status: 400 });
       const type = session.result.type === 'what-if' ? 'whatif' : 'factual';
-      const job = start({ topic: picked.topic, channelId: channel.id, type, duration: 60 });
+      const job = start({ topic: picked.topic, channelId: channel.id, type, duration });
       session.used = true;
       return { job, selectedCandidateId: picked.id, selection: auto ? 'auto' : 'owner' };
     },
@@ -76,7 +77,7 @@ export async function researchCandidatesHandler(req, res) {
   try {
     if (Buffer.byteLength(JSON.stringify(req.body ?? {})) > 4096) return res.status(413).json({ error: 'Request too large' });
     const creating = req.body?.action === 'create';
-    const allowed = creating ? ['action', 'researchId', 'candidateId', 'auto'] : ['channelId', 'type', 'query'];
+    const allowed = creating ? ['action', 'researchId', 'candidateId', 'auto', 'duration'] : ['channelId', 'type', 'query'];
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).some((key) => !allowed.includes(key))) return res.status(400).json({ error: 'Invalid request' });
     const result = creating ? flow.create(req.body) : await flow.research(req.body);
     return res.json(result);

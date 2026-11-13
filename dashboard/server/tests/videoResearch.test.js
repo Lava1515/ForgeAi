@@ -20,8 +20,9 @@ test('research returns only validated citation metadata and owner or Auto select
   });
   const result = await flow.research({ channelId: 'channel-a', type: 'what-if', query: 'space' });
   assert.deepEqual(result.candidates[0].sources, [{ url: 'https://example.test/story', title: 'Source', source: '' }]);
-  const created = flow.create({ researchId: result.id, candidateId: result.candidates[0].id });
+  assert.throws(() => flow.create({ researchId: result.id, candidateId: result.candidates[0].id, duration: 17 }), /duration/i);
+  const created = flow.create({ researchId: result.id, candidateId: result.candidates[0].id, duration: 45 });
   assert.equal(created.selection, 'owner');
-  assert.deepEqual(starts[0], { topic: 'What if space changed?', channelId: 'channel-a', type: 'whatif', duration: 60 });
+  assert.deepEqual(starts[0], { topic: 'What if space changed?', channelId: 'channel-a', type: 'whatif', duration: 45 });
   assert.throws(() => flow.create({ researchId: result.id, auto: true }), /expired or already used/);
 });
