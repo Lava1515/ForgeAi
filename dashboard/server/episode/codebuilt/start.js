@@ -190,7 +190,23 @@ export function createCodebuiltStarter({
   };
   const readSafe = (file, encoding = 'utf8', maxBytes) => safeRegular(file, maxBytes) ? fs.readFileSync(file, encoding) : null;
   function reusable(id) {
-    const stage = path.join(stateRoot(), id); const job = path.join(jobsDir, id);
+    // Locks live outside container-writable folders. Refuse before reading any reuse artifact,
+    // including when cleanup of any preview belonging to this parent is uncertain.
+    const lockDirectory = path.join(jobsDir, '.cb6-locks');
+    let blockedReason = null;
+    try {
+      let stat;
+      try { stat = fs.lstatSync(lockDirectory); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (stat) {
+        if (!safeDirectory(lockDirectory)) throw new Error('invalid lock directory');
+        const names = fs.readdirSync(lockDirectory);
+        if (names.some((name) => name === `${id}.lock` || (name.startsWith(`${id}-pv`) && /^\d+\.lock$/.test(name.slice(id.length + 3))))) {
+          blockedReason = 'Job or preview lock is held; cleanup must be confirmed before resuming';
+        }
+      }
+    } catch { blockedReason = 'Job lock directory is unreadable; cleanup must be confirmed before resuming'; }
+    if (blockedReason) return { blockedReason, reused: [], resumeFrom: null };
+    const stage = path.join(stateRoot(), id);
     const script = readSafe(path.join(stage, 'script.txt')); const brief = readSafe(path.join(stage, 'brief.md'));
     let pathPack = null; try { pathPack = JSON.parse(readSafe(path.join(stage, 'pathpack.json')) || 'null'); } catch {}
     const scriptOk = typeof script === 'string' && !!script.trim() && typeof brief === 'string' && !!brief.trim() && pathPack?.id === 'codebuilt' && Array.isArray(pathPack.skills);
@@ -215,12 +231,12 @@ export function createCodebuiltStarter({
       if (Number.isFinite(planWords?.dur)) {
         const shotStarts = shotStartsFor(planWords); const nframes = frameCountFor(planWords);
         const numbered = [];
-        for (const base of [path.join(stage, 'loop'), path.join(job, 'loop')]) {
+        for (const base of [path.join(stage, 'loop')]) {
           if (!safeDirectory(base)) continue;
           try { for (const name of fs.readdirSync(base)) if (/^r\d+$/.test(name)) numbered.push({ base, n: Number(name.slice(1)) }); } catch {}
         }
         numbered.sort((a, b) => b.n - a.n);
-        const candidates = [path.join(stage, 'loop', 'accepted.build.py'), path.join(stage, 'accepted.build.py'), path.join(job, 'loop', 'accepted.build.py'), path.join(job, 'accepted.build.py'), ...numbered.map(({ base, n }) => path.join(base, `r${n}`, 'build.py')), path.join(stage, 'planner.build.py')];
+        const candidates = [path.join(stage, 'loop', 'accepted.build.py'), ...numbered.map(({ base, n }) => path.join(base, `r${n}`, 'build.py')), path.join(stage, 'planner.build.py')];
         for (const file of candidates) {
           const code = readSafe(file); if (!code || !code.trim()) continue;
           const why = validateReusableBuild(code, { nframes, shotStarts });
@@ -235,7 +251,7 @@ export function createCodebuiltStarter({
                 const looked = JSON.parse(readSafe(path.join(base, `r${n}`, 'look.json')) || 'null');
                 const priorCode = readSafe(path.join(base, `r${n}`, 'build.py'));
                 if (looked?.status === 'complete' && Array.isArray(looked.reply?.findings)) {
-                  history.push({ round: n, findings: looked.reply.findings, ...(looked.crashed !== true && priorCode && sha(priorCode) === looked.buildSha256 ? { buildScript: priorCode, buildSha256: looked.buildSha256 } : {}) });
+                  history.push({ round: n, findings: looked.reply.findings, ...(looked.crashed !== true && priorCode && !validateReusableBuild(priorCode, { nframes, shotStarts }).length && sha(priorCode) === looked.buildSha256 ? { buildScript: priorCode, buildSha256: looked.buildSha256 } : {}) });
                 }
               } catch {}
             }
@@ -643,6 +659,7 @@ export function createCodebuiltStarter({
       if (!['failed', 'aborted'].includes(rec.status)) throw new StartError('conflict', 409);
       if ((running !== null && running !== id) || waiting.some((queuedId) => queuedId !== id) || [...live.values()].some(({ rec: item }) => item.id !== id && ACTIVE.includes(item.status))) throw new StartError('conflict', 409);
       const artifacts = reusable(id);
+      if (artifacts.blockedReason) throw new StartError('conflict', 409);
       rec.resumes = Array.isArray(rec.resumes) ? rec.resumes : [];
       rec.resumes.push({ at: clock(), fromStep: artifacts.resumeFrom, reused: artifacts.reused });
       rec.status = 'queued'; rec.step = 'queued'; rec.error = null; rec.resumeFrom = artifacts.resumeFrom; resumeData.set(rec.id, artifacts);
@@ -669,9 +686,9 @@ export function createCodebuiltStarter({
     const otherActive = (running !== null && running !== rec.id) || waiting.some((queuedId) => queuedId !== rec.id) || [...live.values()].some(({ rec: item }) => item.id !== rec.id && ACTIVE.includes(item.status));
     const resumable = ['failed', 'aborted'].includes(rec.status);
     const artifacts = resumable ? reusable(rec.id) : null;
-    const blockedReason = resumable && otherActive ? 'Another code-built job is active' : null;
+    const blockedReason = artifacts?.blockedReason ?? (resumable && otherActive ? 'Another code-built job is active' : null);
     const priorResume = rec.resumes?.at(-1);
-    return { ...publicJob(rec), resumable: resumable && !otherActive, resumeFrom: resumable ? artifacts.resumeFrom : priorResume?.fromStep ?? null, reuses: resumable ? artifacts.reused : priorResume?.reused ?? [], ...(blockedReason ? { resumeBlockedReason: blockedReason } : {}) };
+    return { ...publicJob(rec), resumable: resumable && !blockedReason, resumeFrom: resumable ? artifacts.resumeFrom : priorResume?.fromStep ?? null, reuses: resumable ? artifacts.reused : priorResume?.reused ?? [], ...(blockedReason ? { resumeBlockedReason: blockedReason } : {}) };
   }
 }
 

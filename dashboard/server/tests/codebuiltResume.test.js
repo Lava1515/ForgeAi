@@ -44,6 +44,12 @@ test('resume reuses a matching script, voice, and looked build without script, v
     fs.writeFileSync(path.join(state, 'voice.json'), JSON.stringify({ script_sha256: hash(normaliseScript(script).text), audio_sha256: hash(wav), word_timing_source: 'aligned', video_seconds: 30 }));
     const cachedBuild = 'cached loop-produced build source';
     fs.writeFileSync(path.join(loop, 'build.py'), cachedBuild);
+    // A previous container can forge files in its own job folder, never in .start.
+    const forged = path.join(root, id, 'loop', 'r0');
+    fs.mkdirSync(forged, { recursive: true });
+    fs.writeFileSync(path.join(root, id, 'accepted.build.py'), 'forged container build');
+    fs.writeFileSync(path.join(forged, 'build.py'), 'forged history');
+    fs.writeFileSync(path.join(forged, 'look.json'), JSON.stringify({ status: 'complete', reply: { findings: ['forged finding'] }, buildSha256: hash('forged history') }));
     fs.writeFileSync(path.join(state, 'cost_calls.json'), JSON.stringify({ calls: [{ step: 'previous', provider: 'claude', model: 'sonnet', wall_s: 1, input_tokens: 12, output_tokens: 3, retries: 0 }] }));
     fs.writeFileSync(path.join(state, 'status.json'), JSON.stringify({
       version: START_VERSION, id, topic: 'Cached regression', duration: 30, voice: 'aiden', status: 'failed', step: 'looking',
@@ -66,6 +72,7 @@ test('resume reuses a matching script, voice, and looked build without script, v
         validate: () => [],
         runLoop: async (input) => {
           loopBuild = input.buildScript;
+          assert.deepEqual(input.resumeHistory, []);
           return { accepted: true, buildScript: input.buildScript, sha256: hash(input.buildScript), receipt: null, calls: [] };
         },
       },
@@ -91,3 +98,29 @@ test('resume reuses a matching script, voice, and looked build without script, v
     if (!fs.lstatSync(root).isSymbolicLink()) fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const lockName of ['locked-job.lock', 'locked-job-pv3.lock', 'unreadable-directory']) {
+  test(`resume refuses a held or quarantined job before reuse: ${lockName}`, () => {
+    const scratch = path.resolve('../../output/temp');
+    fs.mkdirSync(scratch, { recursive: true });
+    const root = fs.mkdtempSync(path.join(scratch, 'resume-lock-'));
+    const id = 'locked-job';
+    const state = path.join(root, '.start', id);
+    fs.mkdirSync(state, { recursive: true });
+    fs.writeFileSync(path.join(state, 'status.json'), JSON.stringify({ version: START_VERSION, id, status: 'failed', steps: [] }));
+    const locks = path.join(root, '.cb6-locks');
+    if (lockName === 'unreadable-directory') fs.writeFileSync(locks, 'invalid lock directory');
+    else {
+      fs.mkdirSync(locks);
+      fs.writeFileSync(path.join(locks, lockName), JSON.stringify({ quarantined: { reason: 'cleanup uncertain' } }));
+    }
+    try {
+      const starter = createCodebuiltStarter({ jobsDir: root });
+      const status = starter.get(id);
+      assert.equal(status.resumable, false);
+      assert.match(status.resumeBlockedReason, /lock|cleanup/i);
+      assert.deepEqual(status.reuses, []);
+      assert.throws(() => starter.resume(id), (error) => error.httpStatus === 409 || error.status === 409);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+}
