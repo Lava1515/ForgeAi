@@ -69,15 +69,20 @@ export const STDERR_TAIL_FILE = 'stderr_tail.txt';
 
 /** Called with the job lock held and no previous container alive, before a new launch. */
 export function clearRunDiagnostics(jobDir) {
-  assertNoLinksInTree(jobDir, 'job folder');
-  for (const name of ['qa_failure.txt', STDERR_TAIL_FILE]) {
-    const file = path.join(jobDir, 'work', name);
-    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
-    if (!stat) continue;
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
-      throw new IsolationRefused(`unexpected diagnostic file ${name}`);
+  try {
+    assertNoLinksInTree(jobDir, 'job folder');
+    for (const name of ['qa_failure.txt', STDERR_TAIL_FILE]) {
+      const file = path.join(jobDir, 'work', name);
+      const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+      if (!stat) continue;
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+        throw new IsolationRefused(`unexpected diagnostic file ${name}`);
+      }
+      fs.unlinkSync(file);
     }
-    fs.unlinkSync(file);
+  } catch (error) {
+    if (error instanceof IsolationRefused) throw error;
+    throw new IsolationRefused('could not clear diagnostics before launch');
   }
 }
 
