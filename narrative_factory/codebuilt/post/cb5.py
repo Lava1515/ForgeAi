@@ -37,9 +37,10 @@ def _word_cues(word_data, duration):
         if not token or not math.isfinite(start) or not 0 <= start < duration:
             continue
         core = token.strip(".,;:!?…—–-)]}\"'”’")
+        marks = punctuation or token.rstrip("\"'”’)]}")
         if any(char.isdigit() for char in core):
             cues.append(("pop", start, 0.45))
-        elif (punctuation or token.rstrip("\"'”’)]}")).endswith((",", ";", ":", ".", "!", "?", "…")):
+        elif any(char in ",;:.!?…" for char in marks):
             cues.append(("whoosh", start, 0.16))
     return cues
 
