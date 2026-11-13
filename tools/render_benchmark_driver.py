@@ -26,7 +26,7 @@ args=sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
 def build(blend):
  bpy.ops.wm.read_factory_settings(use_empty=True)
  scene=bpy.context.scene
- scene.render.engine='BLENDER_EEVEE_NEXT'
+ scene.render.engine='BLENDER_EEVEE'
  scene.eevee.taa_render_samples=64
  scene.render.resolution_x=1080; scene.render.resolution_y=1920; scene.render.resolution_percentage=100
  scene.render.image_settings.file_format='PNG'; scene.render.image_settings.color_mode='RGB'; scene.render.image_settings.color_depth='8'
@@ -55,7 +55,9 @@ elif args and args[0]=='render':
  blend,out,frames=args[1],args[2],[int(x) for x in args[3].split(',')]
  bpy.ops.wm.open_mainfile(filepath=blend)
  import gpu
- info={'gpu_vendor':gpu.platform.vendor_get(),'gpu_renderer':gpu.platform.renderer_get(),'gpu_version':gpu.platform.version_get(),'eevee_samples':bpy.context.scene.eevee.taa_render_samples,'engine':bpy.context.scene.render.engine}
+ try: dev={'gpu_vendor':gpu.platform.vendor_get(),'gpu_renderer':gpu.platform.renderer_get(),'gpu_version':gpu.platform.version_get()}
+ except Exception as exc: dev={'gpu_info_error':repr(exc)}
+ info={**dev,'eevee_samples':bpy.context.scene.eevee.taa_render_samples,'engine':bpy.context.scene.render.engine}
  open(out+'/device-'+str(frames[0])+'.json','w').write(json.dumps(info))
  for frame in frames:
   bpy.context.scene.frame_set(frame); bpy.context.scene.render.filepath=out+'/'+str(frame).zfill(4)+'.png'; bpy.ops.render.render(write_still=True)
