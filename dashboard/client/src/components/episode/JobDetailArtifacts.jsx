@@ -20,13 +20,18 @@ export function JobArtifactView({ job, artifacts = {} }) {
   const final = artifacts.finalVideo?.url ? artifacts.finalVideo : artifacts.video;
   const sheet = artifacts.finalSheet?.url ? artifacts.finalSheet : artifacts.contactSheet;
   const rounds = Object.keys(artifacts).filter((key) => /^round\d+$/.test(key)).map((key) => Number(key.slice(5))).sort((a, b) => a - b);
+  const visibleRounds = rounds.filter((round) => {
+    const review = artifacts[`round${round}`];
+    const sheets = Array.from({ length: 9 }, (_, index) => artifacts[`round${round}sheet${index + 1}`]);
+    return review?.status === 'available' || sheets.some((item) => item?.status === 'available');
+  });
   return (
     <section aria-label={`Job ${job.id} artifacts`} className="space-y-2 pt-2 text-xs text-ink-200">
       <ArtifactText artifacts={artifacts} name="script" title="Script" />
       <ArtifactText artifacts={artifacts} name="shots" title="Shot list" />
       <div className="rounded border border-ink-800 p-2">
         <p className="mb-2">Preview sheets</p>
-        {rounds.map((round) => (
+        {visibleRounds.map((round) => (
           <details key={round} className="mb-2">
             <summary className="cursor-pointer">Preview round {round} - {stateLabel(artifacts[`round${round}`])}</summary>
             <ArtifactText artifacts={artifacts} name={`round${round}`} title="Review result" />
@@ -35,7 +40,7 @@ export function JobArtifactView({ job, artifacts = {} }) {
             </div>
           </details>
         ))}
-        {!rounds.some((round) => artifacts[`round${round}sheet1`]?.url) && <p className="text-ink-400">No preview sheets recorded yet.</p>}
+        {!visibleRounds.some((round) => Array.from({ length: 9 }, (_, index) => artifacts[`round${round}sheet${index + 1}`]?.url).some(Boolean)) && <p className="text-ink-400">No preview sheets recorded yet.</p>}
       </div>
       <div className="rounded border border-ink-800 p-2">
         <p>Final - {final?.status ?? 'pending'}</p>
@@ -53,9 +58,10 @@ export function JobArtifactView({ job, artifacts = {} }) {
 
 export default function JobDetailArtifacts({ job }) {
   const [state, setState] = useState({});
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
+    if (!expanded) return undefined;
     let live = true;
-    setState({});
     const load = async () => {
       try {
         const response = await fetch(`/api/codebuilt/jobs/${encodeURIComponent(job.id)}/artifacts`);
@@ -65,8 +71,9 @@ export default function JobDetailArtifacts({ job }) {
       } catch { if (live) setState({ error: true }); }
     };
     load();
-    const timer = setInterval(load, 5000);
-    return () => { live = false; clearInterval(timer); };
-  }, [job.id]);
-  return <div>{state.error && <p role="status">Artifacts unavailable; retrying.</p>}<JobArtifactView job={job} artifacts={state.artifacts} /></div>;
+    const active = ['queued', 'scripting', 'factchecking', 'voicing', 'planning', 'previewing', 'looking', 'building', 'drafting'].includes(job.status);
+    const timer = active ? setInterval(load, 5000) : null;
+    return () => { live = false; if (timer) clearInterval(timer); };
+  }, [job.id, job.status, expanded]);
+  return <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}><summary className="cursor-pointer">Job artifacts</summary><div>{state.error && <p role="status">Artifacts unavailable; retrying.</p>}<JobArtifactView job={job} artifacts={state.artifacts} /></div></details>;
 }

@@ -1,22 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createReadStream } from 'node:fs';
 import { jobsRoot } from '../episode/codebuilt/draftAdapter.js';
-import { assertRealDir, samePath } from '../episode/codebuilt/jobPaths.js';
+import { assertRealDir, findLinks, samePath } from '../episode/codebuilt/jobPaths.js';
+import { scanReparsePoints } from '../episode/codebuilt/reparse.js';
 import { buildCostRecord, normalizeJobCalls, scrubCost } from '../perf/creationCost.js';
 import { redactLogText } from './redact.js';
 import { MAX_LOOKS, MAX_CRASH_FIXES } from '../episode/codebuilt/visualLoop.js';
 
 const specs = {
-  script: ['stage', 'script.txt'],
-  shots: ['stage', 'shots.json'],
-  finalReport: ['job', 'final/report.json'],
-  finalVideo: ['job', 'final/video.mp4'],
-  finalSheet: ['job', 'final/contact_sheet.jpg'],
-  stageCost: ['stage', 'cost_calls.json'],
-  cost: ['job', 'cost_calls.json'],
-  report: ['job', 'out/report.json'],
-  video: ['job', 'out/video.mp4'],
-  contactSheet: ['job', 'out/contact_sheet.png'],
+  script: ['stage', 'script.txt'], shots: ['stage', 'shots.json'],
+  finalReport: ['job', 'final/report.json'], finalVideo: ['job', 'final/video.mp4'], finalSheet: ['job', 'final/contact_sheet.jpg'],
+  stageCost: ['stage', 'cost_calls.json'], cost: ['job', 'cost_calls.json'], report: ['job', 'out/report.json'],
+  video: ['job', 'out/video.mp4'], contactSheet: ['job', 'out/contact_sheet.png'],
 };
 for (let round = 1; round <= MAX_LOOKS + MAX_CRASH_FIXES; round += 1) {
   specs[`round${round}`] = ['stage', `loop/r${round - 1}/look.json`];
@@ -24,56 +20,113 @@ for (let round = 1; round <= MAX_LOOKS + MAX_CRASH_FIXES; round += 1) {
 }
 const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+const TERMINAL = new Set(['done', 'failed', 'aborted']);
+const LIST_BUDGET = 4 * 1024 * 1024;
 const mime = (rel) => rel.endsWith('.mp4') ? 'video/mp4' : rel.endsWith('.png') ? 'image/png' : rel.endsWith('.jpg') ? 'image/jpeg' : rel.endsWith('.json') ? 'application/json' : 'text/plain';
 
-function readArtifact(root, id, key) {
-  if (!Object.hasOwn(specs, key) || typeof id !== 'string' || !JOB_ID.test(id) || id.includes('..') || RESERVED.test(id)) return { status: 'unavailable' };
-  const [area, rel] = specs[key];
-  const parts = [...(area === 'stage' ? ['.start', id] : [id]), ...rel.split('/')];
+function safeSnapshot(root, id, scanner) {
+  if (!JOB_ID.test(id) || id.includes('..') || RESERVED.test(id)) return null;
   try {
     const realRoot = assertRealDir(path.resolve(root), 'job root');
-    let current = realRoot;
-    for (const part of parts.slice(0, -1)) current = assertRealDir(path.join(current, part), 'artifact directory');
+    // Scan before opening even the status marker: WSL-created reparse points can look like ordinary files to lstat.
+    // Scanning the root once also covers parent components and both artifact trees; no result is cached across requests.
+    const tree = findLinks(realRoot, { reparseScan: scanner });
+    if (!tree || tree.complete !== true || tree.truncated || tree.errors?.length || tree.links?.length) return null;
+    const stage = path.join(realRoot, '.start', id);
+    const job = path.join(realRoot, id);
+    const statusFile = path.join(stage, 'status.json');
+    const statusSt = fs.lstatSync(statusFile);
+    if (!statusSt.isFile() || statusSt.isSymbolicLink() || statusSt.nlink !== 1) return null;
+    const status = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+    if (status.id !== id || !TERMINAL.has(status.status)) return null;
+    // A terminal dashboard record alone cannot prove a runner is gone (including a quarantined/orphaned container).
+    const lockDir = path.join(realRoot, '.cb6-locks');
+    let jobExists = false;
+    try { assertRealDir(job, 'job output'); jobExists = true; } catch (error) { if (error?.code !== 'ENOENT') return null; }
+    try {
+      const lockDirReal = assertRealDir(lockDir, 'job lock folder');
+      if (fs.readdirSync(lockDirReal).includes(`${id}.lock`)) return null;
+    } catch (error) { if (error?.code !== 'ENOENT' || jobExists) return null; }
+    for (const dir of [stage, job]) {
+      try { assertRealDir(dir, 'artifact tree'); } catch (error) { if (error?.code === 'ENOENT') continue; return null; }
+    }
+    return { root: realRoot, stage, job };
+  } catch { return null; }
+}
+
+function readChecked(snapshot, key, budget) {
+  if (!Object.hasOwn(specs, key)) return { status: 'unavailable' };
+  const [area, rel] = specs[key];
+  const base = area === 'stage' ? snapshot.stage : snapshot.job;
+  const parts = rel.split('/');
+  let current = base;
+  let fd;
+  try {
+    for (const part of parts.slice(0, -1)) {
+      current = path.join(current, part);
+      const dirStat = fs.lstatSync(current);
+      if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return { status: 'unavailable' };
+    }
     const file = path.join(current, parts.at(-1));
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || !samePath(file, fs.realpathSync.native(file))) return { status: 'unavailable' };
+    const before = fs.lstatSync(file);
+    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || !samePath(file, fs.realpathSync.native(file))) return { status: 'unavailable' };
     const type = mime(rel);
     const media = /^(?:image|video)\//.test(type);
-    if (!stat.size || stat.size > (media ? 512 * 1024 * 1024 : 2 * 1024 * 1024)) return { status: 'unavailable' };
-    if (media) return { status: 'available', file, type };
-    const raw = fs.readFileSync(file, 'utf8');
+    const cap = media ? 512 * 1024 * 1024 : 2 * 1024 * 1024;
+    if (!before.size || before.size > cap) return { status: 'unavailable' };
+    // Open now and verify the opened inode against the checked directory entry. The descriptor pins the object across
+    // the response; sendFile(path) would reopen later and permit a replace-between-check-and-open race.
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    const opened = fs.fstatSync(fd);
+    const after = fs.lstatSync(file);
+    if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== before.dev || opened.ino !== before.ino || after.dev !== before.dev || after.ino !== before.ino) {
+      fs.closeSync(fd); return { status: 'unavailable' };
+    }
+    if (media) return { status: 'available', fd, type, size: opened.size };
+    if (opened.size > budget.remaining) { fs.closeSync(fd); return { status: 'unavailable' }; }
+    budget.remaining -= opened.size;
+    const raw = fs.readFileSync(fd, 'utf8');
+    fs.closeSync(fd); fd = undefined;
     if (type === 'application/json') {
       const data = scrubCost(JSON.parse(raw));
-      return { status: 'available', data, text: JSON.stringify(data, null, 2), type };
+      return { status: 'available', ...(key === 'cost' || key === 'stageCost' ? { internalCost: data } : { text: JSON.stringify(data, null, 2) }), type };
     }
     return { status: 'available', text: redactLogText(raw), type };
   } catch (error) {
-    return { status: error?.code === 'ENOENT' ? 'missing' : 'unavailable' };
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    return { status: error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? 'missing' : 'unavailable' };
   }
 }
 
-function artifactEntry(root, id, key) {
-  let result = readArtifact(root, id, key);
-  if (key === 'cost' && result.status === 'missing') result = readArtifact(root, id, 'stageCost');
-  const { file, type, ...entry } = result;
-  return { ...entry, ...(file ? { media: type, url: `/api/codebuilt/jobs/${encodeURIComponent(id)}/artifacts/${key}` } : {}) };
-}
+const unavailable = () => Object.fromEntries(Object.keys(specs).filter((key) => key !== 'stageCost').map((key) => [key, { status: 'unavailable' }]));
 
-export function createJobArtifactHandlers({ root = jobsRoot() } = {}) {
+export function createJobArtifactHandlers({ root = jobsRoot(), reparseScan = scanReparsePoints } = {}) {
   const list = (req, res) => {
     const id = String(req.params.jobId ?? '');
-    const artifacts = Object.fromEntries([...Object.keys(specs).filter((key) => key !== 'stageCost'), 'cost'].map((key) => [key, artifactEntry(root, id, key)]));
-    if (artifacts.cost.status === 'available') {
-      const calls = artifacts.cost.data;
-      artifacts.cost.summary = buildCostRecord({ calls: normalizeJobCalls(calls) }).summary;
+    const snapshot = safeSnapshot(root, id, reparseScan);
+    const artifacts = snapshot ? {} : unavailable();
+    if (snapshot) {
+      const budget = { remaining: LIST_BUDGET };
+      for (const key of Object.keys(specs).filter((name) => name !== 'stageCost')) artifacts[key] = readChecked(snapshot, key, budget);
+      if (artifacts.cost?.status === 'missing') artifacts.cost = readChecked(snapshot, 'stageCost', budget);
+      if (artifacts.cost?.status === 'available') {
+        const calls = artifacts.cost.internalCost;
+        delete artifacts.cost.internalCost;
+        artifacts.cost.text = JSON.stringify(calls, null, 2);
+        artifacts.cost.summary = buildCostRecord({ calls: normalizeJobCalls(calls) }).summary;
+      }
     }
     res.set('Cache-Control', 'no-store').json({ artifacts });
   };
   const file = (req, res) => {
-    const result = readArtifact(root, String(req.params.jobId ?? ''), String(req.params.key ?? ''));
-    if (result.status !== 'available' || !result.file) return res.status(404).json({ error: 'Artifact unavailable' });
-    res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Type': result.type });
-    return res.sendFile(result.file);
+    const id = String(req.params.jobId ?? '');
+    const key = String(req.params.key ?? '');
+    const snapshot = safeSnapshot(root, id, reparseScan);
+    if (!snapshot) return res.status(404).json({ error: 'Artifact unavailable' });
+    const result = readChecked(snapshot, key, { remaining: Infinity });
+    if (result.status !== 'available' || result.fd === undefined) return res.status(404).json({ error: 'Artifact unavailable' });
+    res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Type': result.type, 'Content-Length': String(result.size) });
+    return createReadStream(null, { fd: result.fd, autoClose: true }).on('error', () => { if (!res.headersSent) res.status(404).end(); else res.destroy(); }).pipe(res);
   };
   return { list, file };
 }

@@ -42,7 +42,12 @@ export function assertRealDir(p, what = 'path') {
   if (typeof p !== 'string' || !path.isAbsolute(p)) throw new Error(`${what} must be an absolute path: ${p}`);
   const abs = path.resolve(p);
   let st;
-  try { st = fs.lstatSync(abs); } catch { throw new Error(`${what} does not exist: ${abs}`); }
+  try { st = fs.lstatSync(abs); } catch (error) {
+    const missing = error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
+    const result = new Error(`${what} ${missing ? 'does not exist' : 'cannot be inspected'}: ${abs}`);
+    result.code = missing ? error.code : 'PATH_UNAVAILABLE';
+    throw result;
+  }
   if (st.isSymbolicLink()) throw new Error(`${what} is a symlink/junction, refused: ${abs}`);
   if (!st.isDirectory()) throw new Error(`${what} is not a directory: ${abs}`);
   const real = fs.realpathSync.native(abs);
