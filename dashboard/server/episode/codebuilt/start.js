@@ -34,6 +34,7 @@ import { sanitizeRouterCall } from './routerCalls.js';
 import { defaultFactCheckStage } from './factCheckStage.js';
 import { normalizeProductionChoices } from './productionChoices.js';
 import { frameCountFor, shotStartsFor, validateBuildScript } from './planner.js';
+import { jobWriteBlockedReason, writeHostJobReceipt } from './hostJobReceipts.js';
 
 // Production default is the real router. Under `node --test` (NODE_TEST_CONTEXT is set by the runner) the default refuses before any CLI
 // is spawned, so a rig that never injects askRoleFn cannot reach a model; tests that want metadata inject askRoleFn or lightMetadataStage.
@@ -192,19 +193,7 @@ export function createCodebuiltStarter({
   function reusable(id) {
     // Locks live outside container-writable folders. Refuse before reading any reuse artifact,
     // including when cleanup of any preview belonging to this parent is uncertain.
-    const lockDirectory = path.join(jobsDir, '.cb6-locks');
-    let blockedReason = null;
-    try {
-      let stat;
-      try { stat = fs.lstatSync(lockDirectory); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      if (stat) {
-        if (!safeDirectory(lockDirectory)) throw new Error('invalid lock directory');
-        const names = fs.readdirSync(lockDirectory);
-        if (names.some((name) => name === `${id}.lock` || (name.startsWith(`${id}-pv`) && /^\d+\.lock$/.test(name.slice(id.length + 3))))) {
-          blockedReason = 'Job or preview lock is held; cleanup must be confirmed before resuming';
-        }
-      }
-    } catch { blockedReason = 'Job lock directory is unreadable; cleanup must be confirmed before resuming'; }
+    const blockedReason = jobWriteBlockedReason(jobsDir, id);
     if (blockedReason) return { blockedReason, reused: [], resumeFrom: null };
     const stage = path.join(stateRoot(), id);
     const script = readSafe(path.join(stage, 'script.txt')); const brief = readSafe(path.join(stage, 'brief.md'));
@@ -294,16 +283,15 @@ export function createCodebuiltStarter({
   }
 
   function writeCalls(id, calls, createJobDir = false) {
-    if (!Array.isArray(calls) || !calls.length) return;
+    if (!Array.isArray(calls)) return;
     const bytes = `${JSON.stringify({ calls: normalizeJobCalls(calls).map(({ tokens, ...call }) => ({ ...call, input_tokens: tokens?.input ?? null, output_tokens: tokens?.output ?? null })) }, null, 1)}\n`;
-    for (const dir of [path.join(stateRoot(), id), path.join(jobsDir, id)]) {
-      try {
-        // The runner owns creation and validation of its job root. Never create it just to record costs.
-        if (dir === path.join(jobsDir, id) && !createJobDir && !fs.existsSync(dir)) continue;
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, 'cost_calls.json'), bytes);
-      } catch { /* cost is best effort and never blocks or fakes a result */ }
-    }
+    try {
+      const dir = path.join(stateRoot(), id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'cost_calls.json'), bytes);
+    } catch { /* host-only cost history is best effort */ }
+    // Only successful runner completion establishes container exit and output audit.
+    if (createJobDir) writeHostJobReceipt(jobsDir, id, 'cost_calls.json', bytes);
   }
 
   // Every build script the checks refuse is kept beside the job state (refused-build-1.py, -2.py with the reasons on
@@ -422,8 +410,7 @@ export function createCodebuiltStarter({
   }
   /** Host-written beside cost_calls.json after the final render; the draft adapter reduces it to hashes, counts and verdicts. */
   function writeLoopReceipt(id, receipt) {
-    if (!receipt) return;
-    try { fs.writeFileSync(path.join(jobsDir, id, 'visual_loop.json'), `${JSON.stringify(receipt, null, 1)}\n`); } catch { /* the draft is made without it; nothing is faked */ }
+    writeHostJobReceipt(jobsDir, id, 'visual_loop.json', `${JSON.stringify(receipt, null, 1)}\n`);
   }
 
   async function execute(rec, controller) {
