@@ -39,6 +39,7 @@ import {
 } from './routes/channelsRoutes.js';
 import { startCodebuiltHandler, listCodebuiltHandler, getCodebuiltHandler, abortCodebuiltHandler, resumeCodebuiltHandler } from './routes/codebuilt.js';
 import { startCodebuiltRunHandler, listCodebuiltRunsHandler, getCodebuiltRunHandler, abortCodebuiltRunHandler } from './routes/codebuiltRuns.js';
+import { researchCandidatesHandler } from './routes/videoResearch.js';
 
 onGeminiFallback((fallback) => {
   broadcastEvent('gemini_fallback', fallback);
@@ -163,6 +164,7 @@ export function createApp() {
   app.post('/api/codebuilt/jobs/:jobId/abort', requireAdmin, abortCodebuiltHandler);
   app.post('/api/codebuilt/jobs/:jobId/resume', requireAdmin, resumeCodebuiltHandler);
   app.post('/api/codebuilt/runs', requireAdmin, startCodebuiltRunHandler);
+  app.post('/api/video-research', requireAdmin, researchCandidatesHandler);
   app.get('/api/codebuilt/runs', listCodebuiltRunsHandler);
   app.get('/api/codebuilt/runs/:runId', getCodebuiltRunHandler);
   app.post('/api/codebuilt/runs/:runId/abort', requireAdmin, abortCodebuiltRunHandler);

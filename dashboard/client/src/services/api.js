@@ -412,3 +412,11 @@ export async function getCodebuiltRun(id) {
 export async function abortCodebuiltRun(id) {
   return request('/api/codebuilt/runs/' + encodeURIComponent(id) + '/abort', { method: 'POST' });
 }
+
+export async function researchVideoCandidates(body) {
+  return request('/api/video-research', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function createResearchedVideo(body) {
+  return request('/api/video-research', { method: 'POST', body: JSON.stringify(body) });
+}
