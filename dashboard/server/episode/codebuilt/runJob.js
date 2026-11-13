@@ -2,7 +2,7 @@
 //   validate -> reap orphans -> take the job lock -> wait for the GPU lease (if the job uses the GPU)
 //   -> [snapshot -> run the container -> confirm it is gone -> snapshot]  (all inside the lock and the lease)
 //   -> give the lease back ONLY when the container is confirmed gone -> audit the job folder -> release the lock.
-// Nothing here is called by production code yet: CB5 (the runner) owns the topology and the real-agent switch.
+// composeCodebuiltRunner injects this fence into the build-job runner through cb6Adapter.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JOB_ROOT, CODE_ROOT, assertJobDirSafe } from './jobPaths.js';
@@ -59,6 +59,10 @@ const hasUsableSecret = (v) => Array.isArray(v) && v.some(s => typeof s === 'str
  * runs -> docker kill, confirmed removal, status 'aborted', started true (cleanup as for any stop).
  */
 export async function runIsolatedJob(config, deps = {}) {
+  const hostStarted = performance.now();
+  const atMs = {};
+  const elapsed = () => Math.round((performance.now() - hostStarted) * 1000) / 1000;
+  const mark = (phase) => { atMs[phase] = elapsed(); };
   const { fx, approval } = validateLaunch(config, deps); // runtime, real-or-simulated, approved list, time limits
   const { jobRoot = JOB_ROOT, jobId } = config;
   const mountAllowlist = fx.simulated ? deps.mountAllowlist : undefined;
@@ -74,10 +78,12 @@ export async function runIsolatedJob(config, deps = {}) {
   if (typeof gpuWaitMs !== 'number' || !(gpuWaitMs > 0) || gpuWaitMs > MAX_GPU_WAIT_MS) throw new Error(`gpuWaitMs must be > 0 and at most ${MAX_GPU_WAIT_MS}`);
   // A job that is given a GPU always takes the GPU lease. useGpuQueue can add the lease, never remove it.
   const needsGpu = Boolean(config.gpu) || config.useGpuQueue === true || approval.blender.max > 0;
+  mark('validated');
 
   // Orphans first: a container left by a crashed dashboard, or one whose removal was never confirmed, may still
   // hold the GPU or this job's folder.
   const reaped = await reapOrphans({ jobRoot }, deps);
+  mark('reaped');
   if (reaped.uncertain.some(u => u.jobId === jobId)) {
     throw new OrphanUncertain(`job ${jobId}: an earlier container of this job could not be confirmed gone`, { jobIds: reaped.uncertain.map(u => u.jobId), unowned: reaped.unowned, listError: reaped.listError });
   }
@@ -89,6 +95,7 @@ export async function runIsolatedJob(config, deps = {}) {
   if (deps.signal?.aborted) return { ok: false, status: 'aborted', reason: 'abort_signal', started: false, orphan: false, simulated: fx.simulated, reaped, jobDir };
 
   const lock = acquireJobLock(jobId, { jobRoot }); // a duplicate run stops here (JobLocked)
+  mark('locked');
   const startedMs = Date.now();
   let lease = null, run, before, after;
   try {
@@ -104,16 +111,22 @@ export async function runIsolatedJob(config, deps = {}) {
       }
     }
     if (lease) lock.markGpu(); // from here on a dashboard crash cannot free the GPU while this container may run
+    mark('leaseReady');
     const roots = (fx.simulated && deps.watchRoots) || defaultWatchRoots({ jobRoot, jobDir, repoRoot: REPO_ROOT });
     const snapOpts = { maxEntries: fx.simulated ? deps.maxSnapshotEntries : undefined };
     before = snapshotTrees(roots, snapOpts);
+    mark('snapshotBefore');
     if (deps.signal?.aborted) { // aborted while waiting for the lease: nothing was started
       if (lease) await lease.release();
       lock.release();
       return { ok: false, status: 'aborted', reason: 'abort_signal', started: false, orphan: false, simulated: fx.simulated, reaped, jobDir, containerName: lock.containerName };
     }
     run = await runFenced(config, { ...deps, lock }); // re-checks approval, lock and image at the execution boundary
+    // runFenced returns only after its cleanup check. This combined interval includes
+    // image inspection, execution and cleanup; it cannot separate Blender setup/QA/render.
+    mark('fenceReturned');
     after = snapshotTrees(roots, snapOpts);
+    mark('snapshotAfter');
   } catch (e) {
     // runFenced only throws before it starts anything, so there is no container to account for.
     if (lease) await lease.release();
@@ -130,6 +143,7 @@ export async function runIsolatedJob(config, deps = {}) {
     else { retainedLeases.set(lock.token, lease); leaseRetained = true; }
   }
   if (!cleanupOk) lock.quarantine(run.cleanup.error);
+  mark('resourcesSettled');
 
   // Other jobs that held a lock at any time during this run write to their own folders: left out, and listed.
   const live = liveJobIds({ jobRoot, sinceMs: startedMs });
@@ -141,6 +155,7 @@ export async function runIsolatedJob(config, deps = {}) {
   const scan = scanJobForViolations(jobDir, { reparseScan: reparseScanFor(fx, deps) });
   const leaks = findSecretLeaks(jobDir, deps.secretValues);
   if (cleanupOk) lock.release();
+  mark('auditComplete');
 
   const violated = outside.status === 'changed' || scan.findings.some(f => f.severity === 'high') || leaks.status === 'leak';
   const leakScanMissing = leaks.status === 'incomplete' || (leaks.status === 'not_run' && config.allowNoLeakScan !== true);
@@ -154,7 +169,7 @@ export async function runIsolatedJob(config, deps = {}) {
     // A container of this run may still be alive (removal not confirmed). CB5 must treat this as an orphan, never as
     // "nothing started"; the lock and lease are kept until reapOrphans() confirms it is gone.
     orphan: !cleanupOk, code: !cleanupOk ? 'ORPHAN_UNCERTAIN' : null,
-    timing: { gpuWaitMs, timeoutMs: config.timeoutMs, note: 'the GPU wait is bounded by gpuWaitMs and is not part of timeoutMs; abort covers both' }, simulated: fx.simulated, started: run.started === true,
+    timing: { gpuWaitMs, timeoutMs: config.timeoutMs, hostPhases: { clock: 'monotonic_ms', atMs, totalMs: elapsed() }, note: 'the GPU wait is bounded by gpuWaitMs and is not part of timeoutMs; abort covers both; fenceReturned includes execution and cleanup, not separate Blender phases' }, simulated: fx.simulated, started: run.started === true,
     run, cleanup: run.cleanup, leaseRetained, lockRetained: !cleanupOk, reaped,
     checks: { outside: outside.status, scriptScan: scan.coverage.complete ? 'complete' : 'incomplete', leakScan: leaks.status },
     // Two different kinds of evidence, never merged: what the trusted fence allowed (prevention) and what a bounded,

@@ -1,9 +1,9 @@
 // CB5 (KAN-914): the code-built build-job runner. A callable component only: nothing registers it as a path, stage,
 // route or UI, and nothing starts it by itself.
 //
-// Current CB6 API: runIsolatedJob(config, deps) from episode/codebuilt/runJob.js. The dormant cb6Adapter.js maps
-// jobDir to jobRoot/jobId and forwards only signal. CB6 owns its GPU lease; do not wrap it in withGpu. CB6 also
-// requires a fixed reviewed image+argv approval, which CB5 does not yet provide, so this adapter is not wired here.
+// Current CB6 API: runIsolatedJob(config, deps) from episode/codebuilt/runJob.js. compose.js injects cb6Adapter.js,
+// which maps jobDir to jobRoot/jobId and forwards only signal under a fixed reviewed image+argv approval.
+// CB6 owns its GPU lease; do not wrap it in withGpu.
 //   config: { jobDir, jobRoot, jobId, runtime: 'docker', kind: 'stub' | 'generated-code', timeoutMs, useGpuQueue: true }
 //   deps: { signal }
 //   confirmFenceStopped({ jobDir, attempt }) -> exactly true only when the fence authoritatively reports that no
@@ -153,7 +153,7 @@ export function createBuildJobRunner({
     writeJobState(paths.state, { ...base, status: 'running', startedAt });
 
     const controller = new AbortController();
-    let backstop; let onAbort;
+    let backstop; let onAbort; let fenceTiming = null;
     try {
       const config = { ...fenceConfig, jobDir: paths.dir, kind, timeoutMs, useGpuQueue: true };
       const fenceRun = Promise.resolve().then(() => runIsolatedJob(config, { withGpu, signal: controller.signal }));
@@ -183,6 +183,7 @@ export function createBuildJobRunner({
         if (refused) throw new CodebuiltError('FENCE_REFUSED', message);
         throw new CodebuiltError(error instanceof CodebuiltError ? error.code : 'FENCE_FAILED', message, { ...(error instanceof CodebuiltError ? error.detail : {}), orphan: true });
       }
+      fenceTiming = first.value?.timing ?? null;
       classifyResult(first.value);
       verifyInputs(paths, inputs);
       if (kind === 'generated-code') verifyBuildScript(paths, inputs[BUILD_SCRIPT]);
@@ -194,7 +195,7 @@ export function createBuildJobRunner({
         const previewFence = first.value.acceptance
           ? { cb6Status: first.value.cb6Status ?? first.value.status, policy: first.value.acceptance.policy, accepted: first.value.acceptance.accepted, supplementary: first.value.acceptance.supplementary }
           : { cb6Status: first.value.status, policy: 'strict', accepted: true, supplementary: null };
-        writeJobState(paths.state, { ...base, status: 'complete', startedAt, finishedAt: new Date().toISOString(), preview: collected.frames.map((f) => ({ name: f.name, sha256: f.sha256 })), fence: previewFence });
+        writeJobState(paths.state, { ...base, status: 'complete', startedAt, finishedAt: new Date().toISOString(), preview: collected.frames.map((f) => ({ name: f.name, sha256: f.sha256 })), fence: previewFence, fenceTiming });
         return { resumed: false, attempt, jobDir: paths.dir, mode: 'preview', fence: previewFence, preview: collected };
       }
       // The host producer turns what the executor left (frames, audio) into the four output files.
@@ -213,7 +214,7 @@ export function createBuildJobRunner({
       const fence = first.value.acceptance
         ? { cb6Status: first.value.cb6Status ?? first.value.status, policy: first.value.acceptance.policy, accepted: first.value.acceptance.accepted, supplementary: first.value.acceptance.supplementary }
         : { cb6Status: first.value.status, policy: 'strict', accepted: true, supplementary: null };
-      writeJobState(paths.state, { ...base, status: 'complete', startedAt, finishedAt: new Date().toISOString(), outputs: found.hashes, fence, producer });
+      writeJobState(paths.state, { ...base, status: 'complete', startedAt, finishedAt: new Date().toISOString(), outputs: found.hashes, fence, producer, fenceTiming });
       return { resumed: false, attempt, jobDir: paths.dir, fence, producer, ...found };
     } catch (raw) {
       const error = toTyped(raw);
@@ -221,7 +222,7 @@ export function createBuildJobRunner({
       const cleanupUncertain = error.detail?.cleanupUncertain === true;
       try {
         writeJobState(paths.state, {
-          ...base, status: orphaned ? 'orphaned' : 'failed', ...(cleanupUncertain ? { cleanupUncertain: true } : {}), failure: { code: error.code, message: error.message.slice(0, 300) }, finishedAt: new Date().toISOString(),
+          ...base, status: orphaned ? 'orphaned' : 'failed', ...(cleanupUncertain ? { cleanupUncertain: true } : {}), failure: { code: error.code, message: error.message.slice(0, 300) }, finishedAt: new Date().toISOString(), fenceTiming,
         });
       } catch (persist) {
         throw new CodebuiltError('IO_FAILED', `${error.code}: ${error.message}; the job record could not be saved (${persist?.code ?? 'error'})`.slice(0, 300), { original: error.code, orphan: orphaned });
