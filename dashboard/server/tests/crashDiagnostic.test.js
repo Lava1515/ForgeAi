@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { saveStderrTail, STDERR_TAIL_FILE } from '../episode/codebuilt/processGuard.js';
+import { saveStderrTail, clearRunDiagnostics, STDERR_TAIL_FILE } from '../episode/codebuilt/processGuard.js';
 import { readPreviewDiagnostic } from '../episode/engines/codebuilt/composePreview.js';
 
 const TRACE = 'Traceback (most recent call last):\n  File "/job/build/build.py", line 344, in court_assets\nTypeError: bad operand type for abs(): \'Vector\'\n';
@@ -38,4 +38,15 @@ test('nothing is written for an empty stderr or a missing work folder', () => {
   assert.equal(saveStderrTail(dir, '   '), false);
   assert.equal(saveStderrTail(path.join(root, 'nope'), TRACE), false);
   assert.equal(readPreviewDiagnostic(root, 'job1'), null);
+});
+
+test('a new launch cannot reuse the previous crash or QA diagnostic', () => {
+  const { root, dir } = jobDir();
+  saveStderrTail(dir, TRACE);
+  fs.writeFileSync(path.join(dir, 'work', 'qa_failure.txt'), 'old QA failure');
+  clearRunDiagnostics(dir);
+  saveStderrTail(dir, '');
+  assert.equal(readPreviewDiagnostic(root, 'job1'), null);
+  assert.equal(saveStderrTail(dir, 'new traceback'), true);
+  assert.equal(readPreviewDiagnostic(root, 'job1'), 'new traceback');
 });
