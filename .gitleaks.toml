@@ -1,0 +1,55 @@
+# gitleaks configuration for ForgeAI (KAN-385, security S2).
+# gitleaks is MIT licensed. Run it from the repository root:
+#   gitleaks dir . --redact -c .gitleaks.toml
+#   gitleaks git . --redact -c .gitleaks.toml --log-opts="--branches --remotes --tags"
+# Always pass --redact: reports must never carry a secret value.
+title = "ForgeAI secret scanning"
+
+[extend]
+# keep every built-in rule (gcp-api-key, generic-api-key, private keys, ...)
+useDefault = true
+
+# ---- extra rules for the credential shapes this project actually uses ----
+# Built-in rules cover AIza keys but not the three shapes below.
+
+[[rules]]
+id = "google-oauth-client-secret"
+description = "Google OAuth client secret (YouTube or the agy login)"
+regex = '''GOCSPX-[A-Za-z0-9_-]{28}'''
+keywords = ["gocspx-"]
+
+[[rules]]
+id = "gemini-aq-api-key"
+description = "Gemini API key in the long AQ. format"
+regex = '''\bAQ\.[A-Za-z0-9_-]{40,}'''
+keywords = ["aq."]
+
+[[rules]]
+id = "google-oauth-token"
+description = "Google OAuth access token (ya29.) or refresh token (1//0)"
+regex = '''\b(?:ya29\.[0-9A-Za-z_-]{30,}|1//0[0-9A-Za-z_-]{30,})'''
+keywords = ["ya29.", "1//0"]
+
+# ---- allowlist: known fixtures only, one entry per file and rule ----
+# Keep this list short. A real finding must never be allowlisted by path alone;
+# fix or rotate it instead.
+
+[[allowlists]]
+description = "Redaction unit test: feeds a fake 'api_key=sk_live_...' string to safeDetail() and asserts it is masked"
+paths = ['''dashboard/server/tests/mechanismResources\.test\.js''']
+targetRules = ["stripe-access-token", "generic-api-key"]
+
+[[allowlists]]
+description = "Test fixture: a made-up AIza-shaped key used to prove the API never echoes a channel key"
+paths = ['''dashboard/server/tests/growthChannelConnect\.test\.js''']
+targetRules = ["gcp-api-key"]
+
+[[allowlists]]
+description = "Saved third-party web page used as a parser fixture; its hits are the public reCAPTCHA site key of the page"
+paths = ['''dashboard/server/tests/fixtures/official-sources/''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Removed listening-test page: KEY_B64 is a base64 answer key (voice names), not a credential"
+paths = ['''output/voice-sampler/''']
+targetRules = ["generic-api-key"]

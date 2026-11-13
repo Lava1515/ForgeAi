@@ -1,0 +1,24 @@
+{
+  "license": "CC0 source assets; renders are project output",
+  "preview_kind": "Actual rendered frame, not a swatch or generated preview",
+  "previews": {
+    "workroom": {
+      "file": "workroom.png",
+      "sha256": "92871DAC8E36E68AC31360B7E8BDD0E938BD98C683A4B0350E9424239935D0F2",
+      "source_evidence": "output/story3d-20261027/m1-textured-proof-cycle4-sol/regression-landed-320ab73/evidence.json",
+      "source_head": "320ab732ca44ac6586b81f3b86d43f75d115bec0"
+    },
+    "concrete": {
+      "file": "concrete.png",
+      "sha256": "DF053C73AD2E425A4C35A4F550C538629328405429913A3AC04A259522C6D15B",
+      "source_evidence": "output/story3d-20261027/m1-textured-proof-cycle4-sol/concrete/evidence.json",
+      "source_head": "320ab732ca44ac6586b81f3b86d43f75d115bec0"
+    },
+    "grass": {
+      "file": "grass.png",
+      "sha256": "4BB0C7D94E8014BA42F53E3BE6C341B8055F1D433CE3B0188D04F1ADDA80D3CA",
+      "source_evidence": "output/story3d-20261027/m1-textured-proof-cycle4-sol/grass/evidence.json",
+      "source_head": "320ab732ca44ac6586b81f3b86d43f75d115bec0"
+    }
+  }
+}

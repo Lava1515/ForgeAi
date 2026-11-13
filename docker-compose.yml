@@ -1,0 +1,49 @@
+# ForgeShorts services. The dashboard runs on the host (scripts/start_dashboard.ps1), not in Docker.
+#   docker compose up -d narrative-factory
+
+services:
+  # Voice (Qwen3-TTS), word timings and the edit helpers. Listens on 127.0.0.1:5050.
+  narrative-factory:
+    build: ./narrative_factory
+    image: forgeai-narrative-factory:latest
+    container_name: forgeshorts-narrative
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:5050:5050"
+    env_file:
+      - path: ./.env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - HOST=0.0.0.0
+      # The root filesystem is read-only: numba (used by librosa) must cache into the tmpfs.
+      - NUMBA_CACHE_DIR=/tmp/numba
+      # Whisper (word timings) keeps its model here, so it downloads once and survives restarts.
+      - XDG_CACHE_HOME=/forgeai/data/narrative_shorts/models/cache
+      - TTS_TOKEN=${TTS_TOKEN}
+      - SERVICE_TOKEN=${SERVICE_TOKEN:-}
+    volumes:
+      - .:/forgeai:ro
+      # Hide host secrets from the read-only repo view; env_file injects the factory's values.
+      - ./.env.example:/forgeai/.env:ro
+      - ./data:/forgeai/data
+      - ./output:/forgeai/output
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+      - /home/forgeai:uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 6g
+    pids_limit: 512
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, video]

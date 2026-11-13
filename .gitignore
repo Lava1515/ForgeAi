@@ -1,0 +1,162 @@
+# ==============================================================================
+# Environment & Secrets
+# ==============================================================================
+.env
+.env.local
+.env.*.local
+
+# ==============================================================================
+# Dependencies & Package Managers
+# ==============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.venv/
+venv/
+*.egg-info/
+
+# ==============================================================================
+# Build & Distribution Artifacts
+# ==============================================================================
+dist/
+build/
+.vite/
+.turbo/
+*.log
+
+# ==============================================================================
+# Pipeline Generated Artwork & Output (Keep folder, ignore generated files)
+# ==============================================================================
+output/drafts/*
+!output/drafts/.gitkeep
+!output/drafts/acceptance_whatif_same_character/
+output/drafts/acceptance_whatif_same_character/*
+!output/drafts/acceptance_whatif_same_character/plan.json
+!output/drafts/acceptance_whatif_same_character/scenes/
+output/drafts/acceptance_whatif_same_character/scenes/*
+!output/drafts/acceptance_whatif_same_character/scenes/scene_[0-3].png
+output/temp/
+output/failed/
+output/tts_compare/
+output/benchmarks/
+output/ai3d/
+output/*.mp4
+output/*.png
+data/narrative_shorts/
+__pycache__/
+
+# ==============================================================================
+# Test & Coverage Outputs
+# ==============================================================================
+test-results/
+playwright-report/
+blob-report/
+coverage/
+.nyc_output/
+
+# ==============================================================================
+# AI Assistants, MCP & Editor Caches
+# ==============================================================================
+.agents/
+.cursor/
+.gemini/
+.superpowers/
+# docs/superpowers/ (plans and specs tracked)
+.mcp.json
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ==============================================================================
+# Operating System Junk
+# ==============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Temporary files
+*.tmp
+*.temp
+
+# YouTube OAuth refresh token and multi-channel configuration
+data/youtube_token.json
+data/tokens/
+data/channels.json
+data/active_channel.json
+
+# Antigravity CLI Google login (OAuth refresh token) and its chosen account; gemini-cli is the retired Gemini CLI login
+data/agy/
+data/claude/
+
+# Written by narrative tests when run from the repo root
+/tts.json
+data/gemini-cli/
+
+# Trending-themes scan cache (rewritten on every scan)
+data/trends/themes.json
+data/trends/channel_performance.json
+data/covered_stories.json*
+
+# Fish Speech voice clips (may be your own recorded voice)
+data/voices/
+
+# 3D cutaway model library (generated: parts lists + preview renders)
+data/models3d/
+
+# KAN-171 model reference cache (Wikipedia/Wikidata/Commons lookups, fetched on demand)
+data/model_refs/
+
+# CC0 World assets (HDRIs and ground textures): large binaries live locally/primary
+data/worlds/*
+!data/worlds/manifest.json
+!data/worlds/LICENSES.md
+!data/worlds/kits/
+
+# CC0 Kids sound effects: large binaries live locally/primary
+data/sfx/kids/*
+!data/sfx/kids/LICENSES.md
+
+# Generated ACE-Step kids music loops are local; keep their provenance ledger tracked.
+data/music/kids/*.wav
+ 
+.worktrees/
+
+.claude/worktrees/
+
+# KAN-258 characters3d: keep only the licence record and manifest, never the packs
+data/characters3d/*
+!data/characters3d/LICENSES.md
+!data/characters3d/manifest.json
+graphify-out/cache/
+
+# Security S2 (KAN-385): backups and credential-shaped files must never be committable
+*.bak
+*.pem
+*.key
+.env.prod
+.env.production
+.env.staging
+.env.*.local
+owner-channel-records*.json
+graphify-out/20*/
+
+# output/: everything is runtime evidence unless whitelisted below (2026-11-01)
+output/*
+!output/drafts/
+!output/ui-audit/
+.anatomy-tmp/

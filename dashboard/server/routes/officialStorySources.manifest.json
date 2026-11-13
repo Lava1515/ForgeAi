@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "id": "official-story-sources-v1",
+  "review": {
+    "status": "approved",
+    "reviewer": "Codex independent review create-videos-reviewed-source-review03-contract",
+    "approvedDigest": "404b8280e77ea558345555e11ec4bf25b246a9af2804a6343d3cfc3f2ad093ae"
+  },
+  "entries": [
+    {
+      "id": "liquid-rocket-engine-v1",
+      "topic": "liquid rocket engine",
+      "topicSha256": "5ddb01440ecb11a3b5984fdca25e3a2766798b688d85e93aca9237d2370b43d5",
+      "titleSha256s": [
+        "5ddb01440ecb11a3b5984fdca25e3a2766798b688d85e93aca9237d2370b43d5"
+      ],
+      "script": "This is a simplified view of a liquid rocket engine. Its propellants are stored as fuel and oxidizer. Pumps feed them into the combustion chamber. There, they mix and burn, producing hot exhaust. The nozzle accelerates this flow. Ejecting gas creates thrust. Unlike an air-breathing engine, a rocket carries its oxidizer. That lets it produce thrust without air around it.",
+      "scriptSha256": "75153d4409188a8a6aa40004ad50c5118f0a9571974447e6288d56450cae3b0b",
+      "source": {
+        "kind": "html",
+        "url": "https://www1.grc.nasa.gov/beginners-guide-to-aeronautics/liquid-rocket-engine/",
+        "title": "Liquid Rocket Engine | Glenn Research Center | NASA",
+        "authority": "NASA Glenn Research Center",
+        "maxBytes": 1500000,
+        "allowedRedirects": []
+      },
+      "claims": [
+        {
+          "text": "This is a simplified view of a liquid rocket engine.",
+          "excerpts": [
+            "On this page, we show a schematic of a liquid rocket engine."
+          ]
+        },
+        {
+          "text": "Its propellants are stored as fuel and oxidizer.",
+          "excerpts": [
+            "stored fuel and stored oxidizer are pumped into a combustion chamber"
+          ]
+        },
+        {
+          "text": "Pumps feed them into the combustion chamber.",
+          "excerpts": [
+            "stored fuel and stored oxidizer are pumped into a combustion chamber where they are mixed and burned"
+          ]
+        },
+        {
+          "text": "There, they mix and burn, producing hot exhaust.",
+          "excerpts": [
+            "stored fuel and stored oxidizer are pumped into a combustion chamber where they are mixed and burned. The combustion produces great amounts of exhaust gas at high temperature and pressure."
+          ]
+        },
+        {
+          "text": "The nozzle accelerates this flow.",
+          "excerpts": [
+            "The hot exhaust is passed through a nozzle which accelerates the flow."
+          ]
+        },
+        {
+          "text": "Ejecting gas creates thrust.",
+          "excerpts": [
+            "The hot exhaust is passed through a nozzle which accelerates the flow. Thrust is produced according to Newton's third law of motion."
+          ]
+        },
+        {
+          "text": "Unlike an air-breathing engine, a rocket carries its oxidizer.",
+          "excerpts": [
+            "Since the oxidizer is carried on board the rocket",
+            "Turbine engines and propellers rely on the atmosphere to provide air as the working fluid for propulsion and oxygen in the air as oxidizer for combustion."
+          ]
+        },
+        {
+          "text": "That lets it produce thrust without air around it.",
+          "excerpts": [
+            "rockets can generate thrust in a vacuum where there is no other source of oxygen"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "jet-engine-v1",
+      "topic": "jet engine",
+      "topicSha256": "37fbe5b1a4d61b12eab62f2be1b4227bb95a5fa63e1d298a837fcd4f46fc5c6e",
+      "titleSha256s": [
+        "37fbe5b1a4d61b12eab62f2be1b4227bb95a5fa63e1d298a837fcd4f46fc5c6e"
+      ],
+      "script": "Inside this jet engine, the compressor raises the pressure of incoming air. Fuel burns with that air in the combustion chamber. Hot gas then flows through the turbine. The turbine extracts energy and turns the compressor through a connecting shaft. Some energy remains in the exhaust. The nozzle increases its speed, and this faster outgoing stream helps produce thrust.",
+      "scriptSha256": "6cf939e4c46a2319740f7b6341fcf98a4368072a8d0b8da1d7935657f3dbb002",
+      "source": {
+        "kind": "html",
+        "url": "https://www.grc.nasa.gov/www/k-12/airplane/Animation/turbtyp/ettr.html",
+        "title": "Turbojet Engine (NASA Glenn Research Center Beginner's Guide to Aeronautics)",
+        "authority": "NASA Glenn Research Center",
+        "maxBytes": 300000,
+        "allowedRedirects": []
+      },
+      "claims": [
+        {
+          "text": "Inside this jet engine, the compressor raises the pressure of incoming air.",
+          "excerpts": [
+            "The compressor acts like many rows of airfoils, with each row producing a small jump in pressure.",
+            "At the exit of the compressor, the air is at a much higher pressure than free stream."
+          ]
+        },
+        {
+          "text": "Fuel burns with that air in the combustion chamber.",
+          "excerpts": [
+            "In the burner a small amount of fuel is combined with the air and ignited."
+          ]
+        },
+        {
+          "text": "Hot gas then flows through the turbine.",
+          "excerpts": [
+            "Leaving the burner, the hot exhaust is passed through the turbine."
+          ]
+        },
+        {
+          "text": "The turbine extracts energy and turns the compressor through a connecting shaft.",
+          "excerpts": [
+            "the turbine extracts energy from a flow of gas by making the blades spin in the flow.",
+            "In a jet engine we use the energy extracted by the turbine to turn the compressor by linking the compressor and the turbine by the central shaft."
+          ]
+        },
+        {
+          "text": "Some energy remains in the exhaust.",
+          "excerpts": [
+            "The turbine takes some energy out of the hot exhaust, but there is enough energy left over to provide thrust to the jet engine by increasing the velocity through the nozzle."
+          ]
+        },
+        {
+          "text": "The nozzle increases its speed, and this faster outgoing stream helps produce thrust.",
+          "excerpts": [
+            "there is enough energy left over to provide thrust to the jet engine by increasing the velocity through the nozzle.",
+            "Because the exit velocity is greater than the free stream velocity, thrust is created"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mechanical-stopwatch-v1",
+      "topic": "mechanical stopwatch",
+      "topicSha256": "319e6f1e2aad280504e2fd28dfa0ed0f0356a80011616767f6e4f7c22bf27bea",
+      "titleSha256s": [
+        "319e6f1e2aad280504e2fd28dfa0ed0f0356a80011616767f6e4f7c22bf27bea"
+      ],
+      "script": "This spring-driven mechanical timekeeper stores energy in a wound mainspring. As the spring unwinds, it drives a train of gears. The escapement meters that release of energy. It also supplies impulses that keep the balance wheel moving. The balance wheel functions as a torsion pendulum. Together, these parts turn stored spring energy into controlled movement that advances the time display.",
+      "scriptSha256": "fb362f7dcecfc56f8906262601750dac1391807958ba55b2bcb2efb77d3cb173",
+      "source": {
+        "kind": "pdf",
+        "url": "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication960-12e1.pdf",
+        "title": "NIST Special Publication 960-12, Stopwatch and Timer Calibrations (Mechanical Type II stopwatches, pp. 11-12)",
+        "authority": "National Institute of Standards and Technology",
+        "sha256": "386024280c4ffb6c1e52b5c4ce9bc85c2f5a4bf3b072ac8f41adeb0d8585f145",
+        "maxBytes": 8000000,
+        "allowedRedirects": []
+      },
+      "claims": [
+        {
+          "text": "This spring-driven mechanical timekeeper stores energy in a wound mainspring.",
+          "excerpts": [
+            "For the traditional mechanical stopwatch, the power source is a helical coil spring, which stores energy obtained from the person winding the spring."
+          ]
+        },
+        {
+          "text": "As the spring unwinds, it drives a train of gears.",
+          "excerpts": [
+            "It is this metered unwinding of the coil spring that drives the counter indicator. In this type of device, the counter is composed of a gear train that divides the speed of rotation of the escapement wheel to the appropriate revolution speed for the second, minute and hour hands."
+          ]
+        },
+        {
+          "text": "The escapement meters that release of energy.",
+          "excerpts": [
+            "The balance wheel is connected to an escapement which meters the unwinding of the coil spring"
+          ]
+        },
+        {
+          "text": "It also supplies impulses that keep the balance wheel moving.",
+          "excerpts": [
+            "The balance wheel is connected to an escapement which meters the unwinding of the coil spring and provides impulses that keep the balance wheel moving."
+          ]
+        },
+        {
+          "text": "The balance wheel functions as a torsion pendulum.",
+          "excerpts": [
+            "The time base is usually a balance wheel that functions as a torsion pendulum."
+          ]
+        },
+        {
+          "text": "Together, these parts turn stored spring energy into controlled movement that advances the time display.",
+          "excerpts": [
+            "the power source is a helical coil spring, which stores energy obtained from the person winding the spring.",
+            "The rate at which the spring unwinds is governed by the balance wheel",
+            "It is this metered unwinding of the coil spring that drives the counter indicator.",
+            "The time interval from the counter is displayed either on a face across which the second and minutes hands sweep"
+          ]
+        }
+      ]
+    }
+  ]
+}

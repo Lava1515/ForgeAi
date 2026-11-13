@@ -1,0 +1,21 @@
+{
+  "comfyui": {
+    "server_url": "http://127.0.0.1:8188",
+    "timeout_seconds": 300
+  },
+  "tts": {
+    "qwen3": {
+      "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "device": "cuda:0",
+      "dtype": "bfloat16",
+      "temperature": 0.3
+    }
+  },
+  "video": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 24,
+    "video_codec": "h264_nvenc",
+    "audio_bitrate": "192k"
+  }
+}

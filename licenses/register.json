@@ -1,0 +1,312 @@
+{
+  "rule": "Owner rule, 2026-11-13: nothing is used in this project unless its licence allows monetized (commercial) videos. Credit-required licences are fine when the credit is written into the video description. Non-commercial, research-only and unclear licences are out. Every model, asset, font, library and base image is listed here with its source and the date it was checked. tools/license_check.py fails when something in the project is missing here or is marked not allowed.",
+  "entries": [
+    {
+      "id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "kind": "model",
+      "use": "narration voice (nine built-in speakers)",
+      "licence": "Apache-2.0",
+      "allowed": true,
+      "source": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "checked": "2026-11-13",
+      "checked_how": "model card read"
+    },
+    {
+      "id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "kind": "model",
+      "use": "planned: voice cloning from a short reference clip (replaces Fish Speech)",
+      "licence": "Apache-2.0",
+      "allowed": true,
+      "source": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "checked": "2026-11-13",
+      "checked_how": "model card read",
+      "note": "Clone only your own voice or one you have written permission for. YouTube treats a clone of a real person's voice as AI likeness."
+    },
+    {
+      "id": "fishaudio/fish-speech-1.5",
+      "kind": "model",
+      "use": "removed 2026-11-13 (was: voice cloning)",
+      "licence": "CC-BY-NC-SA-4.0 (non-commercial)",
+      "allowed": false,
+      "source": "https://huggingface.co/fishaudio/fish-speech-1.5",
+      "checked": "2026-11-13",
+      "checked_how": "model card read",
+      "patterns": [
+        "fishaudio/fish-speech",
+        "fish-speech:",
+        "FishSpeechEngine"
+      ]
+    },
+    {
+      "id": "fishaudio/s2-pro",
+      "kind": "model",
+      "use": "not used; newer Fish model",
+      "licence": "Fish Audio Research License (commercial use needs a paid licence)",
+      "allowed": false,
+      "source": "https://huggingface.co/fishaudio/s2-pro",
+      "checked": "2026-11-13",
+      "checked_how": "model card read",
+      "patterns": [
+        "fishaudio/s2",
+        "fishaudio/openaudio"
+      ]
+    },
+    {
+      "id": "ResembleAI/chatterbox",
+      "kind": "model",
+      "use": "not used; alternative voice-cloning model",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://huggingface.co/ResembleAI/chatterbox",
+      "checked": "2026-11-13",
+      "checked_how": "model card read",
+      "note": "Adds an inaudible watermark to every output."
+    },
+    {
+      "id": "openai/whisper",
+      "kind": "model",
+      "use": "word timings (through stable-ts)",
+      "licence": "MIT (code and weights)",
+      "allowed": true,
+      "source": "https://github.com/openai/whisper",
+      "checked": "2026-11-13",
+      "checked_how": "README read"
+    },
+    {
+      "id": "blender",
+      "kind": "tool",
+      "use": "renders every frame",
+      "licence": "GPL-2.0-or-later; what you make with it is yours",
+      "allowed": true,
+      "source": "https://www.blender.org/about/license/",
+      "checked": "2026-11-13",
+      "checked_how": "from memory; the page refused the automatic read today",
+      "reverify": true
+    },
+    {
+      "id": "ffmpeg",
+      "kind": "tool",
+      "use": "joins frames, audio and captions into the video",
+      "licence": "LGPL/GPL; applies to the program, not to the videos it writes",
+      "allowed": true,
+      "source": "https://ffmpeg.org/legal.html",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "debian",
+      "kind": "image",
+      "use": "base of the job container",
+      "licence": "free software distribution",
+      "allowed": true,
+      "source": "https://www.debian.org/legal/licenses/",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "python",
+      "kind": "image",
+      "use": "base of the voice container",
+      "licence": "PSF-2.0",
+      "allowed": true,
+      "source": "https://docs.python.org/3/license.html",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "ghcr.io/astral-sh/uv",
+      "kind": "image",
+      "use": "installs Python packages while the voice image is built",
+      "licence": "Apache-2.0 or MIT",
+      "allowed": true,
+      "source": "https://github.com/astral-sh/uv",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "windows-fonts",
+      "kind": "font",
+      "use": "caption text (Impact, Arial Bold), drawn into the frames as pixels",
+      "licence": "Windows licence: text rendered into video as images may be sold; the font files may not be shipped",
+      "allowed": true,
+      "source": "https://learn.microsoft.com/en-us/typography/fonts/font-faq",
+      "checked": "2026-11-13",
+      "checked_how": "page read"
+    },
+    {
+      "id": "music:synthesized",
+      "kind": "asset",
+      "use": "background music and effects of code-built videos",
+      "licence": "ours: generated by blender_worker/codebuilt/audio.py, no samples",
+      "allowed": true,
+      "source": "blender_worker/codebuilt/audio.py",
+      "checked": "2026-11-13",
+      "checked_how": "code read"
+    },
+    {
+      "id": "claude-cli",
+      "kind": "service",
+      "use": "writes scripts and scene code",
+      "licence": "Anthropic terms: you own the outputs",
+      "allowed": true,
+      "source": "https://www.anthropic.com/legal/consumer-terms",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "antigravity-cli",
+      "kind": "service",
+      "use": "titles, tags, web search",
+      "licence": "Google terms: you own the outputs",
+      "allowed": true,
+      "source": "https://policies.google.com/terms",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:qwen-tts",
+      "kind": "library",
+      "licence": "Apache-2.0",
+      "allowed": true,
+      "source": "https://github.com/QwenLM/Qwen3-TTS",
+      "checked": "2026-11-13",
+      "checked_how": "repository read"
+    },
+    {
+      "id": "pip:stable-ts",
+      "kind": "library",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/jianfch/stable-ts",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:librosa",
+      "kind": "library",
+      "licence": "ISC",
+      "allowed": true,
+      "source": "https://github.com/librosa/librosa",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:soundfile",
+      "kind": "library",
+      "licence": "BSD-3-Clause",
+      "allowed": true,
+      "source": "https://github.com/bastibe/python-soundfile",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:numpy",
+      "kind": "library",
+      "licence": "BSD-3-Clause",
+      "allowed": true,
+      "source": "https://numpy.org/doc/stable/license.html",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:pillow",
+      "kind": "library",
+      "licence": "MIT-CMU",
+      "allowed": true,
+      "source": "https://github.com/python-pillow/Pillow",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:torch",
+      "kind": "library",
+      "licence": "BSD-3-Clause",
+      "allowed": true,
+      "source": "https://github.com/pytorch/pytorch",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:torchaudio",
+      "kind": "library",
+      "licence": "BSD-2-Clause",
+      "allowed": true,
+      "source": "https://github.com/pytorch/audio",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "pip:flash-attn",
+      "kind": "library",
+      "licence": "BSD-3-Clause",
+      "allowed": true,
+      "source": "https://github.com/Dao-AILab/flash-attention",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "npm:express",
+      "kind": "library",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/expressjs/express",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "npm:cors",
+      "kind": "library",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/expressjs/cors",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "npm:react",
+      "kind": "library",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/facebook/react",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "npm:react-dom",
+      "kind": "library",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/facebook/react",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    },
+    {
+      "id": "npm:lucide-react",
+      "kind": "library",
+      "licence": "ISC",
+      "allowed": true,
+      "source": "https://github.com/lucide-icons/lucide",
+      "checked": "2026-11-13",
+      "checked_how": "from memory",
+      "reverify": true
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Owner rule 2026-11-13: nothing that cannot be monetized goes in. See licenses/register.json.
+exec python tools/license_check.py

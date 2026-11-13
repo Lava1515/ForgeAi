@@ -1,0 +1,13 @@
+{
+  "name": "forgeai-dashboard-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=../../.env index.js",
+    "test": "node --import ./tests/setup.js --test --test-concurrency=1 tests/*.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}

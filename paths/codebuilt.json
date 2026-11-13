@@ -1,0 +1,52 @@
+{
+  "id": "codebuilt",
+  "skills": [
+    { "id": "video-shot-planner", "skill": "video-shot-planner", "mode": "guidance_only" },
+    { "id": "voice-subtitle-sync", "skill": "voice-subtitle-sync", "mode": "guidance_only" },
+    { "id": "video-release-qa", "skill": "video-release-qa", "mode": "guidance_only" }
+  ],
+  "rules": {
+    "steps": {
+      "script": ["reel-script"],
+      "shot_list": ["shorts-video-director", "video-shot-planner"],
+      "people_and_creatures": ["character-artist"],
+      "places": ["environment-artist"],
+      "look": ["stylized-style"],
+      "lighting": ["blender-lighting"],
+      "materials": ["blender-materials"],
+      "camera": ["cinematic-camera"],
+      "effects": ["vfx-fx"],
+      "final_pass": ["compositing"],
+      "subtitles": ["voice-subtitle-sync"],
+      "before_finishing": ["video-release-qa"]
+    },
+    "skillUse": [
+      "Load a step's skills when the build reaches that step, by name, as guidance. Never copy skill text into code or prompts; this pack has zero digests.",
+      "If a skill conflicts with the brief or the playbook, the brief wins; say so in the report.",
+      "cinematic-camera is used for rules and vocabulary only (move names, depth of field, checking every frame). Do not call any pipeline a skill describes; build with frame-by-frame code.",
+      "Only video-shot-planner, voice-subtitle-sync and video-release-qa are vendored under .claude/skills and validated by the pack; the other ten are user-level skills, so their existence is not checked by the validator."
+    ],
+    "playbook": [
+      "Script: 75 to 95 words, 30 to 40 s spoken, hook in the first second, numbers instead of adjectives, one idea per sentence, every fact checked and simplifications named.",
+      "Narration first, with per-word timestamps. Every cut, on-screen text and sound effect is placed from a word timestamp, never a guessed time.",
+      "Shot list: one idea per shot, 2 to 6 s each, about 8 shots; write the narration line, camera move and subject action for each.",
+      "Build every model from code in headless Blender; no downloaded assets.",
+      "Pose each frame as a function of time and render it as a still, with no keyframes, so any frame renders alone and the full render splits across processes.",
+      "Preview 12 to 24 frames at half size on one contact sheet, look at it, fix, repeat; most quality comes from this loop.",
+      "Full render at 1080x1920, 30 fps; captions word by word; keep text out of the top 10 percent and bottom 20 percent of the frame and the subject in the middle 60 percent.",
+      "Sound: music about 18 dB under the voice and effects about 10 to 13 dB under, measured as RMS on the stems; print the numbers, never mix by guessed gains.",
+      "Check: probe the finished file, run the subtitle checker, view a contact sheet of the finished video, and report what was not verified (for example, nobody listened to the audio)."
+    ],
+    "skillReports": {
+      "status": "unclear",
+      "reason": "The two Sonnet-with-skills runs (Earth stops spinning, new what-if) left no per-skill report: their output folders hold frames, audio, scripts and logs but no REPORT.md, so no skill is recorded as having changed nothing. The shorts-playbook SKILLS-ADDENDUM asked for one, and the plan marks both runs pending.",
+      "dropped": [],
+      "unclear": [
+        "reel-script", "shorts-video-director", "video-shot-planner", "character-artist", "environment-artist",
+        "stylized-style", "blender-lighting", "blender-materials", "cinematic-camera", "vfx-fx",
+        "compositing", "voice-subtitle-sync", "video-release-qa"
+      ],
+      "nextAction": "When the two Sonnet-with-skills reports exist, move every skill reported as changing nothing from the step table into dropped with its reason, and re-run node scripts/paths/sync.mjs."
+    }
+  }
+}

@@ -1,0 +1,31 @@
+# Version control
+.git
+**/.git
+.env
+.env.*
+!.env.example
+
+# Dependencies & Build artifacts (must match recursively)
+**/node_modules
+**/dist
+**/.venv
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Large data, models, and generated assets
+data/
+output/
+*.mp4
+*.png
+*.jpg
+*.jpeg
+*.wav
+
+# Logs & scratch
+*.log
+.omo/
+.superpowers/
+docs/superpowers/
