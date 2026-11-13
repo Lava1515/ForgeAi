@@ -17,7 +17,12 @@ import { LoopError } from './loopErrors.js';
 export const MAX_FIX_ROUNDS = 2;
 export const MAX_LOOKS = MAX_FIX_ROUNDS + 1;
 export const MAX_REPLY_RETRIES = 2; // shared across the whole loop: invalid replies, refused edits and failed attempts
-export const MAX_CALLS = 8;
+export const MAX_CALLS = 12;
+// A preview that ends without frames (the generated code raised, or the kit's own QA refused the scene) is fixed from its
+// error text alone. Those fix rounds are cheap and do not use up a look: job mwf9bowk-8ff1e1 (2026-11-13) spent two of its
+// three looks on "shots share one composition" and ended with nothing rendered.
+export const MAX_CRASH_FIXES = 4;
+export const MAX_CONSECUTIVE_CRASHES = 3;
 export const PREVIEW_SCALE = 50; // half of the final resolution (final profile 1080x1920, hold=1; preview 540x960)
 export const LOOK_TIMEOUT_MS = 10 * 60 * 1000;
 export const LOOP_TIMEOUT_MS = 90 * 60 * 1000;
@@ -124,8 +129,11 @@ async function loop(input, deps, { now, newCode, stage }) {
   const previous = [];
   const rounds = [];
 
-  for (let r = 0; r < MAX_LOOKS; r += 1) {
-    const finalRound = r === MAX_LOOKS - 1;
+  let looks = 0;
+  let crashFixes = 0;
+  for (let r = 0; looks < MAX_LOOKS; r += 1) {
+    if (r >= MAX_LOOKS + MAX_CRASH_FIXES) throw new LoopError('look_failed', 'the visual loop used all its rounds', { reason: 'rounds_exhausted' });
+    let finalRound = looks === MAX_LOOKS - 1; // the last LOOK cannot ask for a fix; a text-only crash round never is the last look
     guard();
     if (usedTokens > maxInputTokens) throw new LoopError('look_failed', 'the input token budget of the visual loop is used up', { reason: 'budget' });
     const buildSha256 = sha256(script);
@@ -137,6 +145,7 @@ async function loop(input, deps, { now, newCode, stage }) {
     let record = replayRound(dir, { buildSha256, shots, finalRound, script, input });
     if (record) {
       consecutiveCrashes = record.crashed ? consecutiveCrashes + 1 : 0;
+      if (record.crashed) { crashFixes += 1; finalRound = false; }
     } else {
       fs.writeFileSync(path.join(dir, 'build.py'), script);
       // ---- preview
@@ -156,8 +165,10 @@ async function loop(input, deps, { now, newCode, stage }) {
         };
       }
       if (crash) {
-        if (finalRound || consecutiveCrashes >= 1) throw new LoopError('preview_failed', 'the preview crashed again', { reason: finalRound ? 'last' : 'repeated', code: crash.code });
+        if (crashFixes >= MAX_CRASH_FIXES || consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) throw new LoopError('preview_failed', 'the preview kept ending without frames', { reason: 'repeated', code: crash.code });
         consecutiveCrashes += 1;
+        crashFixes += 1;
+        finalRound = false;
       } else {
         consecutiveCrashes = 0;
       }
@@ -193,6 +204,7 @@ async function loop(input, deps, { now, newCode, stage }) {
       return { accepted: true, buildScript: script, sha256: buildSha256, rounds, receipt, calls };
     }
     if (finalRound) throw new LoopError('look_failed', 'the last look still found a problem', { reason: 'rounds_exhausted' });
+    if (!record.crashed) looks += 1;
     previous.push({ round: r, findings: record.reply.findings });
     script = record.nextScript;
   }
