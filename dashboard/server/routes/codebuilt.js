@@ -34,3 +34,4 @@ export const startCodebuiltHandler = handler(async (req, res) => {
 export const listCodebuiltHandler = handler(async (req, res) => { res.json({ jobs: codebuiltStarter().list() }); });
 export const getCodebuiltHandler = handler(async (req, res) => { res.json(codebuiltStarter().get(String(req.params.jobId))); });
 export const abortCodebuiltHandler = handler(async (req, res) => { body(req, []); res.json(codebuiltStarter().abort(String(req.params.jobId))); });
+export const resumeCodebuiltHandler = handler(async (req, res) => { body(req, []); res.status(202).json(codebuiltStarter().resume(String(req.params.jobId))); });

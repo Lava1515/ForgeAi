@@ -141,12 +141,13 @@ export function sanitizeVisualLoop(raw) {
   const int = (v, max = 1000) => (Number.isInteger(v) && v >= 0 && v <= max ? v : null);
   const hex = (v) => (typeof v === 'string' && HEX64.test(v) ? v : null);
   const word = (v) => (typeof v === 'string' && /^[A-Za-z0-9._-]{1,40}$/.test(v) ? v : null);
-  if (!raw || typeof raw !== 'object' || raw.version !== 1 || !Array.isArray(raw.rounds) || raw.rounds.length < 1 || raw.rounds.length > 3) return null;
+  if (!raw || typeof raw !== 'object' || raw.version !== 1 || !Array.isArray(raw.rounds) || raw.rounds.length < 1 || raw.rounds.length > 20) return null;
+  const unapproved = raw.visual_check?.approved === false;
   const accepted = hex(raw.accepted?.buildSha256);
-  if (!accepted || int(raw.accepted?.round, 2) === null) return null;
+  if ((!unapproved && (!accepted || int(raw.accepted?.round, 100) === null)) || (unapproved && !Array.isArray(raw.visual_check?.findings))) return null;
   const rounds = [];
   for (const r of raw.rounds) {
-    if (!r || (r.verdict !== 'pass' && r.verdict !== 'fix') || int(r.round, 2) === null || !hex(r.buildSha256)) return null;
+    if (!r || (r.verdict !== 'pass' && r.verdict !== 'fix') || int(r.round, 100) === null || !hex(r.buildSha256)) return null;
     rounds.push({
       round: r.round, verdict: r.verdict, crashed: r.crashed === true, p0: int(r.p0), p1: int(r.p1), p2: int(r.p2), shots_ok: int(r.shotsOk), shots_described: int(r.shotsDescribed), calls: int(r.attempts),
       build_sha256: r.buildSha256, sheets: Array.isArray(r.sheets) ? r.sheets.slice(0, 2).map((x) => hex(x?.sha256)).filter(Boolean) : [], model: word(r.model),
@@ -154,7 +155,7 @@ export function sanitizeVisualLoop(raw) {
     });
   }
   return {
-    version: 1, accepted_round: raw.accepted.round, accepted_build_sha256: accepted, looks: rounds.length, fix_rounds: rounds.filter((r) => r.verdict === 'fix').length, call_count: int(raw.callCount, 100),
+    version: 1, ...(unapproved ? { visual_check: { approved: false, findings: raw.visual_check.findings.slice(0, 12).map((f) => ({ severity: ['P0', 'P1', 'P2'].includes(f?.severity) ? f.severity : 'P2', shot: typeof f?.shot === 'string' ? f.shot.slice(0, 40) : null, frames: Array.isArray(f?.frames) ? f.frames.slice(0, 8).filter((n) => Number.isInteger(n) && n >= 0) : [], issue: typeof f?.issue === 'string' ? f.issue.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 300) : '', fix: typeof f?.fix === 'string' ? f.fix.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 300) : '' })) } } : { accepted_round: raw.accepted.round, accepted_build_sha256: accepted }), looks: rounds.length, fix_rounds: rounds.filter((r) => r.verdict === 'fix').length, call_count: int(raw.callCount, 100),
     probe: { cli_version: word(raw.probe?.cliVersion), transport: word(raw.probe?.transport), argv_sha256: hex(raw.probe?.argvSha256) }, rounds,
     note: 'The delivery receipt proves which pictures and prompt reached which call; it does not prove the model judged them well.',
   };
@@ -317,7 +318,7 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
       engine: 'codebuilt',
       made_for_kids: false,
       ai_disclosure: true,
-      generation_details: { draft_version: CODEBUILT_DRAFT_VERSION, path: 'codebuilt', job_id: jobId, ...(visualLoop ? { visual_loop: visualLoop } : {}), metadata_source: metadataSource === 'light_router' && cleanMeta(titleOverride, LIMITS.title) ? 'light_router' : 'topic_fallback', ...(cb5 ? { producer: CB5_REPORT_VERSION } : {}), final: { file: 'video.mp4', sha256: files.video.sha256 } },
+      generation_details: { draft_version: CODEBUILT_DRAFT_VERSION, path: 'codebuilt', job_id: jobId, ...(visualLoop ? { visual_loop: visualLoop, ...(visualLoop.visual_check ? { visual_check: visualLoop.visual_check } : {}) } : {}), metadata_source: metadataSource === 'light_router' && cleanMeta(titleOverride, LIMITS.title) ? 'light_router' : 'topic_fallback', ...(cb5 ? { producer: CB5_REPORT_VERSION } : {}), final: { file: 'video.mp4', sha256: files.video.sha256 } },
       codebuilt: { version: 1, job_id: jobId, bundle_sha256: digest, files, links: linksFor(draftId, files) },
       // The marker the review-receipt gate recognises. NO receipt is written here: a person issues it after watching and listening.
       episode_draft: { version: EPISODE_MARKER_VERSION, episode_id: jobId, final_sha256: files.video.sha256, approved_gate_hash: digest, finish_hash: cb5 ? files.report.sha256 : sha256(manifestText) },
