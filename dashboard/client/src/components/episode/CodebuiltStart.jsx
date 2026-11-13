@@ -4,6 +4,7 @@ import * as api from '../../services/api.js';
 import Panel from '../../ui/Panel.jsx';
 import Button from '../../ui/Button.jsx';
 import Banner from '../../ui/Banner.jsx';
+import JobDetailArtifacts from './JobDetailArtifacts.jsx';
 
 // --- Pure functions and constants (exported for testing) ---
 export const CODEBUILT_DURATIONS = Object.freeze([30, 45, 60, 90]);
@@ -272,6 +273,7 @@ export default function CodebuiltStart() {
       {job && (
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-job={job.id} data-codebuilt-status={job.status}>
           <div>{jobLabel(job)}</div>
+          <JobDetailArtifacts job={job} />
           {job.status === 'done' && job.draftId && <div>Draft: <code className="text-ink-200">{job.draftId}</code> (review it in Drafts)</div>}
         </div>
       )}
@@ -279,7 +281,10 @@ export default function CodebuiltStart() {
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-run={run.id} data-codebuilt-run-status={run.status}>
           <div className="text-ink-200">{runLabel(run)}</div>
           <ul className="space-y-0.5">
-            {run.videos.map((v) => (<li key={v.index} data-codebuilt-video={v.index} data-codebuilt-video-status={v.status}>{videoLabel(v)}</li>))}
+            {run.videos.map((v) => (<li key={v.index} data-codebuilt-video={v.index} data-codebuilt-video-status={v.status}>
+              {videoLabel(v)}
+              {v.jobId && <JobDetailArtifacts job={{ id: v.jobId, status: v.status, duration: v.resolved?.duration }} />}
+            </li>))}
           </ul>
           {!isActiveRun(run) && run.summary?.drafts > 0 && <div>Review the drafts in Drafts. Nothing is published automatically.</div>}
         </div>

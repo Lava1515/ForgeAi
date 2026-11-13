@@ -365,6 +365,7 @@ export function createCodebuiltStarter({
     try {
       fs.mkdirSync(stage, { recursive: true });
       fs.writeFileSync(path.join(stage, 'script.txt'), scripted.script);
+      fs.writeFileSync(path.join(stage, 'shots.json'), `${JSON.stringify(scripted.shots, null, 2)}\n`);
       fs.writeFileSync(path.join(stage, 'brief.md'), scripted.brief);
       fs.writeFileSync(path.join(stage, 'pathpack.json'), `${JSON.stringify(scripted.pathPack, null, 2)}\n`);
     } catch { /* audit artifacts are best effort and do not block a run */ }
