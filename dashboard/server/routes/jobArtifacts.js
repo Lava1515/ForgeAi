@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createReadStream } from 'node:fs';
+import { pipeline } from 'node:stream';
 import { jobsRoot } from '../episode/codebuilt/draftAdapter.js';
 import { assertRealDir, findLinks, samePath } from '../episode/codebuilt/jobPaths.js';
 import { scanReparsePoints } from '../episode/codebuilt/reparse.js';
@@ -140,7 +141,9 @@ export function createJobArtifactHandlers({ root = jobsRoot(), reparseScan = sca
     const result = readChecked(snapshot, key, { remaining: Infinity }, true);
     if (result.status !== 'available' || result.fd === undefined) return res.status(404).json({ error: 'Artifact unavailable' });
     res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Type': result.type, 'Content-Length': String(result.size) });
-    return createReadStream(null, { fd: result.fd, autoClose: true }).on('error', () => { if (!res.headersSent) res.status(404).end(); else res.destroy(); }).pipe(res);
+    // pipeline destroys the source on response close/error, including a browser
+    // cancelling a video request, so the pinned descriptor is always released.
+    return pipeline(createReadStream(null, { fd: result.fd, autoClose: true }), res, () => {});
   };
   return { list, file };
 }

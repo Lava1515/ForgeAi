@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Writable } from 'node:stream';
+import { once } from 'node:events';
 import { createJobArtifactHandlers } from '../routes/jobArtifacts.js';
 
 function fixture() {
@@ -85,6 +87,31 @@ test('artifact scans are confined to this job and preview locks block access', (
     assert.equal(invoke(handlers.list, { jobId: 'job1' }).body.artifacts.script.status, 'unavailable');
     assert.equal(scanned.length, 0, 'lock refusal precedes artifact scans');
   } finally { f.cleanup(); }
+});
+
+test('aborted media download closes its pinned descriptor', async () => {
+  const f = fixture(); fs.mkdirSync(path.join(f.job, 'out'));
+  fs.writeFileSync(path.join(f.job, 'out', 'video.mp4'), Buffer.alloc(256 * 1024, 1));
+  const open = fs.openSync; const close = fs.close;
+  let mediaFd; let resolveClosed;
+  const closed = new Promise((resolve) => { resolveClosed = resolve; });
+  fs.openSync = (file, ...args) => { const fd = open(file, ...args); if (String(file).endsWith('video.mp4')) mediaFd = fd; return fd; };
+  fs.close = (fd, callback) => close(fd, (error) => { if (fd === mediaFd) resolveClosed(!error); callback(error); });
+  let timer;
+  try {
+    const response = new Writable({ write(chunk, encoding, callback) { callback(); this.destroy(); } });
+    response.set = () => response;
+    const finished = once(response, 'close');
+    const handlers = createJobArtifactHandlers({ root: f.root, reparseScan: () => ({ complete: true, points: [], errors: [] }) });
+    handlers.file({ params: { jobId: 'job1', key: 'video' } }, response);
+    await finished;
+    const released = await Promise.race([closed, new Promise((resolve) => { timer = setTimeout(() => resolve(false), 500); })]);
+    assert.equal(released, true, 'client disconnect must destroy the source and close its fd');
+  } finally {
+    clearTimeout(timer); fs.openSync = open; fs.close = close;
+    if (mediaFd !== undefined) { try { fs.closeSync(mediaFd); } catch { /* already closed */ } }
+    f.cleanup();
+  }
 });
 
 test('injected WSL/container reparse point makes the complete artifact request fail closed', () => {
