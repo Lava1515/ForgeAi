@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the approved host-side EEVEE subset of the render benchmark.
 
-This driver deliberately does not start containers or GPU work. It creates all
+This driver starts host EEVEE GPU work only while the shared lease is free. It creates all
 scripts, logs and PNGs under output/agent-jobs/<job-id>.
 """
 import argparse
@@ -90,7 +90,7 @@ def assert_gpu_free():
         with urllib.request.urlopen(DASHBOARD_JOBS, timeout=5) as r: jobs=json.load(r).get('jobs', [])
     except OSError as exc:
         raise ValueError(f'cannot confirm no video job is active (dashboard unreachable: {exc})')
-    busy=[j['id'] for j in jobs if j.get('status') in ACTIVE or j.get('step') in ACTIVE]
+    busy=[j['id'] for j in jobs if (j.get('status') or j.get('step')) in ACTIVE]
     if busy: raise ValueError(f'video job active, refusing to use the GPU: {busy}')
 
 def take_lease(job_id):
