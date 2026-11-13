@@ -67,6 +67,20 @@ const STDERR_TAIL_CHARS = 6000;
 const printable = (text) => [...String(text ?? '')].filter((ch) => ch === '\t' || ch === '\n' || (ch >= ' ' && ch <= '~')).join('');
 export const STDERR_TAIL_FILE = 'stderr_tail.txt';
 
+/** Called with the job lock held and no previous container alive, before a new launch. */
+export function clearRunDiagnostics(jobDir) {
+  assertNoLinksInTree(jobDir, 'job folder');
+  for (const name of ['qa_failure.txt', STDERR_TAIL_FILE]) {
+    const file = path.join(jobDir, 'work', name);
+    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+    if (!stat) continue;
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+      throw new IsolationRefused(`unexpected diagnostic file ${name}`);
+    }
+    fs.unlinkSync(file);
+  }
+}
+
 /**
  * Writes the end of a failed container's stderr to <job>/work/stderr_tail.txt. Called after the docker client closed.
  * Flag 'wx' creates the file or fails: an existing name (a file or a link the job left) is never written through.
@@ -161,6 +175,7 @@ export async function runFenced(config, deps = {}) {
   if (docker.containerName !== lock.containerName) throw new IsolationRefused('job lock does not match the container of this run');
   // A link that is already in the job folder could be followed from inside the mount: refuse before starting.
   assertNoLinksInTree(docker.jobDir, 'job folder', { reparseScan: reparseScanFor(fx, deps) });
+  clearRunDiagnostics(docker.jobDir);
 
   // `prevention` is read back from the argv that this function spawns (docker.args), not from a second derivation: it
   // is what the fence actually allowed for THIS run (real container name and run token, env key names, GPUs, mounts).
