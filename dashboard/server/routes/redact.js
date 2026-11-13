@@ -12,6 +12,10 @@ const SENSITIVE_PATTERNS = [
   [/\bbasic\s+(?=[A-Za-z0-9+/]*\d)[A-Za-z0-9+/]{8,}={0,2}/gi, 'basic [redacted]'], // the digit keeps "basic information" readable
   [/\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization))(["']?\s*[=:]\s*["']?)[^\s"',}]+/gi, '$1$2[redacted]'],
   [/AIza[0-9A-Za-z_-]{20,}/g, '[redacted]'],
+  [/\bsk-ant-[A-Za-z0-9_-]{12,}/g, '[redacted]'],
+  [/\bsk-[A-Za-z0-9_-]{20,}/g, '[redacted]'],
+  [/\bghp_[A-Za-z0-9]{20,}/g, '[redacted]'],
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[redacted private key]'],
   [/([?&]key=)[^&\s"']+/gi, '$1[redacted]'],
   [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[email]'],
 ];

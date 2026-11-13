@@ -478,13 +478,10 @@ export function createCodebuiltStarter({
     // The real paths/codebuilt.json pack comes from the planner. A script result without one cannot be built, and nothing is spent on voice first.
     if (!scripted.pathPack || typeof scripted.pathPack !== 'object' || scripted.pathPack.id !== 'codebuilt' || !Array.isArray(scripted.pathPack.skills)) throw new StartError('script_failed', 502);
     // Private stage artifacts remain reviewable even when a later step fails. They contain no CLI output.
-    try {
-      fs.mkdirSync(stage, { recursive: true });
-      fs.writeFileSync(path.join(stage, 'script.txt'), scripted.script);
-      fs.writeFileSync(path.join(stage, 'brief.md'), scripted.brief);
-      fs.writeFileSync(path.join(stage, 'pathpack.json'), `${JSON.stringify(scripted.pathPack, null, 2)}\n`);
-      fs.writeFileSync(path.join(stage, 'script-meta.json'), `${JSON.stringify({ shots: scripted.shots ?? [] })}\n`);
-    } catch { /* audit artifacts are best effort and do not block a run */ }
+    try { fs.mkdirSync(stage, { recursive: true }); } catch { /* audit artifacts are best effort */ }
+    for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [] })}\n`]]) {
+      try { fs.writeFileSync(path.join(stage, name), value); } catch { /* one failed audit artifact does not skip the others */ }
+    }
     checkAbort();
 
     // 2b. Fact check (owner-started batch videos only; the single-job route is unchanged). Nothing is spent on voice or build when it does not verify.

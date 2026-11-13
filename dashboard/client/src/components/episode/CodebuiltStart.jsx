@@ -4,6 +4,7 @@ import * as api from '../../services/api.js';
 import Panel from '../../ui/Panel.jsx';
 import Button from '../../ui/Button.jsx';
 import Banner from '../../ui/Banner.jsx';
+import JobDetailArtifacts from './JobDetailArtifacts.jsx';
 
 function TypeChannelResearch({ disabled, duration, onCreated }) {
   const [channels, setChannels] = useState([]), [channelId, setChannelId] = useState(''), [type, setType] = useState('what-if');
@@ -308,6 +309,7 @@ export default function CodebuiltStart() {
       {job && (
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-job={job.id} data-codebuilt-status={job.status}>
           <div>{jobLabel(job)}</div>
+          <JobDetailArtifacts job={job} />
           {job.status === 'done' && job.draftId && <div>Draft: <code className="text-ink-200">{job.draftId}</code> (review it in Drafts)</div>}
           {job.visual_check?.approved === false && <div className="text-amber-300">Visual check not approved: {(job.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</div>}
         </div>
@@ -321,7 +323,10 @@ export default function CodebuiltStart() {
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-run={run.id} data-codebuilt-run-status={run.status}>
           <div className="text-ink-200">{runLabel(run)}</div>
           <ul className="space-y-0.5">
-            {run.videos.map((v) => (<li key={v.index} data-codebuilt-video={v.index} data-codebuilt-video-status={v.status}>{videoLabel(v)}</li>))}
+            {run.videos.map((v) => (<li key={v.index} data-codebuilt-video={v.index} data-codebuilt-video-status={v.status}>
+              {videoLabel(v)}
+              {v.jobId && <JobDetailArtifacts job={{ id: v.jobId, status: v.status, duration: v.resolved?.duration }} />}
+            </li>))}
           </ul>
           {!isActiveRun(run) && run.summary?.drafts > 0 && <div>Review the drafts in Drafts. Nothing is published automatically.</div>}
         </div>
