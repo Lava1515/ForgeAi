@@ -1,5 +1,6 @@
 """Adapt the CB4 post kit to the fixed CB5 job-folder output contract."""
 import json
+import math
 import shutil
 import tempfile
 from pathlib import Path
@@ -15,6 +16,33 @@ from . import media, run
 
 # Seconds the executor adds before every cue and before the voice (blender_worker/codebuilt/timeline.py LEAD; a test keeps them equal).
 LEAD = 0.35
+
+
+def _word_cues(word_data, duration):
+    """Build sparse, deterministic effects cues at the aligned word start times.
+
+    The finalizer delays the complete mixed stem by LEAD, so these times must stay
+    in the original voice timeline; adding LEAD here would shift cues twice.
+    """
+    cues = []
+    for item in word_data.get("words", []):
+        if not isinstance(item, dict):
+            continue
+        token = str(item.get("w", "")).strip()
+        punctuation = str(item.get("punct", ""))
+        try:
+            start = float(item.get("s"))
+        except (TypeError, ValueError):
+            continue
+        if not token or not math.isfinite(start) or not 0 <= start < duration:
+            continue
+        core = token.strip(".,;:!?…—–-)]}\"'”’")
+        marks = punctuation or token.rstrip("\"'”’)]}")
+        if any(char.isdigit() for char in core):
+            cues.append(("pop", start, 0.45))
+        elif any(char in ",;:.!?…" for char in marks):
+            cues.append(("whoosh", start, 0.16))
+    return cues
 
 
 def produce(job_dir, *, fps=run.FPS, lead=LEAD):
@@ -42,7 +70,9 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     voice, sr = sf.read(str(audio), dtype="float32", always_2d=False)
     duration = len(voice) / sr
     music = audio_kit.synth_music(duration, sr=sr, seed=3, fade_out_s=min(1.2, duration / 2))
-    effects = np.zeros(len(music), dtype=float)
+    word_data = json.loads(words.read_text(encoding="utf-8"))
+    word_events = _word_cues(word_data, duration)
+    effects = audio_kit.synth_effects(word_events, duration, sr=int(sr), seed=3)
     mixed = audio_kit.mix_stems((voice, sr), (music, sr), (effects, sr), sr=int(sr), voice_peak=None)
     audio_raw = out / "audio"
     if audio_raw.is_symlink() or audio_raw.is_junction():
