@@ -5,6 +5,7 @@ This driver deliberately does not start containers or GPU work. It creates all
 scripts, logs and PNGs under output/agent-jobs/<job-id>.
 """
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -54,13 +55,13 @@ if args and args[0]=='build':
 elif args and args[0]=='render':
  blend,out,frames=args[1],args[2],[int(x) for x in args[3].split(',')]
  bpy.ops.wm.open_mainfile(filepath=blend)
- import gpu
- try: dev={'gpu_vendor':gpu.platform.vendor_get(),'gpu_renderer':gpu.platform.renderer_get(),'gpu_version':gpu.platform.version_get()}
- except Exception as exc: dev={'gpu_info_error':repr(exc)}
- info={**dev,'eevee_samples':bpy.context.scene.eevee.taa_render_samples,'engine':bpy.context.scene.render.engine}
- open(out+'/device-'+str(frames[0])+'.json','w').write(json.dumps(info))
  for frame in frames:
   bpy.context.scene.frame_set(frame); bpy.context.scene.render.filepath=out+'/'+str(frame).zfill(4)+'.png'; bpy.ops.render.render(write_still=True)
+  if frame == frames[0]:
+   import gpu
+   dev={'gpu_vendor':gpu.platform.vendor_get(),'gpu_renderer':gpu.platform.renderer_get(),'gpu_version':gpu.platform.version_get()}
+   info={**dev,'eevee_samples':bpy.context.scene.eevee.taa_render_samples,'engine':bpy.context.scene.render.engine}
+   open(out+'/device-'+str(frame)+'.json','w').write(json.dumps(info))
 '''
 
 DECODE_SCRIPT = r'''import bpy, sys
@@ -97,7 +98,7 @@ def take_lease(job_id):
     LOCK.parent.mkdir(parents=True, exist_ok=True)
     try: os.mkdir(LOCK)
     except FileExistsError: raise ValueError(f'GPU lease is held: {LOCK}')
-    (LOCK/'owner').write_text(f'benchmark {job_id} pid {os.getpid()}'+chr(10),encoding='utf-8')
+    (LOCK/'owner').write_text(f'benchmark {job_id} {datetime.now(timezone.utc).isoformat()} pid {os.getpid()}'+chr(10),encoding='utf-8')
 
 def release_lease():
     try:
