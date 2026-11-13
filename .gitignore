@@ -164,3 +164,7 @@ output/*
 # The shared brain of all agents: its own git repository
 /ForgeBrain/
 /.superpowers/
+
+# Runtime state written by the dashboard
+/data/pipeline_state.json
+/data/trends/
