@@ -15,28 +15,8 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = process.env.FORGEAI_ROOT || path.resolve(__dirname, '../../../');
 const TRENDS_DIR = path.join(REPO_ROOT, 'data/trends');
 const YT_API = 'https://www.googleapis.com/youtube/v3';
-const FRESH_MS = 12 * 60 * 60 * 1000;
 // Only learn from longer Shorts (1-3 min) that are still trending; the 15-50s ones are mostly loops and clips.
 const MIN_SHORT_SECONDS = 60;
-
-export const AUDIENCES = {
-  preschool: {
-    label: 'Preschool (2–5)',
-    // Quoted phrases: unquoted words match anything (e.g. "funny" pulled in adult comedy).
-    query: '"nursery rhymes"|"toddler learning"|"kids songs"|"baby animals"|"colors for kids"',
-    brief: 'preschoolers aged 2-5: bright friendly colors, cute animals and simple shapes, counting, colors, gentle music and sing-along rhythm, slow calm motion, nothing scary.',
-  },
-  kids: {
-    label: 'Kids (6–12)',
-    query: '"for kids"|"kids cartoon"|"satisfying for kids"|"kids challenge"|"funny animals for kids"',
-    brief: 'kids aged 6-12: funny animals, oddly satisfying, surprising transformations, mini challenges, playful sound effects, high energy but never violent or scary.',
-  },
-};
-
-// Safety rules appended to every kids concept and trend analysis.
-export const KIDS_SAFETY = `This is made-for-kids content. Strict rules: no violence, danger, scary or creepy imagery, no horror, no weapons, no real children, no unsafe stunts kids could copy, no food/toy brands, and NO existing characters or IP (no Peppa, Bluey, Cocomelon, Disney, Pokemon, Minecraft, Roblox, Skibidi, etc.); invent original characters instead.`;
-
-const fileFor = (age) => path.join(TRENDS_DIR, `kids_${age}.json`);
 
 export function parseIsoDuration(iso) {
   const m = String(iso || '').match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
@@ -89,107 +69,6 @@ async function searchShorts(q, safeSearch, apiKey = undefined, days = 7, duratio
   if (videos.error) throw new Error(`YouTube videos: ${videos.error.message}`);
   const range = durationRange || { min_seconds: MIN_SHORT_SECONDS, max_seconds: 180 };
   return rankShorts(videos.items || []).filter((v) => v.duration_s >= range.min_seconds && v.duration_s <= range.max_seconds);
-}
-
-async function fetchYouTubeShorts(age, apiKey = undefined) {
-  // Only trust videos the uploader declared "made for kids" (YouTube's COPPA flag); search terms alone let adult content in.
-  return (await searchShorts(`${AUDIENCES[age].query} #shorts`, 'strict', apiKey)).filter((v) => v.made_for_kids).slice(0, 12);
-}
-
-const ANALYSIS_FORMAT = `Return ONLY a JSON object: {"patterns": string[] (4-6 short observations about what makes these videos work: formats, hooks, sounds, pacing, themes), "concepts": [{"title": string, "idea": string (1-2 sentences describing an ORIGINAL 5-second vertical AI video we could make)}] (exactly 5)}.`;
-
-export async function scanKidsTrends(age, optionsOrKey = {}) {
-  if (!AUDIENCES[age]) throw new Error(`Unknown audience "${age}"`);
-  const audience = AUDIENCES[age];
-  const apiKey = typeof optionsOrKey === 'string' ? optionsOrKey : optionsOrKey?.apiKey;
-  const key = (apiKey !== undefined ? apiKey : getChannelYouTubeApiKey())?.trim();
-  let source;
-  let videos = [];
-  let analysis;
-
-  if (key) {
-    source = 'youtube';
-    videos = await fetchYouTubeShorts(age, key);
-    if (videos.length) {
-      const list = videos
-        .map((v, i) => `${i + 1}. "${v.title}" by ${v.channel}: ${v.views.toLocaleString()} views, ${v.views_per_hour.toLocaleString()} views/hour, ${v.duration_s}s`)
-        .join('\n');
-      const prompt = `These are the fastest-growing 1-3 minute YouTube Shorts made for ${audience.brief} from the last 7 days:\n${list}\n\n${KIDS_SAFETY}\n\nAnalyse what is working and propose 5 fresh, original video ideas that fit these patterns.\n${ANALYSIS_FORMAT}`;
-      try {
-        analysis = await askGemini(prompt, { maxTokens: 2048, model: GEMINI_LITE_MODEL });
-      } catch (err) {
-        console.warn('Gemini trend analysis failed, falling back to basic patterns:', err.message);
-      }
-    }
-  }
-
-  if (!analysis) {
-    source = 'rules';
-    analysis = {
-      patterns: [
-        'Single character facing a gentle puzzle or surprise',
-        'Strong primary colors and soft rounded geometry',
-        'Repetitive, rhythmic sound cues',
-        'Zero dialogue; physical and visual storytelling',
-        'Slow camera motion keeping the focal subject clear',
-      ],
-      concepts: [
-        { title: 'Dancing Polka Dots', idea: 'Three giant colorful dots roll into frame, bounce to a rhythm, and gently transform into friendly smiling animal faces.' },
-        { title: 'The Sleepy Little Train', idea: 'A soft pastel steam train chugs along a rainbow hill, yawning and collecting glowing star lanterns on its way.' },
-        { title: 'Fruit Orchestra', idea: 'An apple, a banana and an orange take turns tapping their feet to a bright xylophone beat.' },
-        { title: 'Magic Paint Splash', idea: 'A single paintbrush taps an empty canvas, sending ripple waves of cheerful yellow and sky blue across the screen.' },
-        { title: 'Gentle Cloud Hug', idea: 'Two fluffy, smiling clouds float toward each other, share a warm hug, and sprinkle glowing stardust down.' },
-      ],
-    };
-  }
-
-  const result = {
-    age,
-    audience: audience.label,
-    source,
-    scanned_at: new Date().toISOString(),
-    videos,
-    patterns: analysis.patterns || [],
-    concepts: analysis.concepts || [],
-  };
-  fs.mkdirSync(TRENDS_DIR, { recursive: true });
-  fs.writeFileSync(fileFor(age), JSON.stringify(result, null, 2));
-  return result;
-}
-
-const knownAge = (age) => typeof age === 'string' && Object.hasOwn(AUDIENCES, age);
-
-function readKidsTrends(age) {
-  if (age !== undefined && !knownAge(age)) return null; // the age becomes a file name: allowlist only (KAN-427 F2)
-  try {
-    return JSON.parse(fs.readFileSync(fileFor(age), 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-// Used by Auto-Pilot: reuse a scan from the last 12h, otherwise scan again.
-export async function freshKidsTrends(age, optionsOrKey = {}) {
-  const cached = readKidsTrends(age);
-  if (cached && Date.now() - new Date(cached.scanned_at).getTime() < FRESH_MS && cached.concepts.length) return cached;
-  return scanKidsTrends(age, optionsOrKey);
-}
-
-export function getKidsTrendsHandler(req, res) {
-  const { age } = req.query;
-  if (age !== undefined && !knownAge(age)) return res.status(400).json({ error: `Unknown audience (use ${Object.keys(AUDIENCES).join(' or ')})` });
-  res.json(readKidsTrends(req.query.age) || { age: req.query.age, scanned_at: null, videos: [], patterns: [], concepts: [] });
-}
-
-export async function scanKidsTrendsHandler(req, res) {
-  try {
-    res.json(await scanKidsTrends(req.body?.age, { apiKey: getChannelYouTubeApiKey(req?.channel || req) }));
-  } catch (err) {
-    if (err.message && err.message.startsWith('Unknown audience')) {
-      return res.status(400).json({ error: err.message });
-    }
-    sendGeneric5xx(req, res, 502, err);
-  }
 }
 
 // ---- Trending themes for Studio: what longer (1-3 min) Shorts are growing fastest this week ----
@@ -458,8 +337,8 @@ export async function scanThemes(niche = DEFAULT_THEME_NICHE, optionsOrKey = {})
     .map((v, i) => `${i + 1}. [${windowOf(v, now)}] "${v.title}" by ${v.channel}: ${v.views.toLocaleString()} views, ${v.views_per_hour.toLocaleString()} views/hour, ${v.duration_s}s`)
     .join('\n');
   const prompt = contentMode === 'whatif'
-    ? `These are the fastest-growing 1-3 minute YouTube Shorts (niche: ${niche}), each tagged by upload age: [day] = last 24 hours, [week] = last 7 days, [month] = last 30 days:\n${list}\n\nGroup them into 5-10 themes for hypothetical narrated videos. For every theme, choose a real entity or subject as "topic" and create a distinct, single hypothetical premise question as "premise". A hypothetical must describe an outcome that did not happen; do not turn a real event topic into a What if question by adding a prefix. Use real entities, places, or mechanisms as background only. Do not claim the hypothetical event occurred and do not require an article about it.\nReturn ONLY JSON: {"themes": [{"name": "2-5 word theme", "why": "one sentence: why it is working", "examples": [video numbers from the list], "topic": "clean name of a real entity or subject, without a What if prefix", "premise": "one original question exactly in the form What if <hypothetical outcome>?", "hook": "an opening line under 10 words, kept separate from topic and premise", "voice": "the narrator name that best fits the theme, one of: ${narrators('fish').map((n) => `${n.name} (${n.description})`).join('; ')}", "tone": "mystery, suspense, documentary, viral_hook, or enthusiastic"}]}\nEvery premise must start with the words What if and ask one hypothetical question. Do not write a factual event premise or merely prefix a factual topic. Strongest evidence first; list matching video numbers in examples. No existing characters, brands or IP.`
-    : `These are the fastest-growing 1-3 minute YouTube Shorts (niche: ${niche}), each tagged by upload age: [day] = last 24 hours, [week] = last 7 days, [month] = last 30 days:\n${list}\n\nGroup them into 5-10 recurring THEMES we could make our own narrated videos about (AI voice-over over AI images and short clips).\nReturn ONLY JSON: {"themes": [{"name": "2-5 word theme", "why": "one sentence: why it is working (hook, emotion, format)", "examples": [video numbers from the list], "topic": "one specific ORIGINAL video topic in this theme for us, never a copy of a listed video", "hook": "an opening line under 10 words", "voice": "the narrator name that best fits the theme, one of: ${narrators('fish').map((n) => `${n.name} (${n.description})`).join('; ')}. Prefer native English voices unless an accent suits the theme", "tone": "narrative tone: mystery, suspense, documentary, viral_hook, or enthusiastic"}]}\nStrongest evidence (views/hour, mostly [day] and [week]) first. List every matching video number in "examples". No existing characters, brands or IP.`;
+    ? `These are the fastest-growing 1-3 minute YouTube Shorts (niche: ${niche}), each tagged by upload age: [day] = last 24 hours, [week] = last 7 days, [month] = last 30 days:\n${list}\n\nGroup them into 5-10 themes for hypothetical narrated videos. For every theme, choose a real entity or subject as "topic" and create a distinct, single hypothetical premise question as "premise". A hypothetical must describe an outcome that did not happen; do not turn a real event topic into a What if question by adding a prefix. Use real entities, places, or mechanisms as background only. Do not claim the hypothetical event occurred and do not require an article about it.\nReturn ONLY JSON: {"themes": [{"name": "2-5 word theme", "why": "one sentence: why it is working", "examples": [video numbers from the list], "topic": "clean name of a real entity or subject, without a What if prefix", "premise": "one original question exactly in the form What if <hypothetical outcome>?", "hook": "an opening line under 10 words, kept separate from topic and premise", "voice": "the narrator name that best fits the theme, one of: ${narrators().map((n) => `${n.name} (${n.description})`).join('; ')}", "tone": "mystery, suspense, documentary, viral_hook, or enthusiastic"}]}\nEvery premise must start with the words What if and ask one hypothetical question. Do not write a factual event premise or merely prefix a factual topic. Strongest evidence first; list matching video numbers in examples. No existing characters, brands or IP.`
+    : `These are the fastest-growing 1-3 minute YouTube Shorts (niche: ${niche}), each tagged by upload age: [day] = last 24 hours, [week] = last 7 days, [month] = last 30 days:\n${list}\n\nGroup them into 5-10 recurring THEMES we could make our own narrated videos about (AI voice-over over AI images and short clips).\nReturn ONLY JSON: {"themes": [{"name": "2-5 word theme", "why": "one sentence: why it is working (hook, emotion, format)", "examples": [video numbers from the list], "topic": "one specific ORIGINAL video topic in this theme for us, never a copy of a listed video", "hook": "an opening line under 10 words", "voice": "the narrator name that best fits the theme, one of: ${narrators().map((n) => `${n.name} (${n.description})`).join('; ')}. Prefer native English voices unless an accent suits the theme", "tone": "narrative tone: mystery, suspense, documentary, viral_hook, or enthusiastic"}]}\nStrongest evidence (views/hour, mostly [day] and [week]) first. List every matching video number in "examples". No existing characters, brands or IP.`;
   const analysis = await ask(prompt, { maxTokens: 4096, model });
   if (!analysis) throw new Error('Grouping themes needs GEMINI_API_KEY in .env.');
 

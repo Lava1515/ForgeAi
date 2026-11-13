@@ -50,9 +50,6 @@ export default function ChannelModal({
   const [audioMode, setAudioMode] = useState(channel?.audio_mode || '');
   const [captions, setCaptions] = useState(channel?.captions == null ? '' : String(channel.captions));
   const [madeForKids, setMadeForKids] = useState(channel?.made_for_kids == null ? '' : String(channel.made_for_kids));
-  const [kidsLength, setKidsLength] = useState(channel?.kids_length_s ? String(channel.kids_length_s) : '');
-  const [kidsVideoModel, setKidsVideoModel] = useState(channel?.kids_video_model || '');
-  const [kidsClipSeconds, setKidsClipSeconds] = useState(channel?.kids_clip_seconds || 5);
   const [style, setStyle] = useState(channel?.style || '');
   const [maxDailyPosts, setMaxDailyPosts] = useState(channel?.max_daily_posts || 2);
   const [growthProfilePrompts, setGrowthProfilePrompts] = useState(channel?.growth_profile_prompts === true);
@@ -95,9 +92,6 @@ export default function ChannelModal({
       setAudioMode(channel.audio_mode || '');
       setCaptions(channel.captions == null ? '' : String(channel.captions));
       setMadeForKids(channel.made_for_kids == null ? '' : String(channel.made_for_kids));
-      setKidsLength(channel.kids_length_s ? String(channel.kids_length_s) : '');
-      setKidsVideoModel(channel.kids_video_model || '');
-      setKidsClipSeconds(channel.kids_clip_seconds || 5);
       setStyle(channel.style || '');
       setMaxDailyPosts(channel.max_daily_posts || 2);
       setGrowthProfilePrompts(channel.growth_profile_prompts === true);
@@ -118,8 +112,6 @@ export default function ChannelModal({
       setAudioMode('');
       setCaptions('');
       setMadeForKids('');
-      setKidsLength('');
-      setKidsVideoModel('');
       setStyle('');
       setMaxDailyPosts(2);
       setGrowthProfilePrompts(false);
@@ -189,9 +181,9 @@ export default function ChannelModal({
       audio_mode: audioMode || null,
       captions: captions === '' ? null : captions === 'true',
       made_for_kids: madeForKids === '' ? null : madeForKids === 'true',
-      kids_length_s: kidsLength === '' ? null : Number(kidsLength),
-      kids_video_model: kidsVideoModel || null,
-      kids_clip_seconds: kidsVideoModel === 'wan14b' ? Number(kidsClipSeconds) : null,
+      kids_length_s: channel?.kids_length_s ?? null,
+      kids_video_model: channel?.kids_video_model || null,
+      kids_clip_seconds: channel?.kids_clip_seconds ?? null,
       style: style === 'viral_v1' ? 'viral_v1' : '',
       max_daily_posts: Number(maxDailyPosts) || 2,
       growth_profile_prompts: growthProfilePrompts,
