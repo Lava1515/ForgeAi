@@ -1,7 +1,9 @@
 """Lazy CPU forced alignment for narration word timestamps."""
 
 from functools import lru_cache
+import math
 import os
+import tempfile
 import wave
 
 from captions import estimate_word_timings
@@ -39,7 +41,7 @@ def align_words(wav_path, text):
             else:
                 token, start, end = word.word, word.start, word.end
             start, end = float(start), float(end)
-            if not token.strip() or start < 0 or end < start or end > duration + 0.5:
+            if not token.strip() or not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or end > duration + 0.5:
                 raise ValueError("aligner returned an invalid word span")
             start = round(max(0.0, min(start, duration)), 3)
             end = round(max(0.0, min(end, duration)), 3)
@@ -55,6 +57,8 @@ def align_words(wav_path, text):
         end = max(start, min(w["end"], next_start))
         w["start"] = round(start, 3)
         w["end"] = round(end, 3)
+        if not math.isfinite(w["start"]) or not math.isfinite(w["end"]) or w["end"] <= w["start"]:
+            raise ValueError("aligner returned a non-positive word span after normalization")
         prev_end = w["end"]
 
     script_words = text.split()
@@ -115,5 +119,46 @@ def words_for_job(wav_path, text, sentence_texts, spans, enabled, strict=False):
             return align_words(wav_path, text), "aligned"
         except Exception:
             if strict:
-                raise
+                return _align_measured_windows(wav_path, text, sentence_texts, spans), "aligned"
     return estimate_word_timings(sentence_texts, spans), "estimated"
+
+
+def _align_measured_windows(wav_path, text, sentence_texts, spans):
+    """Retry strict alignment on validated TTS sentence windows, retaining real timestamps only."""
+    if (not isinstance(sentence_texts, (list, tuple)) or not isinstance(spans, (list, tuple))
+            or len(sentence_texts) != len(spans) or " ".join(sentence_texts) != text):
+        raise ValueError("measured sentence windows do not match the script")
+    with wave.open(str(wav_path), "rb") as src:
+        rate, frames = src.getframerate(), src.getnframes()
+        duration = frames / rate
+        validated = []
+        for sentence, span in zip(sentence_texts, spans):
+            if not isinstance(sentence, str) or not sentence.strip() or not isinstance(span, (tuple, list)) or len(span) != 2:
+                raise ValueError("invalid measured sentence window")
+            start, end = map(float, span)
+            if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or end > duration:
+                raise ValueError("invalid measured sentence window")
+            validated.append((sentence, start, end))
+        if any(validated[i][1] < validated[i-1][2] for i in range(1, len(validated))):
+            raise ValueError("measured sentence windows are unordered")
+        original = src.readframes(frames)
+        params = src.getparams()
+    results = []
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(wav_path))) as temp_dir:
+        for i, (sentence, start, end) in enumerate(validated):
+            first, last = round(start * rate), round(end * rate)
+            crop_path = os.path.join(temp_dir, f"window-{i}.wav")
+            with wave.open(crop_path, "wb") as crop:
+                crop.setparams(params); crop.writeframes(original[first * params.nchannels * params.sampwidth:last * params.nchannels * params.sampwidth])
+            aligned = align_words(crop_path, sentence)
+            if len(aligned) != len(sentence.split()):
+                raise ValueError("window word count mismatch")
+            for word in aligned:
+                s, e = float(word["start"]), float(word["end"])
+                if not math.isfinite(s) or not math.isfinite(e) or s < 0 or e <= s or e > (last-first)/rate + .001:
+                    raise ValueError("invalid aligned sentence window")
+                results.append({"text": word["text"], "start": round(start+s, 3), "end": round(start+e, 3)})
+    expected = text.split()
+    if len(results) != len(expected) or [_normalize_token(w["text"]) for w in results] != [_normalize_token(t) for t in expected]:
+        raise ValueError("window word sequence does not match the script")
+    return [{"text": token, "start": w["start"], "end": w["end"]} for token, w in zip(expected, results)]
