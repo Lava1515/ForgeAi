@@ -27,6 +27,7 @@ const same = (a, b) => typeof a === 'string' && typeof b === 'string'
 // The one read-only host folder a code-built job may see: the engine kit, at the mount point launch.js uses (kept in step
 // by a test). Resolved through the real path because the fence mounts the real path.
 const KIT_DST = '/kit/blender_worker/codebuilt';
+const SKILL_DST = '/skills/codebuilt-scene-generation';
 const realOrResolved = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
 // The complete environment key set of a job (jobEnv builds it from nothing; no extra key is ever passed). Names only.
 const EXPECTED_ENV_KEYS = Object.freeze(Object.keys(buildJobEnv({ jobDir: '/job', jobId: 'job' })).sort());
@@ -61,8 +62,14 @@ export function preventionProblems(prevention, jobDir, { expectGpu = false } = {
   if (writable.length !== 1 || writable[0]?.dst !== '/job' || !same(writable[0]?.src, jobDir)) bad.push('the only writable host mount must be the job folder at /job');
   const readonly = Array.isArray(p.readonlyHostMounts) ? p.readonlyHostMounts : null;
   if (!readonly) bad.push('read-only mount evidence is missing');
-  else if (readonly.length > 1 || readonly.some((m) => m?.dst !== KIT_DST || !same(realOrResolved(m?.src), realOrResolved(READONLY_MOUNT_ALLOWLIST[0])))) {
-    bad.push(`the only read-only host mount allowed is the engine kit at ${KIT_DST}`);
+  else {
+    const expected = [
+      { src: READONLY_MOUNT_ALLOWLIST[0], dst: KIT_DST },
+      { src: READONLY_MOUNT_ALLOWLIST[1], dst: SKILL_DST },
+    ];
+    if (readonly.length !== expected.length || expected.some((want) => !readonly.some((got) => got?.dst === want.dst && same(realOrResolved(got?.src), realOrResolved(want.src))))) {
+      bad.push(`read-only host mounts must be exactly the engine kit at ${KIT_DST} and the approved scene skill at ${SKILL_DST}`);
+    }
   }
   return bad;
 }

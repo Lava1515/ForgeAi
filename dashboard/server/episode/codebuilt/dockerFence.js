@@ -10,9 +10,14 @@ import { IMAGE_REF_RE, IsolationRefused } from './policy.js';
 
 export const CONTAINER_JOB_DIR = '/job';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-// The complete list of host folders a job may see read-only. Today: the engine kit (code only). Nothing else on the
-// host can be mounted, whatever its name. Adding a folder is a reviewed code change here.
-export const READONLY_MOUNT_ALLOWLIST = Object.freeze([path.join(REPO_ROOT, 'blender_worker', 'codebuilt')]);
+// The complete list of host folders a job may see read-only: the engine kit and one project-authored skill directory.
+// Parent folders, sibling skills and every other host path remain refused. Adding a folder is a reviewed code change.
+export const CODEBUILT_SKILL_DIR = path.join(REPO_ROOT, '.claude', 'skills', 'codebuilt-scene-generation');
+export const CODEBUILT_SKILL_DST = '/skills/codebuilt-scene-generation';
+export const READONLY_MOUNT_ALLOWLIST = Object.freeze([
+  path.join(REPO_ROOT, 'blender_worker', 'codebuilt'),
+  CODEBUILT_SKILL_DIR,
+]);
 const RUN_TOKEN_RE = /^[a-f0-9]{12}$/;
 
 /** One container name per run. A second run of the same job gets another name, so cleanup can only remove its own container. */

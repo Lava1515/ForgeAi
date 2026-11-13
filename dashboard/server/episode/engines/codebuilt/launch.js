@@ -9,7 +9,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APPROVED_LAUNCHES, SECURITY_REVIEW, OPEN_OWNER_DECISIONS, GENERATED_KIND, BLENDER_CAP_ACK, GENERATED_CODE_ACK, checkApproval } from '../../codebuilt/policy.js';
-import { READONLY_MOUNT_ALLOWLIST } from '../../codebuilt/dockerFence.js';
+import { READONLY_MOUNT_ALLOWLIST, CODEBUILT_SKILL_DIR, CODEBUILT_SKILL_DST } from '../../codebuilt/dockerFence.js';
 import { CodebuiltError } from './errors.js';
 
 export const GENERATED_EXECUTOR_ID = 'cb6-generated-blender-v1';
@@ -64,7 +64,10 @@ export function selectApprovedLaunch(id, { approvals = APPROVED_LAUNCHES, review
   }
   return {
     kind: entry.kind, image: entry.image, command: [...entry.command], gpu: Boolean(entry.gpu), limits: { ...entry.limits },
-    ...(entry.kind === GENERATED_KIND ? { readonlyMounts: [{ src: path.resolve(kitSrc), dst: KIT_MOUNT_DST }] } : {}),
+    ...(entry.kind === GENERATED_KIND ? { readonlyMounts: [
+      { src: path.resolve(kitSrc), dst: KIT_MOUNT_DST },
+      { src: CODEBUILT_SKILL_DIR, dst: CODEBUILT_SKILL_DST },
+    ] } : {}),
   };
 }
 

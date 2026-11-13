@@ -3,7 +3,8 @@
   "skills": [
     { "id": "video-shot-planner", "skill": "video-shot-planner", "mode": "guidance_only" },
     { "id": "voice-subtitle-sync", "skill": "voice-subtitle-sync", "mode": "guidance_only" },
-    { "id": "video-release-qa", "skill": "video-release-qa", "mode": "guidance_only" }
+    { "id": "video-release-qa", "skill": "video-release-qa", "mode": "guidance_only" },
+    { "id": "codebuilt-scene-generation", "skill": "codebuilt-scene-generation", "mode": "guidance_only" }
   ],
   "rules": {
     "steps": {
@@ -21,11 +22,12 @@
       "before_finishing": ["video-release-qa"]
     },
     "skillUse": [
-      "Load a step's skills when the build reaches that step, by name, as guidance. Never copy skill text into code or prompts; this pack has zero digests.",
+      "Load only the named project-authored codebuilt-scene-generation SKILL.md for the build step as guidance. Do not load user-level skills or copy skill text into generated code.",
       "If a skill conflicts with the brief or the playbook, the brief wins; say so in the report.",
       "cinematic-camera is used for rules and vocabulary only (move names, depth of field, checking every frame). Do not call any pipeline a skill describes; build with frame-by-frame code.",
-      "Only video-shot-planner, voice-subtitle-sync and video-release-qa are vendored under .claude/skills and validated by the pack; the other ten are user-level skills, so their existence is not checked by the validator."
+      "The build skill is authored in this project, is limited to one SKILL.md, and is mounted at /skills/codebuilt-scene-generation read-only."
     ],
+    "skillsByStep": { "build": "codebuilt-scene-generation" },
     "playbook": [
       "Script: 75 to 95 words, 30 to 40 s spoken, hook in the first second, numbers instead of adjectives, one idea per sentence, every fact checked and simplifications named.",
       "Narration first, with per-word timestamps. Every cut, on-screen text and sound effect is placed from a word timestamp, never a guessed time.",
