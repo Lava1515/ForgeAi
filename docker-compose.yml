@@ -1,4 +1,4 @@
-# ForgeShorts services. The dashboard runs on the host (scripts/start_dashboard.ps1), not in Docker.
+# ForgeAi services. The dashboard runs on the host (scripts/start_dashboard.ps1), not in Docker.
 #   docker compose up -d narrative-factory
 
 services:
@@ -6,7 +6,7 @@ services:
   narrative-factory:
     build: ./narrative_factory
     image: forgeai-narrative-factory:latest
-    container_name: forgeshorts-narrative
+    container_name: forgeai-narrative
     restart: unless-stopped
     user: "1000:1000"
     ports:

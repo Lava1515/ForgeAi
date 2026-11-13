@@ -18,7 +18,7 @@ SKIP_DIRS = {'node_modules', '__pycache__', 'dist', '.git', 'hooks'}
 CODE_EXT = ('.py', '.js', '.mjs', '.jsx', '.json', '.yml', '.yaml', '.ps1', '.sh')
 SELF = {'tools/license_check.py'}
 # Our own image names (built here from registered bases) and hashes are not outside things.
-OWN_IMAGES = re.compile(r'^(forgeai-|forgeshorts-|cb6-|sha256:|scratch$)')
+OWN_IMAGES = re.compile(r'^(forgeai-|cb6-|sha256:|scratch$)')
 HF_ID = re.compile(r'''["']([A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*)["']''')
 HF_ORGS = ('Qwen', 'fishaudio', 'openai', 'ResembleAI', 'hexgrad', 'coqui', 'SWivid', 'microsoft', 'facebook', 'google',
            'stabilityai', 'black-forest-labs', 'Wan-AI', 'ACE-Step', 'tencent', 'bosonai', 'IndexTeam', 'myshell-ai',

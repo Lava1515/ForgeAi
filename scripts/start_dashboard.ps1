@@ -1,4 +1,4 @@
-# Starts the ForgeShorts dashboard on http://127.0.0.1:3000 in the background and writes its logs to output/logs.
+# Starts the ForgeAi dashboard on http://127.0.0.1:3000 in the background and writes its logs to output/logs.
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts/start_dashboard.ps1 [-Port 3000]
 param([int]$Port = 3000)
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path -replace '\\', '/'

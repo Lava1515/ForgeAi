@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { scanReparsePoints } from './reparse.js';
 
-export const JOB_ROOT = 'C:/code/ForgeShorts/output/agent-jobs';
+export const JOB_ROOT = 'C:/code/ForgeAi/output/agent-jobs';
 // Owner boundary (rule 13): a job may not cause writes outside this folder. Unrelated writes inside it are not a failure.
 export const CODE_ROOT = 'C:/code';
 const JOB_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;

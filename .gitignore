@@ -160,3 +160,7 @@ output/*
 !output/drafts/
 !output/ui-audit/
 .anatomy-tmp/
+
+# The shared brain of all agents: its own git repository
+/ForgeBrain/
+/.superpowers/
