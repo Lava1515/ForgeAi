@@ -4,6 +4,7 @@ import { jobsRoot } from '../episode/codebuilt/draftAdapter.js';
 import { assertRealDir, samePath } from '../episode/codebuilt/jobPaths.js';
 import { buildCostRecord, normalizeJobCalls, scrubCost } from '../perf/creationCost.js';
 import { redactLogText } from './redact.js';
+import { MAX_LOOKS, MAX_CRASH_FIXES } from '../episode/codebuilt/visualLoop.js';
 
 const specs = {
   script: ['stage', 'script.txt'],
@@ -17,9 +18,9 @@ const specs = {
   video: ['job', 'out/video.mp4'],
   contactSheet: ['job', 'out/contact_sheet.png'],
 };
-for (let round = 1; round <= 3; round += 1) {
-  specs[`round${round}`] = ['stage', `loop/r${round}/look.json`];
-  for (let sheet = 1; sheet <= 9; sheet += 1) specs[`round${round}sheet${sheet}`] = ['stage', `loop/r${round}/sheets/sheet_${sheet}.jpg`];
+for (let round = 1; round <= MAX_LOOKS + MAX_CRASH_FIXES; round += 1) {
+  specs[`round${round}`] = ['stage', `loop/r${round - 1}/look.json`];
+  for (let sheet = 1; sheet <= 9; sheet += 1) specs[`round${round}sheet${sheet}`] = ['stage', `loop/r${round - 1}/sheets/sheet_${sheet}.jpg`];
 }
 const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -72,7 +73,7 @@ export function createJobArtifactHandlers({ root = jobsRoot() } = {}) {
     const result = readArtifact(root, String(req.params.jobId ?? ''), String(req.params.key ?? ''));
     if (result.status !== 'available' || !result.file) return res.status(404).json({ error: 'Artifact unavailable' });
     res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Type': result.type });
-    return res.send(fs.readFileSync(result.file));
+    return res.sendFile(result.file);
   };
   return { list, file };
 }

@@ -19,13 +19,14 @@ function ArtifactImage({ item, label }) {
 export function JobArtifactView({ job, artifacts = {} }) {
   const final = artifacts.finalVideo?.url ? artifacts.finalVideo : artifacts.video;
   const sheet = artifacts.finalSheet?.url ? artifacts.finalSheet : artifacts.contactSheet;
+  const rounds = Object.keys(artifacts).filter((key) => /^round\d+$/.test(key)).map((key) => Number(key.slice(5))).sort((a, b) => a - b);
   return (
     <section aria-label={`Job ${job.id} artifacts`} className="space-y-2 pt-2 text-xs text-ink-200">
       <ArtifactText artifacts={artifacts} name="script" title="Script" />
       <ArtifactText artifacts={artifacts} name="shots" title="Shot list" />
       <div className="rounded border border-ink-800 p-2">
         <p className="mb-2">Preview sheets</p>
-        {[1, 2, 3].map((round) => (
+        {rounds.map((round) => (
           <details key={round} className="mb-2">
             <summary className="cursor-pointer">Preview round {round} - {stateLabel(artifacts[`round${round}`])}</summary>
             <ArtifactText artifacts={artifacts} name={`round${round}`} title="Review result" />
@@ -34,7 +35,7 @@ export function JobArtifactView({ job, artifacts = {} }) {
             </div>
           </details>
         ))}
-        {!artifacts.round1sheet1?.url && !artifacts.round2sheet1?.url && !artifacts.round3sheet1?.url && <p className="text-ink-400">No preview sheets recorded yet.</p>}
+        {!rounds.some((round) => artifacts[`round${round}sheet1`]?.url) && <p className="text-ink-400">No preview sheets recorded yet.</p>}
       </div>
       <div className="rounded border border-ink-800 p-2">
         <p>Final - {final?.status ?? 'pending'}</p>
