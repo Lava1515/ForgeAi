@@ -56,6 +56,15 @@ export default function ChannelModal({
   const [growthTopicPicking, setGrowthTopicPicking] = useState(channel?.growth_topic_picking === true);
   const [researchSummary, setResearchSummary] = useState('');
 
+  const [niche, setNiche] = useState(channel?.profile?.niche || '');
+  const [format, setFormat] = useState(channel?.profile?.format || 'narrated');
+  const [language, setLanguage] = useState(channel?.profile?.language || 'en');
+  const [avoid, setAvoid] = useState(
+    Array.isArray(channel?.profile?.avoid)
+      ? channel.profile.avoid.join('\n')
+      : (channel?.profile?.avoid || '')
+  );
+
   const [activeTab, setActiveTab] = useState('general'); // 'general' | 'keys' | 'psychology'
   const [isResearching, setIsResearching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -97,6 +106,14 @@ export default function ChannelModal({
       setGrowthProfilePrompts(channel.growth_profile_prompts === true);
       setGrowthTopicPicking(channel.growth_topic_picking === true);
       setResearchSummary('');
+      setNiche(channel.profile?.niche || '');
+      setFormat(channel.profile?.format || 'narrated');
+      setLanguage(channel.profile?.language || 'en');
+      setAvoid(
+        Array.isArray(channel.profile?.avoid)
+          ? channel.profile.avoid.join('\n')
+          : (channel.profile?.avoid || '')
+      );
     } else {
       setName('');
       setDescription('');
@@ -117,6 +134,10 @@ export default function ChannelModal({
       setGrowthProfilePrompts(false);
       setGrowthTopicPicking(false);
       setResearchSummary('');
+      setNiche('');
+      setFormat('narrated');
+      setLanguage('en');
+      setAvoid('');
     }
     setError('');
     setSuccessMsg('');
@@ -173,6 +194,30 @@ export default function ChannelModal({
     setIsSaving(true);
     setError('');
 
+    const trimmedNiche = niche.trim().slice(0, 200);
+    const selectedFormat = format === 'loop' ? 'loop' : 'narrated';
+    const trimmedLanguage = language.trim() || 'en';
+    const avoidPhrases = avoid
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+
+    const isDefaultProfile =
+      !trimmedNiche &&
+      selectedFormat === 'narrated' &&
+      trimmedLanguage === 'en' &&
+      avoidPhrases.length === 0;
+
+    const profile = isDefaultProfile
+      ? null
+      : {
+          niche: trimmedNiche,
+          format: selectedFormat,
+          language: trimmedLanguage,
+          avoid: avoidPhrases,
+        };
+
     const payload = {
       name: name.trim(),
       description: description.trim(),
@@ -193,7 +238,8 @@ export default function ChannelModal({
       client_id: clientId.trim(),
       ...(clientSecret.trim() ? { client_secret: clientSecret.trim() } : {}),
       voiceover_psychology_rules: voiceoverRules,
-      video_psychology_rules: videoRules
+      video_psychology_rules: videoRules,
+      profile
     };
 
     try {
@@ -352,6 +398,64 @@ export default function ChannelModal({
                   placeholder="Brief summary of the target audience, tone, and subject matter..."
                   className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 placeholder-ink-600 focus:outline-none focus:border-ember-500/70 transition resize-none shadow-inner"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink-300 mb-1.5">
+                  Niche
+                </label>
+                <input
+                  type="text"
+                  maxLength={200}
+                  value={niche}
+                  onChange={(e) => setNiche(e.target.value)}
+                  placeholder="e.g. geography oddities, borders and country comparisons shown on a map"
+                  className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 placeholder-ink-600 focus:outline-none focus:border-ember-500/70 transition shadow-inner"
+                />
+                <p className="text-[11px] text-ink-400 mt-1">
+                  What this channel is about. Videos pick their theme inside it.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Format</label>
+                  <select
+                    value={format}
+                    onChange={(e) => setFormat(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner"
+                  >
+                    <option value="narrated">Narrated</option>
+                    <option value="loop">Loop (silent 6 to 20 second clip that repeats)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Language</label>
+                  <input
+                    type="text"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    placeholder="en"
+                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 placeholder-ink-600 focus:outline-none focus:border-ember-500/70 transition shadow-inner"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink-300 mb-1.5">
+                  Avoid
+                </label>
+                <textarea
+                  value={avoid}
+                  onChange={(e) => setAvoid(e.target.value)}
+                  rows={3}
+                  placeholder={"current wars\ndisputed borders"}
+                  className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 placeholder-ink-600 focus:outline-none focus:border-ember-500/70 transition resize-none shadow-inner"
+                />
+                <p className="text-[11px] text-ink-400 mt-1">
+                  Up to 10 short phrases (topics to stay away from), entered one per line.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
