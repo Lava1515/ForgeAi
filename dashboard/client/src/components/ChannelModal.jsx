@@ -208,10 +208,10 @@ export default function ChannelModal({
 
     if (autoReleaseDailyCap.trim() && (!Number.isSafeInteger(Number(autoReleaseDailyCap)) || Number(autoReleaseDailyCap) <= 0)) {
       setError('Daily cap must be a positive whole number, or leave it empty.');
+      setIsSaving(false);
       return;
     }
     const trimmedNiche = niche.trim().slice(0, 200);
-    const selectedFormat = 'narrated';
     const trimmedLanguage = language.trim() || 'en';
     const avoidPhrases = avoid
       .split('\n')
