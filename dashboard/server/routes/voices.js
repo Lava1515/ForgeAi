@@ -139,17 +139,32 @@ export function readManifest(samplesDir = resolveVoiceSamplesDir()) {
   return null;
 }
 
+function regularSamplePath(file, samplesDir) {
+  try {
+    const root = path.resolve(samplesDir);
+    const relative = path.relative(root, path.resolve(file));
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+    let current = root;
+    for (const part of ['', ...relative.split(path.sep)]) {
+      if (part) current = path.join(current, part);
+      if (fs.lstatSync(current).isSymbolicLink()) return null;
+    }
+    const stat = fs.lstatSync(file);
+    return stat.isFile() && stat.nlink === 1 ? file : null;
+  } catch { return null; }
+}
+
 export function findSampleFilePath(id, samplesDir = resolveVoiceSamplesDir()) {
   const cleanId = String(id || '').trim().toLowerCase();
   if (!QWEN_SPEAKERS.includes(cleanId)) return null;
 
   // Try direct <id>.wav
   const flat = path.join(samplesDir, `${cleanId}.wav`);
-  if (fs.existsSync(flat)) return flat;
+  if (regularSamplePath(flat, samplesDir)) return flat;
 
   // Try nested <id>/voice.wav
   const nested = path.join(samplesDir, cleanId, 'voice.wav');
-  if (fs.existsSync(nested)) return nested;
+  if (regularSamplePath(nested, samplesDir)) return nested;
 
   return null;
 }
@@ -248,16 +263,26 @@ export function getVoiceSampleHandler(req, res) {
   }
 
   try {
-    const stat = fs.statSync(filePath);
-    const total = stat.size;
+    const before = fs.lstatSync(filePath);
+    const fd = fs.openSync(filePath, 'r');
+    let audio;
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1 || stat.ino !== before.ino || stat.dev !== before.dev || !regularSamplePath(filePath, resolveVoiceSamplesDir())) {
+        return res.status(404).json({ error: 'Sample is unavailable.' });
+      }
+      audio = fs.readFileSync(fd);
+    } finally { fs.closeSync(fd); }
+    const total = audio.length;
     const range = req.headers.range;
 
     if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : total - 1;
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+      const suffix = match && match[1] === '';
+      const start = match ? (suffix ? Math.max(0, total - Number(match[2])) : Number(match[1])) : NaN;
+      const end = match ? (suffix || match[2] === '' ? total - 1 : Math.min(Number(match[2]), total - 1)) : NaN;
 
-      if (start >= total || end >= total || start > end) {
+      if (!match || (!match[1] && !match[2]) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || (suffix && Number(match[2]) <= 0) || start >= total || end >= total || start > end) {
         res.setHeader('Content-Range', `bytes */${total}`);
         return res.status(416).send('Requested range not satisfiable');
       }
@@ -270,8 +295,7 @@ export function getVoiceSampleHandler(req, res) {
         'Content-Type': 'audio/wav',
         'Cache-Control': 'public, max-age=86400',
       });
-      const stream = fs.createReadStream(filePath, { start, end });
-      return stream.pipe(res);
+      return res.end(audio.subarray(start, end + 1));
     }
 
     res.writeHead(200, {
@@ -280,8 +304,7 @@ export function getVoiceSampleHandler(req, res) {
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'public, max-age=86400',
     });
-    const stream = fs.createReadStream(filePath);
-    return stream.pipe(res);
+    return res.end(audio);
   } catch (err) {
     console.error(`[ForgeAI] Failed to stream voice sample for ${cleanId}:`, err);
     return res.status(500).json({ error: 'Internal server error' });

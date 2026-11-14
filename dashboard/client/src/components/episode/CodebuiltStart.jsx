@@ -159,7 +159,12 @@ export default function CodebuiltStart() {
   const [genre, setGenre] = useState('');
   const [theme, setTheme] = useState('');
   const [type, setType] = useState('Auto');
-  const [voice, setVoice] = useState('Auto');
+  const [voice, setVoice] = useState(() => {
+    try {
+      const preferred = localStorage.getItem('forgeai_preferred_voice');
+      return CODEBUILT_VOICES.includes(preferred) ? preferred : 'Auto';
+    } catch { return 'Auto'; }
+  });
   const [job, setJob] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [run, setRun] = useState(null);
