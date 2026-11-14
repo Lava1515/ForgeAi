@@ -45,6 +45,9 @@ export const LIMITS = Object.freeze({
   maxTextChars: 40,
   tailKeepSeconds: 0.3, // trailing silence kept after the last word when the tail is trimmed
   tailGuardSeconds: 0.1, // the trim never ends closer than this to the last audible sample
+  firstWordExtendMaxSeconds: 0.5, // the aligner may have collapsed the first word: its start is moved back to the audible start by at most this much
+  collapsedWordMaxSeconds: 0.05, // a first word shorter than this counts as collapsed by the aligner
+  leadSoundGapMaxSeconds: 0.1, // the sound before a collapsed first word must run up to it with no silent gap longer than this
   lastWordExtendMaxSeconds: 1.0, // the aligner may have clipped the last word: it is extended to the audible end by at most this much
   tailTrimMinSeconds: 0.1, // a tail is only cut when at least this much would go (a shorter tail is left byte for byte)
 });
@@ -211,6 +214,33 @@ export function extendClippedLastWord({ wav, timing }) {
   return { timing: { ...timing, words }, extendedSeconds: round3(span.end - last.end) };
 }
 
+// ---- a collapsed first word ----
+/**
+ * The aligner sometimes collapses the first word to zero length after the voice has already said it (job mwgt0zmz-c75642, 2026-11-14:
+ * "Venice" at 0.40-0.40 s with sound from 0.02 s, on two takes with different seeds). The mirror of extendClippedLastWord: when the audible
+ * start is earlier than the first word's start by more than the checker's slack but by no more than firstWordExtendMaxSeconds, only that word's
+ * start moves to the audible start. Only with evidence of the collapse: the word is shorter than collapsedWordMaxSeconds and the sound runs from
+ * the audible start up to it without a silent gap over leadSoundGapMaxSeconds, so a detached click or extra utterance before the voice is still
+ * refused. Pure: the same object and 0 when nothing changes. It never moves a start later and never touches another word.
+ */
+export function extendClippedFirstWord({ wav, timing }) {
+  if (!Buffer.isBuffer(wav) || !isObj(timing) || !Array.isArray(timing.words) || !timing.words.length) return { timing, extendedSeconds: 0 };
+  const first = timing.words[0];
+  if (!isObj(first) || !isNum(first.start) || !isNum(first.end) || first.end - first.start >= LIMITS.collapsedWordMaxSeconds) return { timing, extendedSeconds: 0 };
+  let span; let peaks; let windowSeconds;
+  try { ({ peaks, windowSeconds } = windowPeaks(wav)); span = audibleSpan(peaks, windowSeconds, LIMITS.audibleFloor); } catch { return { timing, extendedSeconds: 0 }; }
+  if (!span) return { timing, extendedSeconds: 0 };
+  const early = first.start - span.start;
+  if (early <= LIMITS.audioToWordSlackSeconds || early > LIMITS.firstWordExtendMaxSeconds) return { timing, extendedSeconds: 0 };
+  let gap = 0;
+  for (let k = Math.floor(span.start / windowSeconds); k < Math.floor(first.start / windowSeconds) && k < peaks.length; k += 1) {
+    gap = peaks[k] >= LIMITS.audibleFloor ? 0 : gap + windowSeconds;
+    if (gap > LIMITS.leadSoundGapMaxSeconds) return { timing, extendedSeconds: 0 };
+  }
+  const words = timing.words.map((w, i) => (i === 0 ? { ...w, start: round3(span.start) } : w));
+  return { timing: { ...timing, words }, extendedSeconds: round3(early) };
+}
+
 // ---- the checker ----
 /** True when the word times look spread over the text by letter count (no real alignment): every letters-per-second ratio is almost the same, or the words tile the audio with no gap from 0 to the end. */
 export function looksEstimated(words, durationSeconds) {
@@ -331,10 +361,12 @@ export function convertStageOutput({ voicePath, timingPath, script }) {
   }
   const extended = extendClippedLastWord({ wav, timing });
   timing = extended.timing;
+  const extendedFirst = extendClippedFirstWord({ wav, timing });
+  timing = extendedFirst.timing;
   const doc = { dur: round3(info.seconds), words: buildWordsList(timing.words) };
   // dur must be the exact file length for the kit; round3 can differ from the file by under 0.5 ms, well inside the 10 ms check.
   const { metrics: checked } = checkVoiceFiles({ wav, doc, scriptWords: normalised.words, source: timing.word_timing_source });
-  const metrics = { ...checked, tail_trimmed_s: trimmed.trimmedSeconds, last_word_extended_s: extended.extendedSeconds };
+  const metrics = { ...checked, tail_trimmed_s: trimmed.trimmedSeconds, last_word_extended_s: extended.extendedSeconds, first_word_extended_s: extendedFirst.extendedSeconds };
   const manifest = {
     version: CODEBUILT_VOICE_VERSION, source: timing.source, voice: timing.voice ?? null, word_timing_source: 'aligned',
     audio_file: 'vo.wav', audio_sha256: sha256(wav), words_file: 'words.json', script_sha256: sha256(normalised.text), ...metrics,

@@ -58,6 +58,9 @@ export const SCRIPT_LENGTH_BAND = Object.freeze({ under: 0.04, over: LENGTH_TOLE
 export const SCRIPT_OVER_TARGET = 0.06;
 export { LENGTH_TOLERANCE_S, lengthCheck };
 const MAX_ATTEMPTS = 2;
+// The script call is short (10 to 25 s), so it gets one more attempt: job mwgtbr55-38b34e (2026-11-14) failed after a reply 3 words
+// too long and then a reply that was not valid JSON. The build stays at 2 because one build call can take 20 minutes or more.
+export const SCRIPT_MAX_ATTEMPTS = 3;
 // Writing the whole Blender build script takes a model several minutes; the CLI default of 300 s killed the real 60 s run (2026-11-13).
 // 45 minutes since 2026-11-14: the first directed build (job mwg20ivw-ea1a19) took 29.6 minutes to answer and its reply was thrown away at 20.
 export const BUILD_TIMEOUT_MS = 45 * 60 * 1000;
@@ -148,7 +151,7 @@ export function shotWindows(words, shotStarts) {
 
 // ---- model calls ---------------------------------------------------------------------------------------------------------------------------------------
 
-function makeAsker(deps, step, onCall) {
+function makeAsker(deps, step, onCall, maxAttempts = MAX_ATTEMPTS) {
   const all = [];
   const askFn = deps.askFn ?? ((prompt, options) => askClaude(prompt, { ...options, structured: true, ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}) }));
   // The router reports a failed or timed-out attempt only through its recorder, then rethrows; keep that record so the attempt is costed.
@@ -169,7 +172,7 @@ function makeAsker(deps, step, onCall) {
     async run(prompt, check, signal) {
       let feedback = '';
       let last;
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (signal?.aborted) throw abortError();
         let record;
         let answer;
@@ -193,7 +196,7 @@ function makeAsker(deps, step, onCall) {
         if (!(checkError instanceof PlannerError)) throw checkError;
         last = checkError; feedback = checkError.message;
       }
-      throw new PlannerError(last.code, `The model reply was refused after ${MAX_ATTEMPTS} attempts: ${last.message}`);
+      throw new PlannerError(last.code, `The model reply was refused after ${maxAttempts} attempts: ${last.message}`);
     },
   };
 }
@@ -320,7 +323,7 @@ export async function planCodebuiltScript(input = {}, deps = {}) {
   if (input.signal?.aborted) throw abortError();
   const choices = choicesOf(input);
   const pathPack = loadCodebuiltPathPack(deps);
-  const asker = makeAsker(deps, 'script', deps.onCall);
+  const asker = makeAsker(deps, 'script', deps.onCall, SCRIPT_MAX_ATTEMPTS);
   const voice = typeof input.voice === 'string' ? input.voice : undefined;
   const v = await asker.run(scriptPrompt({ topic, duration, pack: pathPack, choices, voice, pace: input.pace, premise: input.premise, corrections: input.corrections }), checkScript(duration, voice, input.pace), input.signal);
   return { script: v.script.trim(), brief: briefMarkdown(topic, duration, v, choices), shots: v.shots, pathPack, calls: asker.calls };

@@ -24,6 +24,7 @@ import { lengthCheck, LENGTH_TOLERANCE_S } from './lengthCheck.js';
 import { GENERATED_GPU_EXECUTOR_ID } from '../engines/codebuilt/launch.js';
 import { produceLightMetadata, validateTitle, validateTags } from './lightMetadata.js';
 import { askRole } from '../../routes/askRole.js';
+import { postFactory } from '../../routes/factoryClient.js';
 import { askClaude } from '../../routes/claudeCli.js';
 import { runVisualBuildLoop } from './visualLoop.js';
 import { probeLookSupport, askClaudeLook } from './lookCall.js';
@@ -59,10 +60,11 @@ export const STAGE_DIR = '.start';
 // How many times a job may rewrite its script for the voice's measured pace after a too_long or too_short voice (see execute).
 export const LENGTH_RETRIES = 1;
 // Refusals of a voice recording that a second recording can cure (see the voice step in execute).
-// 0 since the same day: the voice engine derives its seeds from the text, so recording the same script again gives the same audio.
-// The cure for a bad sentence is the engine's pace gate (episode/voice.js sends pace_gate_v1). The loop stays for a voice stage
-// that is not deterministic.
-export const VOICE_RETRIES = 0;
+// The voice engine derives its seeds from the text, so recording the same script again gives the same audio: a retry asks for
+// another base seed (VOICE_RETRY_SEED + attempt) and so gets a different take. The pace gate alone does not cure every bad take:
+// job mwgt0zmz-c75642 (2026-11-14 21:40) had sound from 0.03 s but its first word aligned at 0.40 s (audio_not_matching).
+export const VOICE_RETRIES = 1;
+export const VOICE_RETRY_SEED = 7919;
 export const VOICE_RETRY_REASONS = Object.freeze(['audio_not_matching', 'bad_tail', 'bad_lead', 'bad_word_times', 'timing_mismatch']);
 // The finished video may be this many seconds under the requested duration before the job stops (TTS pace varies; see planner.js targetWords).
 // 60 and 90 s keep 4 s; the shorter videos scale it (about 7 percent) so a 30 s request cannot finish at 26 s.
@@ -616,7 +618,9 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       // only for refusals of the recording itself; a wrong script, a missing service or an abort is not retried.
       for (let attempt = 0; ; attempt += 1) {
         try {
-          voice = await voiceStage({ script: scripted.script, voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(postFactoryFn ? { postFactoryFn } : {}) });
+          const basePost = postFactoryFn ?? postFactory;
+          const post = attempt === 0 ? postFactoryFn : (route, body, ...rest) => basePost(route, route === '/api/tts-timed' ? { ...body, seed: VOICE_RETRY_SEED + attempt } : body, ...rest);
+          voice = await voiceStage({ script: scripted.script, voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(post ? { postFactoryFn: post } : {}) });
           break;
         } catch (error) {
           if (attempt >= VOICE_RETRIES || signal.aborted || !VOICE_RETRY_REASONS.includes(error?.reason)) throw error;
