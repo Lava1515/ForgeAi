@@ -85,3 +85,17 @@ def test_too_many_unplaced_sentences_is_a_failed_alignment(tmp_path):
     with patch.object(aligner, '_model', return_value=SimpleNamespace(align=align)):
         with pytest.raises(ValueError):
             aligner.words_for_job(audio, 'a b. c d.', ['a b.', 'c d.'], [(0, 1), (2, 2.9)], True, strict=True)
+
+
+def test_one_long_unplaced_sentence_among_short_ones_is_refused_and_a_short_word_is_kept(tmp_path):
+    audio = tmp_path / 'x.wav'; wav(audio)
+    long_sentence = ' '.join(['word'] * 20) + '.'
+    def align(p, text, language):
+        if text == 'Yes.':
+            return result([('Yes.', .1, .25)])       # a real 150 ms word in a 0.9 s window: kept, not treated as a sliver
+        raise RuntimeError('no')
+    with patch.object(aligner, '_model', return_value=SimpleNamespace(align=align)):
+        words, source = aligner.words_for_job(audio, 'Yes.', ['Yes.'], [(0, .9)], True, strict=True)
+        assert source == 'aligned' and abs(words[0]['end'] - words[0]['start'] - .15) < .01
+        with pytest.raises(ValueError):
+            aligner.words_for_job(audio, f'Yes. {long_sentence} Yes. Yes.', ['Yes.', long_sentence, 'Yes.', 'Yes.'], [(0, .4), (.5, 2.0), (2.1, 2.5), (2.6, 2.9)], True, strict=True)

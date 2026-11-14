@@ -151,8 +151,8 @@ def align_by_sentence(wav_path, sentence_texts, spans):
     aligned alone. Aligning the whole narration in one pass let one hard spot (a long pause, a re-voiced sentence) push every later
     word off and then failed the whole job ("terminal alignment overlaps preceding words", job mwg5e6hs-e826b9). Here a problem stays
     inside its sentence: a sentence the aligner cannot place gets word spans spread across its window by word length.
-    Returns (words, spread) where spread is the number of sentences that used the fallback."""
-    words, spread = [], 0
+    Returns (words, spread, spread_words): the number of sentences, and of words, that used the fallback."""
+    words, spread, spread_words = [], 0, 0
     with wave.open(str(wav_path), 'rb') as src:
         rate, frames, params = src.getframerate(), src.getnframes(), src.getparams()
         with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(wav_path))) as scratch:
@@ -173,21 +173,23 @@ def align_by_sentence(wav_path, sentence_texts, spans):
                         aligned = align_words(crop_path, sentence)
                         placed = [{'text': token, 'start': round(min(max(lo + w['start'], start), end), 3), 'end': round(min(max(lo + w['end'], start), end), 3)}
                                   for token, w in zip(tokens, aligned)]
-                        # A take the aligner squeezed into a sliver (every word at one instant) is not a placement.
-                        if placed[-1]['end'] - placed[0]['start'] < min(0.25, (end - start) * 0.2):
+                        # A take the aligner squeezed into a sliver (every word at one instant) is not a placement. Only for
+                        # sentences of three words or more: a real "Yes." is 150 ms long.
+                        if len(tokens) >= 3 and placed[-1]['end'] - placed[0]['start'] < min(0.25, (end - start) * 0.2):
                             placed = None
                     except Exception:
                         placed = None
                 if placed is None:
                     placed = _spread_words(tokens, start, end)
                     spread += 1
+                    spread_words += len(tokens)
                 words.extend(placed)
     prev = 0.0
     for w in words:   # monotonic and non-negative length
         w['start'] = round(max(w['start'], prev), 3)
         w['end'] = round(max(w['end'], w['start']), 3)
         prev = w['end']
-    return words, spread
+    return words, spread, spread_words
 
 
 def words_for_job(wav_path, text, sentence_texts, spans, enabled, strict=False):
@@ -197,10 +199,11 @@ def words_for_job(wav_path, text, sentence_texts, spans, enabled, strict=False):
     if enabled:
         try:
             if strict and _windows_usable(wav_path, text, sentence_texts, spans):
-                words, spread = align_by_sentence(wav_path, sentence_texts, spans)
-                # Most of the narration must really be aligned: more than a third of the sentences spread by length is a failed alignment.
-                if spread * 3 > len(sentence_texts):
-                    raise ValueError(f'{spread} of {len(sentence_texts)} sentences could not be aligned')
+                words, spread, spread_words = align_by_sentence(wav_path, sentence_texts, spans)
+                # Most of the narration must really be aligned: more than a third of the sentences, or of the words, spread by
+                # length is a failed alignment (one long unplaced sentence among short ones must not pass as aligned).
+                if spread * 3 > len(sentence_texts) or spread_words * 3 > len(words):
+                    raise ValueError(f'{spread} of {len(sentence_texts)} sentences ({spread_words} of {len(words)} words) could not be aligned')
                 return words, "aligned"
             words = align_words(wav_path, text)
             if strict:
