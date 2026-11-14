@@ -121,6 +121,15 @@ SPECS = (
          Angle("high", (3.5, -5.5, 5.0), (0.0, 0.5, 0.9), 50),
          Angle("low", (-2.5, -4.5, 0.9), (0.0, 0.5, 1.0), 45)),
         SceneParams(note=_STANDARD + " Key 300, fill 76, top 70 W areas (0.2 of the chat values).")),
+    SetSpec(
+        "world_map",
+        "Flat world map of real country shapes: highlight, lift, label, true-size moves and camera flights between countries.",
+        ("map", "country", "countries", "border", "borders", "continent", "geography", "territory", "size", "bigger", "smaller", "capital", "nation", "flag", "ocean"),
+        (0.65, 2.96, 0.08),
+        (Angle("world", (0.0, -9.0, 41.0), (0.0, 0.5, 0.0), 35),
+         Angle("region", (0.7, -4.0, 13.0), (0.7, 3.0, 0.0), 35),
+         Angle("low", (0.7, -10.0, 9.5), (0.7, 3.5, 0.0), 45)),
+        SceneParams(background=(0.02, 0.05, 0.1), note=_STANDARD + " Sun 3.2 plus a 2.6 kW area fill; sea plate and country tops carry a small emission so shadowed countries keep their colour.")),
 )
 
 _BY_NAME = {s.name: s for s in SPECS}

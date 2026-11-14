@@ -53,13 +53,28 @@ export function guideNamesFor(pack, step) {
 }
 
 /**
+ * Skill names the pack's rules.topicSkills assign to a step for this topic text: an entry applies when the step is in its `steps` and one of
+ * its `keywords` appears in the text as a whole word or phrase (case-insensitive). Empty text matches nothing.
+ */
+export function topicGuideNamesFor(pack, step, text) {
+  const haystack = String(text ?? '').toLowerCase();
+  if (!haystack.trim() || !Array.isArray(pack?.rules?.topicSkills)) return [];
+  const escape = (word) => word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return pack.rules.topicSkills
+    .filter((entry) => typeof entry?.skill === 'string' && Array.isArray(entry.steps) && entry.steps.includes(step) && Array.isArray(entry.keywords)
+      && entry.keywords.some((word) => typeof word === 'string' && word.trim() && new RegExp(`(?<![a-z0-9])${escape(word.trim())}(?![a-z0-9])`).test(haystack)))
+    .map((entry) => entry.skill);
+}
+
+/**
  * The guidance text for one pipeline step (script, direction, build, look): every project-authored SKILL.md the pack assigns to
  * that step, in order, each under its own heading. Only names the pack lists in `skills` as guidance_only are read, and only from
  * this repository's .claude/skills folder (same path checks as the build skill). A step with no assigned skill gives ''.
+ * `topic` (the topic and script text, optional): topic skills of rules.topicSkills whose keywords appear in it are added after the step skills.
  * The text goes into a prompt as guidance; nothing here is mounted, executed or copied into generated code.
  */
-export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT } = {}) {
-  const names = guideNamesFor(pack, step);
+export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '' } = {}) {
+  const names = [...new Set([...guideNamesFor(pack, step), ...topicGuideNamesFor(pack, step, topic)])];
   const approved = new Set((Array.isArray(pack?.skills) ? pack.skills : []).filter((entry) => entry?.mode === 'guidance_only').map((entry) => entry.skill));
   const parts = [];
   for (const name of names) {
