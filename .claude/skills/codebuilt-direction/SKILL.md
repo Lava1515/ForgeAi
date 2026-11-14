@@ -60,3 +60,8 @@ A subject that moves or explodes needs a wider framing than one that stands stil
 - Abstract diagrams (arrows and rings around a ball) for more than one shot in a row: come back to a person, an animal or a place.
 - Facial acting in close-up: the figures have simple faces. Tell emotion with the body (arms up, a jump, a slump, a shrug, running away).
 - Text-heavy shots, tables, lists.
+
+## Premise at the opening and ending
+
+<!-- codex · gpt-6.1-sol · 2026-11-14 -->
+The subject and the premise text are on screen in the first frame. No logo or title card. End on the payoff and stop, or end where a loop can start. No call to action.

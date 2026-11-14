@@ -45,3 +45,8 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 
 - Only facts you are sure of, with real magnitudes. Name a simplification as one ("roughly", "about").
 - In a "what if", say once that it is hypothetical; everything that follows from it must be real physics.
+
+## Premise at the opening and ending
+
+<!-- codex · gpt-6.1-sol · 2026-11-14 -->
+The subject and the premise text are on screen in the first frame. No logo or title card. End on the payoff and stop, or end where a loop can start. No call to action.

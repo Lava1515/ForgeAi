@@ -240,7 +240,7 @@ const srtText = (buffer) => (decodeText(buffer) || '').split(/\r?\n/).filter((l)
 
 // Options: jobId, channelId (a known, not-for-kids channel), now (Date | () => Date | ISO string), jobsDir / draftsDir (default agent-jobs / FORGEAI_DRAFTS_DIR),
 // getChannel (default: the channel store), fsApi (tests). -> { created, draftId, metadata }. The same job with the same bytes returns { created: false }.
-export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), jobsDir = jobsRoot(), draftsDir = draftsRoot(), getChannel = getChannelById, fsApi = fs, topic, title: titleOverride, tags: tagOverrides, metadataSource } = {}) {
+export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), jobsDir = jobsRoot(), draftsDir = draftsRoot(), getChannel = getChannelById, fsApi = fs, topic, premise, title: titleOverride, tags: tagOverrides, metadataSource } = {}) {
   if (typeof jobId !== 'string' || !JOB_ID.test(jobId)) throw new CodebuiltDraftError('invalid_id');
   const channel = resolveChannel(channelId, getChannel);
   const createdAt = typeof now === 'function' ? now() : now;
@@ -299,7 +299,7 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
     const producer = cb5 ? checkCb5Report(reportBytes) : null; // checked on the copied bytes, never on the source
     const cleanMeta = (v, max) => typeof v === 'string' ? v.replace(/[\x00-\x1f\x7f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max) : '';
     const fallbackTitle = cleanMeta(manifest.topic, LIMITS.title) || 'Code-built short';
-    const title = cleanMeta(titleOverride, LIMITS.title) || fallbackTitle;
+    const title = cleanMeta(premise?.title, 200) || cleanMeta(titleOverride, LIMITS.title) || fallbackTitle;
     const tags = Array.isArray(tagOverrides) ? [...new Set(tagOverrides.slice(0, 12).map((v) => cleanMeta(v, 32)).filter(Boolean))] : [];
     const script = srtText(fsApi.readFileSync(path.join(stage, 'subtitles.srt'))).slice(0, LIMITS.script);
     const duration = cb5 ? producer.duration : (Number.isFinite(report.duration_seconds) ? report.duration_seconds : null);
@@ -311,7 +311,7 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
       content_type: 'episode_video',
       created_at: stamp.toISOString(),
       product: { title, suggested_price: '$0.00', garment_type: 'video_short', visual_style: 'code_built', placement: 'tiktok_reels_shorts' },
-      listing_copy: { title, tags, description: script, bullet_points: ['Path: code-built'] },
+      listing_copy: { title, tags, description: [cleanMeta(premise?.answer, 600), script].filter(Boolean).join('\n\n'), bullet_points: ['Path: code-built'] },
       social: { caption: title, hashtags: [], duration_seconds: duration },
       video_file: 'video.mp4',
       script,

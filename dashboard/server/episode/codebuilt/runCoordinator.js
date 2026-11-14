@@ -202,7 +202,7 @@ export function createCodebuiltRunCoordinator({
         if (typeof text === 'string' && text.trim()) inspiration = text.trim().slice(0, 200);
       } catch { /* inspiration is optional */ }
     }
-    let type = c.type;
+    let type = channel?.profile?.format === 'loop' ? 'loop' : c.type;
     if (type !== null) resolved.type = { source: 'owner' };
     else {
       const out = decide('contentMode', { custom_theme_text: c.topic ?? c.theme ?? inspiration });
@@ -273,7 +273,7 @@ export function createCodebuiltRunCoordinator({
         try {
           queued = theStarter().start(
             { topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, buildModel: rec.request.buildModel, ...(rec.channelId ? { channelId: rec.channelId } : {}) },
-            { factCheck: true, runId: rec.id, batchIndex: i, contentMode: resolved.type, choices: resolved.choices, preCalls: calls },
+            { factCheck: true, runId: rec.id, batchIndex: i, contentMode: resolved.type, choices: resolved.choices, ...(resolved.themePick?.premise ? { premise: resolved.themePick.premise } : {}), preCalls: calls },
           );
         } catch (error) {
           fail(video, typeof error?.code === 'string' && MESSAGES[error.code] ? error.code : 'start_failed', 'start');

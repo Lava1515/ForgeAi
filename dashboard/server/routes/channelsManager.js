@@ -302,6 +302,24 @@ export function validateGrowthABChannel(channelId, targetChannelId, channels = n
  * Rule: The key field stays masked, is never logged and never appears in a report or API response (KAN-251).
  * Also shows which account a channel is bound to (channel name and id from token).
  */
+// codex · gpt-6.1-sol · 2026-11-14: optional, bounded channel profile data.
+export function validateChannelProfile(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new TypeError('Invalid profile');
+  const phrase = (value, max) => {
+    if (typeof value !== 'string' || value.trim().length > max || (value.trim() && !/^[\p{L}\p{N} ,.'&/+()-]+$/u.test(value.trim()))) throw new TypeError('Invalid profile text');
+    return value.trim();
+  };
+  const niche = phrase(profile.niche ?? '', 200);
+  const format = profile.format ?? 'narrated';
+  if (!['narrated', 'loop'].includes(format)) throw new TypeError('Invalid profile format');
+  const language = profile.language || 'en';
+  if (typeof language !== 'string' || language.length > 35 || !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(language)) throw new TypeError('Invalid profile language');
+  try { Intl.getCanonicalLocales(language); } catch { throw new TypeError('Invalid profile language'); }
+  const avoid = profile.avoid ?? [];
+  if (!Array.isArray(avoid) || avoid.length > 10) throw new TypeError('Invalid profile avoid list');
+  return { niche, format, language, avoid: avoid.map(v => { const text = phrase(v, 80); if (!text) throw new TypeError('Empty avoid phrase'); return text; }) };
+}
+
 export function sanitizeChannel(channel) {
   if (!channel) return null;
   const token = channel.token || getChannelToken(channel.id);
@@ -366,6 +384,7 @@ export async function createChannel(data = {}, ask = undefined) {
   }
 
   const newChannel = {
+    ...(data.profile !== undefined ? { profile: validateChannelProfile(data.profile) } : {}),
     id: cleanId,
     name,
     genre,
@@ -455,6 +474,7 @@ export async function updateChannel(id, updates = {}, ask = undefined) {
   const updatedChannel = {
     ...existing,
     ...updates,
+    ...(Object.hasOwn(updates, 'profile') ? { profile: validateChannelProfile(updates.profile) } : {}),
     id: existing.id, // the id is a file name elsewhere: the body never changes it
     name: name || existing.name,
     genre: genre || existing.genre,
