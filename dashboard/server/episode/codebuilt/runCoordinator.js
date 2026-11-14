@@ -27,7 +27,7 @@ import { isWhatIfTopic } from './productionChoices.js';
 export const RUN_VERSION = 'codebuilt-run-v1';
 export const MAX_COUNT = 10;
 export const DEFAULT_COUNT = 1;
-export const TYPES = Object.freeze(['factual', 'whatif']);
+export const TYPES = Object.freeze(['factual', 'whatif', 'history']);
 export const RUN_DIR = '.runs';
 export const ACTIVE_RUN = Object.freeze(['queued', 'running', 'aborting']);
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;

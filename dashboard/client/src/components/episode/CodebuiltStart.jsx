@@ -40,7 +40,7 @@ export const isActiveJob = (job) => !!job && ACTIVE_STATUSES.includes(job.status
 
 // KAN-928 (CB16): one Start can run 1..10 videos. Count 1 with a typed topic and no advanced choice keeps using the single-job route.
 export const CODEBUILT_COUNTS = Object.freeze([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-export const CODEBUILT_TYPES = Object.freeze(['Auto', 'factual', 'whatif']);
+export const CODEBUILT_TYPES = Object.freeze(['Auto', 'factual', 'whatif', 'history']);
 export const CODEBUILT_VOICES = Object.freeze(['Auto', 'aiden', 'dylan', 'eric', 'ono_anna', 'ryan', 'serena', 'sohee', 'uncle_fu', 'vivian']);
 export const RUN_ACTIVE_STATUSES = Object.freeze(['queued', 'running', 'aborting']);
 export const isActiveRun = (run) => !!run && RUN_ACTIVE_STATUSES.includes(run.status);
@@ -73,6 +73,7 @@ export function runFormProblem({ count = 1, topic, type } = {}) {
   if (typed && count > 1) return 'A typed topic is one video. Set the number of videos to 1, or clear the topic and give a theme to get several different videos.';
   if (typed && type === 'whatif' && !isWhatIfTopic(typed)) return 'The video type is What if, so the topic must be a "What if ...?" question.';
   if (typed && type === 'factual' && isWhatIfTopic(typed)) return 'The video type is Factual, but the topic is a "What if ...?" question. Set the type to What if or Auto.';
+  if (typed && type === 'history' && isWhatIfTopic(typed)) return 'The video type is History, but the topic is a "What if ...?" question. Set the type to What if or Auto.';
   return null;
 }
 
@@ -279,7 +280,7 @@ export default function CodebuiltStart() {
               <span>Video type</span>
               <select value={type} onChange={(e) => setType(e.target.value)} disabled={active} aria-label="Video type" data-codebuilt-type
                 className="rounded bg-ink-900 border border-ink-700 px-2 py-1 text-xs text-ink-100">
-                {CODEBUILT_TYPES.map((t) => (<option key={t} value={t}>{t === 'whatif' ? 'What if' : t === 'factual' ? 'Factual' : 'Auto'}</option>))}
+                {CODEBUILT_TYPES.map((t) => (<option key={t} value={t}>{t === 'whatif' ? 'What if' : t === 'factual' ? 'Factual' : t === 'history' ? 'History' : 'Auto'}</option>))}
               </select>
             </label>
             <label className="flex flex-col gap-1">

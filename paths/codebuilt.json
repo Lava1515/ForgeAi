@@ -37,6 +37,11 @@
       "mode": "guidance_only"
     },
     {
+      "id": "codebuilt-history",
+      "skill": "codebuilt-history",
+      "mode": "guidance_only"
+    },
+    {
       "id": "codebuilt-maps",
       "skill": "codebuilt-maps",
       "mode": "guidance_only"
@@ -102,6 +107,16 @@
       "look": [
         "codebuilt-look-review"
       ]
+    },
+    "typeSkills": {
+      "history": {
+        "script": [
+          "codebuilt-history"
+        ],
+        "direction": [
+          "codebuilt-history"
+        ]
+      }
     },
     "playbook": [
       "Script: a story a viewer can see, hook in the first sentence, numbers instead of adjectives, one idea per sentence, every fact checked and simplifications named, a pay-off at the end.",
