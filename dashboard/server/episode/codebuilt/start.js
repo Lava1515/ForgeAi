@@ -35,7 +35,6 @@ import { defaultFactCheckStage } from './factCheckStage.js';
 import { normalizeProductionChoices } from './productionChoices.js';
 import { frameCountFor, shotStartsFor, validateBuildScript } from './planner.js';
 import { jobWriteBlockedReason, writeHostJobReceipt } from './hostJobReceipts.js';
-import { getChannelById } from '../../routes/channelsManager.js';
 
 // Production default is the real router. Under `node --test` (NODE_TEST_CONTEXT is set by the runner) the default refuses before any CLI
 // is spawned, so a rig that never injects askRoleFn cannot reach a model; tests that want metadata inject askRoleFn or lightMetadataStage.
@@ -137,15 +136,14 @@ const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const now = () => new Date().toISOString();
 
 /** Validates a start request: topic text and a supported duration. Duration is requested, never silently changed. */
-export function checkStartRequest(input, { type = input?.type } = {}) {
+export function checkStartRequest(input) {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new StartError('bad_request');
-  if (Object.keys(input).some((k) => !['topic', 'duration', 'voice', 'channelId', 'buildModel', 'type', 'loop_idea'].includes(k))) throw new StartError('bad_request');
-  if (input.type !== undefined && (typeof input.type !== 'string' || !['auto', 'factual', 'whatif', 'loop'].includes(input.type.trim().toLowerCase()))) throw new StartError('bad_request');
-  if (input.loop_idea !== undefined && (typeof input.loop_idea !== 'string' || input.loop_idea.length > 2000 || /[\x00-\x1f\x7f]/.test(input.loop_idea))) throw new StartError('bad_request');
+  if (Object.keys(input).some((k) => !['topic', 'duration', 'voice', 'channelId', 'buildModel', 'type'].includes(k))) throw new StartError('bad_request');
+  if (input.type !== undefined && (typeof input.type !== 'string' || !['auto', 'factual', 'whatif'].includes(input.type.trim().toLowerCase()))) throw new StartError('bad_request');
   const topic = typeof input.topic === 'string' ? input.topic.trim() : '';
   if (!topic || topic.length > TOPIC_MAX || /[\x00-\x1F\x7F]/.test(topic)) throw new StartError('bad_request');
-  const duration = input.duration === undefined ? (type === 'loop' ? 10 : 60) : input.duration;
-  if (type === 'loop' ? !Number.isFinite(duration) || duration < 6 || duration > 20 || !Number.isInteger(duration * 30) : !DURATIONS.includes(duration)) throw new StartError('bad_request');
+  const duration = input.duration === undefined ? 60 : input.duration;
+  if (!DURATIONS.includes(duration)) throw new StartError('bad_request');
   if (input.voice !== undefined && (typeof input.voice !== 'string' || !/^[a-z_]{2,20}$/.test(input.voice))) throw new StartError('bad_request');
   if (input.channelId !== undefined && (typeof input.channelId !== 'string' || !input.channelId || input.channelId.length > 80)) throw new StartError('bad_request');
   let buildModel = 'Auto';
@@ -213,7 +211,7 @@ export function createCodebuiltStarter({
   function reusable(id) {
     // Locks live outside container-writable folders. Refuse before reading any reuse artifact,
     // including when cleanup of any preview belonging to this parent is uncertain.
-    const blockedReason = load(id)?.contentMode === 'loop' ? 'Loop jobs cannot resume; start a new loop job' : jobWriteBlockedReason(jobsDir, id);
+    const blockedReason = jobWriteBlockedReason(jobsDir, id);
     if (blockedReason) return { blockedReason, reused: [], resumeFrom: null };
     const stage = path.join(stateRoot(), id);
     const script = readSafe(path.join(stage, 'script.txt')); const brief = readSafe(path.join(stage, 'brief.md'));
@@ -442,7 +440,7 @@ export function createCodebuiltStarter({
         jobId: rec.id, stageDir: stage, brief: typeof plan.directionMarkdown === 'string' && plan.directionMarkdown ? `${scripted.brief}
 
 ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: resumeBuild?.code ?? plan.buildScript, startRound: resumeBuild?.startRound ?? 0, resumeHistory: resumeBuild?.history ?? [], kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
-        validate, probe, lookModel: 'sonnet', signal, ...(pathPack.videoType === 'loop' ? { videoType: 'loop' } : {}), lookGuides: (() => { try { return typeof pl.loadCodebuiltGuides === 'function' ? pl.loadCodebuiltGuides({ pack: pathPack, step: pathPack.videoType === 'loop' ? 'loop' : 'look' }) : ''; } catch { return ''; } })(),
+        validate, probe, lookModel: 'sonnet', signal, lookGuides: (() => { try { return typeof pl.loadCodebuiltGuides === 'function' ? pl.loadCodebuiltGuides({ pack: pathPack, step: 'look' }) : ''; } catch { return ''; } })(),
       }, {
         runPreview, makeSheets: (args) => sheetMaker.makeSheets(args), askLook: injected.askLook ?? defaultAskLook, askText: injected.askText ?? defaultAskText,
         onCall: addCall, onPhase,
@@ -500,14 +498,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     // 11.4 s over), the script is written once more for the pace that was just measured, and voiced again. A second miss stops the job.
     let scripted; let voice; let words; let measured;
     let measuredPace = null;
-    // codex · gpt-6.1-sol · 2026-11-14: no script, word timings, fact-check or voice stage for loops.
-    if (rec.contentMode === 'loop') {
-      scripted = pl.loopBrief({ topic: rec.topic, duration: rec.duration, loop_idea: rec.loop_idea });
-      voice = {};
-      fs.mkdirSync(stage, { recursive: true });
-      fs.writeFileSync(path.join(stage, 'brief.md'), scripted.brief);
-      fs.writeFileSync(path.join(stage, 'pathpack.json'), JSON.stringify(scripted.pathPack, null, 2));
-    } else for (let lengthAttempt = 0; ; lengthAttempt += 1) {
+    for (let lengthAttempt = 0; ; lengthAttempt += 1) {
     const fresh = lengthAttempt > 0; // the retry reuses nothing from a resume: its script and voice are the ones being replaced
     // 2. Script
     scripted = resume?.scriptOk && !fresh ? resume.scripted : null;
@@ -705,13 +696,12 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     const title = validateTitle(metadata) ? metadata.title : undefined;
     const tags = validateTags(metadata) ? metadata.tags : undefined;
     try {
-      const out = toDraft({ videoType: rec.contentMode, jobId: rec.id, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}) });
+      const out = toDraft({ jobId: rec.id, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}) });
       rec.draftId = out?.id ?? out?.draftId ?? draftIdForJob(rec.id);
       // KAN-933: requested versus actual seconds. The probed video length (draft metadata) wins over the voice estimate; a miss is recorded, never patched by stretching audio.
       const probed = out?.metadata?.social?.duration_seconds;
-      const check = lengthCheck(rec.duration, Number.isFinite(probed) && probed > 0 ? probed : null, rec.contentMode);
+      const check = lengthCheck(rec.duration, Number.isFinite(probed) && probed > 0 ? probed : null);
       if (check) rec.length_check = check;
-      if (rec.contentMode === 'loop' && (!check || !check.within_tolerance)) throw new StartError('build_failed', 502);
     } catch { throw new StartError('draft_failed', 500); }
   }
 
@@ -739,11 +729,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     version: START_VERSION,
     /** Queues a job and returns at once; the work continues in the background. */
     start(input, internal = {}) {
-      let profile = null;
-      try { profile = getChannelById(input?.channelId ?? defaultChannelId)?.profile; } catch { /* old channels need no profile */ }
-      const requestedType = typeof input?.type === 'string' ? input.type.trim().toLowerCase() : input?.type;
-      const type = (requestedType === 'auto' ? undefined : requestedType) ?? internal.choices?.type ?? (profile?.format === 'loop' ? 'loop' : undefined);
-      const req = checkStartRequest(input, { type });
+      const req = checkStartRequest(input);
       // `internal` is never read from an HTTP body: only the batch coordinator passes it, in process.
       const batch = internal && internal.factCheck === true && typeof internal.runId === 'string' && JOB_ID.test(internal.runId);
       // The batch's validated genre/theme/type travel with the job to the script, the fact check and the planner. A malformed value is refused, never dropped.
@@ -753,7 +739,6 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
         ...(batch ? { factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
-      if (type === 'loop') { rec.contentMode = 'loop'; rec.factCheck = false; rec.loop_idea = input.loop_idea ?? ''; rec.choices = { genre: choices?.genre ?? null, theme: choices?.theme ?? null, type: 'loop' }; }
       save(rec);
       live.set(id, { rec, controller: new AbortController() });
       waiting.push(id);

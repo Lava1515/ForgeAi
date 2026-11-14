@@ -22,7 +22,7 @@ import { getChannelById, resolveChannelPolicy } from '../../routes/channelsManag
 
 // Version of the `episode_draft` marker written into a draft's metadata.
 const EPISODE_MARKER_VERSION = 1;
-import { CODEBUILT_DRAFT_VERSION, MB, ROLES, CB5_LOOP_SOURCES, CB5_SOURCES, CB5_PNG_SHEET, CB5_REPORT_VERSION, specForFile, isObject, sha256, bundleDigest, safeLinks, hashFile, isCodebuiltDraft, verifyCodebuiltDraft } from './bundle.js';
+import { CODEBUILT_DRAFT_VERSION, MB, ROLES, CB5_SOURCES, CB5_PNG_SHEET, CB5_REPORT_VERSION, specForFile, isObject, sha256, bundleDigest, safeLinks, hashFile, isCodebuiltDraft, verifyCodebuiltDraft } from './bundle.js';
 
 export { CODEBUILT_DRAFT_VERSION, ROLES, CB5_SOURCES, bundleDigest, safeLinks, isCodebuiltDraft, verifyCodebuiltDraft };
 export const MANIFEST_FILE = 'job_result.json';
@@ -198,14 +198,13 @@ function readManifest(rootReal, jobId, fsApi) {
 
 // CB5 producer layout: no job_result.json exists, so there is no runner hash manifest. The only authority is the producer's own report, accepted on the copied bytes:
 // fixed version, status 'ok', post.ok === true and a real probed duration. It never contains a path or a link we follow. -> { duration }
-function checkCb5Report(buffer, videoType) {
+function checkCb5Report(buffer) {
   const text = decodeText(buffer);
   let report;
   try { report = text === null ? null : JSON.parse(text); } catch { report = null; }
   const post = isObject(report) ? report.post : null;
   const duration = isObject(post) && isObject(post.probe) ? post.probe.duration : null;
   if (!isObject(report) || report.version !== CB5_REPORT_VERSION || report.status !== 'ok' || !isObject(post) || post.ok !== true || !Number.isFinite(duration) || duration <= 0) throw new CodebuiltDraftError('bad_producer_report');
-  if (videoType === 'loop' && (report.video_type !== 'loop' || report.seam?.passed !== true || report.length_check?.within_tolerance !== true || report.audio?.passed !== true || report.audio?.encoded_seam?.passed !== true)) throw new CodebuiltDraftError('bad_producer_report');
   return { duration };
 }
 
@@ -235,7 +234,7 @@ const srtText = (buffer) => (decodeText(buffer) || '').split(/\r?\n/).filter((l)
 
 // Options: jobId, channelId (a known, not-for-kids channel), now (Date | () => Date | ISO string), jobsDir / draftsDir (default agent-jobs / FORGEAI_DRAFTS_DIR),
 // getChannel (default: the channel store), fsApi (tests). -> { created, draftId, metadata }. The same job with the same bytes returns { created: false }.
-export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), jobsDir = jobsRoot(), draftsDir = draftsRoot(), getChannel = getChannelById, fsApi = fs, videoType, topic, premise, title: titleOverride, tags: tagOverrides, metadataSource } = {}) {
+export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), jobsDir = jobsRoot(), draftsDir = draftsRoot(), getChannel = getChannelById, fsApi = fs, topic, premise, title: titleOverride, tags: tagOverrides, metadataSource } = {}) {
   if (typeof jobId !== 'string' || !JOB_ID.test(jobId)) throw new CodebuiltDraftError('invalid_id');
   const channel = resolveChannel(channelId, getChannel);
   const createdAt = typeof now === 'function' ? now() : now;
@@ -246,7 +245,6 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
   const root = resolveDraftsRoot(draftsDir, jobsReal, fsApi);
   // Layout: a runner manifest (job_result.json + final/*) wins. Without one, the fixed CB5 producer layout (out/report.json) is used, with the topic given explicitly.
   const cb5 = !confinedPath(jobsReal, jobId, MANIFEST_FILE, fsApi);
-  if (videoType === 'loop' && !cb5) throw new CodebuiltDraftError('bad_producer_report');
   let manifest; let manifestText;
   if (cb5) {
     if (!confinedPath(jobsReal, jobId, CB5_SOURCES.report, fsApi)) throw new CodebuiltDraftError('runner_output_missing');
@@ -258,7 +256,7 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
 
   // Resolve the sources first: nothing is written until every expected file is present and confined.
   const sources = {};
-  const plan = cb5 ? Object.entries(videoType === 'loop' ? CB5_LOOP_SOURCES : CB5_SOURCES).map(([role, from]) => [role, role === 'contact_sheet' ? CB5_PNG_SHEET : { ...ROLES[role], from }]) : Object.entries(ROLES);
+  const plan = cb5 ? Object.entries(CB5_SOURCES).map(([role, from]) => [role, role === 'contact_sheet' ? CB5_PNG_SHEET : { ...ROLES[role], from }]) : Object.entries(ROLES);
   for (const [role, spec] of plan) {
     const file = confinedPath(jobsReal, jobId, spec.from, fsApi);
     if (cb5) { if (!file) throw new CodebuiltDraftError('bad_artifact'); sources[role] = { file, spec }; continue; }
@@ -292,16 +290,15 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
     const digest = bundleDigest(files);
     const reportBytes = fsApi.readFileSync(path.join(stage, 'report.json'));
     const report = cb5 ? null : JSON.parse(decodeText(reportBytes));
-    const producer = cb5 ? checkCb5Report(reportBytes, videoType) : null; // checked on the copied bytes, never on the source
+    const producer = cb5 ? checkCb5Report(reportBytes) : null; // checked on the copied bytes, never on the source
     const cleanMeta = (v, max) => typeof v === 'string' ? v.replace(/[\x00-\x1f\x7f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max) : '';
     const fallbackTitle = cleanMeta(manifest.topic, LIMITS.title) || 'Code-built short';
     const title = cleanMeta(premise?.title, 100) || cleanMeta(titleOverride, LIMITS.title) || fallbackTitle;
     const tags = Array.isArray(tagOverrides) ? [...new Set(tagOverrides.slice(0, 12).map((v) => cleanMeta(v, 32)).filter(Boolean))] : [];
-    const script = videoType === 'loop' ? '' : srtText(fsApi.readFileSync(path.join(stage, 'subtitles.srt'))).slice(0, LIMITS.script);
+    const script = srtText(fsApi.readFileSync(path.join(stage, 'subtitles.srt'))).slice(0, LIMITS.script);
     const duration = cb5 ? producer.duration : (Number.isFinite(report.duration_seconds) ? report.duration_seconds : null);
     const visualLoop = readVisualLoop(jobsReal, jobId, fsApi);
     const metadata = {
-      ...(videoType === 'loop' ? { video_type: 'loop' } : {}),
       draft_id: draftId,
       channel_id: channel.channel_id,
       genre: channel.genre,

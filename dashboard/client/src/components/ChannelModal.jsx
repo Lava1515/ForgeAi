@@ -57,7 +57,6 @@ export default function ChannelModal({
   const [researchSummary, setResearchSummary] = useState('');
 
   const [niche, setNiche] = useState(channel?.profile?.niche || '');
-  const [format, setFormat] = useState(channel?.profile?.format || 'narrated');
   const [language, setLanguage] = useState(channel?.profile?.language || 'en');
   const [avoid, setAvoid] = useState(
     Array.isArray(channel?.profile?.avoid)
@@ -107,7 +106,6 @@ export default function ChannelModal({
       setGrowthTopicPicking(channel.growth_topic_picking === true);
       setResearchSummary('');
       setNiche(channel.profile?.niche || '');
-      setFormat(channel.profile?.format || 'narrated');
       setLanguage(channel.profile?.language || 'en');
       setAvoid(
         Array.isArray(channel.profile?.avoid)
@@ -195,7 +193,6 @@ export default function ChannelModal({
     setError('');
 
     const trimmedNiche = niche.trim().slice(0, 200);
-    const selectedFormat = format === 'loop' ? 'loop' : 'narrated';
     const trimmedLanguage = language.trim() || 'en';
     const avoidPhrases = avoid
       .split('\n')
@@ -205,7 +202,6 @@ export default function ChannelModal({
 
     const isDefaultProfile =
       !trimmedNiche &&
-      selectedFormat === 'narrated' &&
       trimmedLanguage === 'en' &&
       avoidPhrases.length === 0;
 
@@ -213,7 +209,6 @@ export default function ChannelModal({
       ? null
       : {
           niche: trimmedNiche,
-          format: selectedFormat,
           language: trimmedLanguage,
           avoid: avoidPhrases,
         };
@@ -418,18 +413,6 @@ export default function ChannelModal({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Format</label>
-                  <select
-                    value={format}
-                    onChange={(e) => setFormat(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 focus:outline-none focus:border-ember-500/70 transition shadow-inner"
-                  >
-                    <option value="narrated">Narrated</option>
-                    <option value="loop">Loop (silent 6 to 20 second clip that repeats)</option>
-                  </select>
-                </div>
-
                 <div>
                   <label className="block text-xs font-medium text-ink-300 mb-1.5">Language</label>
                   <input

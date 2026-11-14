@@ -16,7 +16,7 @@ export const GROWTH_PROFILES = {
     name: 'AI Narrative & Director Stories',
     templates: ['entertainment-channel.md', 'commentary-channel.md', 'shorts-first-channel.md'],
     rules: [
-      'Retain existing loop-stitching (seamless audio/visual wrap-around) and information-gap rules.',
+      'Retain existing information-gap rules.',
       'Pillar-based topics: focus ideas within distinct thematic content pillars.',
       'Entertainment and commentary hooks with early tension and rapid progression.',
     ].join('\n'),

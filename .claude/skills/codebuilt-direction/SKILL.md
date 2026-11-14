@@ -63,4 +63,4 @@ A subject that moves or explodes needs a wider framing than one that stands stil
 
 ## Premise at the opening and ending
 
-The subject and the premise text are on screen in the first frame. No logo or title card. End on the payoff and stop, or end where a loop can start. No call to action.
+The subject and the premise text are on screen in the first frame. No logo or title card. End on the payoff and stop. No call to action.
