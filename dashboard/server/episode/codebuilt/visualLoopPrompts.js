@@ -9,22 +9,26 @@ import { parseModelJson } from './planner.js';
 import { LoopError } from './loopErrors.js';
 
 export const LOOK_CHECKLIST = Object.freeze([
-  'Scenery: every shot has its own set that reads as a place (floor plus something behind and around the subject), different from the other shots. A bare floor box with one wall box is a P0.',
-  'Camera: the camera is never against or inside a backdrop wall, floor, sky box or plate; a frame mostly filled by one flat surface is a P0.',
-  'Plates and labels: no label, HUD plate or readout wider than 70 percent of the frame or covering the subject (P0); text on a plate must be readable at the size it is drawn (P1).',
-  'Subject: the subject of each shot is readable in the middle 60 percent of the frame and nothing important is cut by a frame edge (P1).',
-  'Story: if the narration names a character or a recognisable place or object, it appears as that and not as abstract boxes (P1).',
-  'Light: no black frame, no blown-out area covering the subject, nothing important lost in shadow (P0 when the whole subject is lost, else P1).',
-  'Change: neighbouring shots differ in composition (camera side, height or distance); two shots that look the same is a P1.',
-  'Props: each beat has 3 to 7 props that support the narration; fewer than 3 is a P1, an empty beat is a P0.',
-  'Ending: the last second is not a repeat of the second before it and does not sit still on an empty scene (P1).',
-  'Mistakes: objects passing through the floor or each other, floating pieces that should be attached, stretched or flipped text (P1).',
-  'Look: colours and materials look chosen; everything default grey is a P1.',
+  'Direction: each shot shows what the planned shot says: that subject, in that place, doing that action. A shot that shows something else, or a place that has nothing to do with the words spoken, is a P0.',
+  'Subject size: the subject of each shot fills a third to two thirds of the frame height and sits in the middle 60 percent of the frame. A subject that is a dot, or smaller than a sixth of the frame height in a shot that is not an establishing wide, is a P0; a subject cut by a frame edge is a P1.',
+  'Camera: the camera is never against or inside a wall, floor, sky dome, backdrop card or plate. A frame that is one flat colour, or mostly filled by one flat surface, is a P0 (the measured facts name such tiles).',
+  'Scenery: every place reads as a real location with depth: ground, things behind the subject up to a horizon or far wall, things around it. A bare floor with one wall, or a subject floating in an empty colour, is a P0 (deep space with stars and a planet is a place).',
+  'Light: no black frame, no blown-out white blob where the subject should be, nothing important lost in shadow (P0 when the subject cannot be read, else P1).',
+  'Plates and labels: no label, HUD plate or readout wider than 70 percent of the frame or covering the subject (P0); text on a plate must be readable at the size it is drawn (P1); leftover text that belongs to another shot is a P1.',
+  'Caption band: the burned-in captions will cover the band from 66 to 80 percent of the frame height (counted from the top), across the middle. The most important part of the subject (a face, the thing being pointed at) must not sit only in that band (P1).',
+  'Change: two tiles of the same shot must differ (the action or the camera moved); neighbouring shots differ in composition (camera side, height or distance). A shot whose tiles are identical, or two neighbouring shots that look the same, is a P1.',
+  'Continuity: a recurring character or object looks the same in every shot it appears in, and objects of one shot are not left standing in another shot of the same place (P1).',
+  'Props: each place has 4 to 8 props that support the story; fewer than 3 is a P1, an empty place is a P0.',
+  'Ending: the last tile shows a finished picture (the pay-off or the return to the opening), not an empty scene or a repeat of the tile before it (P1).',
+  'Mistakes: objects passing through the floor or each other, floating pieces that should be attached, a person lying or tilted who should stand, stretched or flipped text (P1).',
+  'Look: colours look chosen and consistent across places (one palette); everything default grey is a P1.',
   'Truth: anything on screen that contradicts the narration is a P1; a missing planned shot is a P0.',
 ]);
 
 export const DEFAULT_LOCKED = Object.freeze(['FPS', 'NFRAMES', 'SHOT_STARTS', 'OUT']);
-export const DEFAULT_EDIT_LIMITS = Object.freeze({ maxDefs: 6, maxFraction: 0.45, maxEdits: 8, maxSourceChars: 12000 });
+export const DEFAULT_EDIT_LIMITS = Object.freeze({ maxDefs: 10, maxFraction: 0.6, maxEdits: 12, maxSourceChars: 16000 });
+// Fix rounds after the first look; visualLoop.js imports it so the prompt and the controller agree.
+export const LOOK_FIX_ROUNDS = 3;
 const MAX_FINDINGS = 40;
 const MAX_TILE = 24;
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -59,7 +63,7 @@ function previousSummary(previous) {
 }
 
 export function buildLookPrompt({
-  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous,
+  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous, guides = '', fixRoundsLeft = null,
 }) {
   const hasSheets = sheets.length > 0;
   const uniqueCodes = [...new Set(sheets.map((x) => x.code))];
@@ -74,10 +78,13 @@ export function buildLookPrompt({
   parts.push(`You are the director checking a 9:16 short that is built in Blender by the Python script below. ${hasSheets ? `${sheets.length} contact sheet image${sheets.length > 1 ? 's are' : ' is'} attached, made from a low-resolution preview render of this exact script (look round ${round + 1}). Each sheet header shows a code; each tile is labelled T<number> and its frame.` : `There are no pictures this round: the preview of this script did not produce any, and the reason is given below. Fix the script from the reason alone.`}`);
   parts.push(`BRIEF:\n${brief}\n\nNARRATION:\n${script}\n\nPLANNED SHOTS:\n${shotLines.join('\n')}`);
   if (hasSheets) parts.push(`TILES:\n${tileLines.join('\n')}`);
+  const flagged = sheets.flatMap((sheet) => sheet.tiles.filter((t) => t.flag).map((t) => `T${t.n} (frame ${t.frame}) is ${t.flag === 'flat' ? 'ONE FLAT COLOUR (the camera is inside or against a surface, or nothing is lit)' : t.flag === 'dark' ? 'almost black' : t.flag === 'plain' ? 'nearly one colour: look closely, and if the frame is mostly one flat surface (a wall, floor, dome or plate filling it) that is a P0' : 'blown out (a quarter or more of it is pure white)'}`));
+  if (flagged.length) parts.push(`MEASURED FROM THE PIXELS (facts, not opinions; a flat tile can never pass):\n${flagged.join('\n')}`);
   if (qaText) parts.push(`WHY THERE ARE NO PICTURES (preview/QA output):\n${cleanDiagnostic(qaText)}`);
   parts.push(`LOOK CHECKLIST (P0 = must not ship as it is, P1 = should be fixed, P2 = a note):\n${LOOK_CHECKLIST.map((line) => `- ${line}`).join('\n')}`);
   const prior = previousSummary(previous);
   if (prior) parts.push(prior.trim());
+  if (guides) parts.push(`REVIEW GUIDANCE (project skills):\n${guides}`);
   parts.push(`THE KIT YOU MAY USE (same contract as when the script was written):\n${kitContract}`);
   parts.push(`CURRENT BUILD SCRIPT:\n\`\`\`python\n${buildScript}\n\`\`\``);
   parts.push([
@@ -86,11 +93,11 @@ export function buildLookPrompt({
     'Rules:',
     hasSheets ? '- sheet_codes must list each distinct code printed in the sheet headers, exactly as printed (once each). A reply without them is thrown away.' : '- sheet_codes must be an empty list this round. You cannot answer "pass" without pictures.',
     '- shots must have exactly one entry per planned shot, with one real sentence in "sees" about what is visible in that shot. A "pass" is only valid when every shot is ok and there is no P0.',
-    '- Say "fix" only for a P0 or P1 problem. Name the definitions or constants you will change in "targets" and give the complete new source of each in "edits" (a few small edits, not a rewrite: at most 6 definitions, under 45 percent of the script).',
+    `- Say "fix" only for a P0 or P1 problem. Name the definitions or constants you will change in "targets" and give the complete new source of each in "edits" (targeted edits, not a rewrite: at most ${DEFAULT_EDIT_LIMITS.maxDefs} definitions, under ${Math.round(DEFAULT_EDIT_LIMITS.maxFraction * 100)} percent of the script, each source at most ${DEFAULT_EDIT_LIMITS.maxSourceChars} characters). Fix the cause, not the symptom: when a tile is one flat colour, work out from the numbers in the script where the camera is and which surface it is inside or facing, and move the camera or the surface; when the subject is tiny, move the camera closer or lengthen the lens using the sizes in the script; when a fix of an earlier round did not work, do something different.`,
     '- Never change FPS, NFRAMES, SHOT_STARTS, OUT or the shotcheck.run_qa / renderloop.render_frames statements, and never call them in an edit.',
     finalRound
       ? '- This is the last look. Edits must be empty and targets must be empty: say "pass" if there is no P0, otherwise "fix" with the findings and the job will stop.'
-      : `- After a fix the script is previewed and you look again. You have ${Math.max(0, 2 - round)} fix round${Math.max(0, 2 - round) === 1 ? '' : 's'} left including this one.`,
+      : `- After a fix the script is previewed and you look again. You have ${fixRoundsLeft ?? Math.max(0, LOOK_FIX_ROUNDS - round)} fix round${(fixRoundsLeft ?? Math.max(0, LOOK_FIX_ROUNDS - round)) === 1 ? '' : 's'} left including this one. Fix every P0 and P1 you found in this one reply; do not leave some for later.`,
   ].join('\n'));
   return parts.join('\n\n');
 }
@@ -101,7 +108,7 @@ const bad = (message, detail = {}) => new LoopError('bad_reply', message, detail
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const onlyKeys = (obj, allowed, what) => { for (const k of Object.keys(obj)) if (!allowed.includes(k)) throw bad(`${what} has an unknown key`); };
 
-export function parseLookReply(text, { shots, sheetCodes, finalRound = false } = {}) {
+export function parseLookReply(text, { shots, sheetCodes, finalRound = false, flatTiles = [] } = {}) {
   let body;
   try { body = parseModelJson(text); } catch { throw bad('the reply was not JSON'); }
   if (!isObj(body)) throw bad('the reply must be a JSON object');
@@ -146,6 +153,7 @@ export function parseLookReply(text, { shots, sheetCodes, finalRound = false } =
   const hasP0 = findings.some((f) => f.severity === 'P0');
   const hasP0P1 = findings.some((f) => f.severity === 'P0' || f.severity === 'P1');
   if (body.verdict === 'pass' && hasP0) throw bad('a pass cannot carry a P0 finding');
+  if (body.verdict === 'pass' && flatTiles.length) throw bad(`tile${flatTiles.length > 1 ? 's' : ''} ${flatTiles.map((n) => `T${n}`).join(', ')} measured as one flat colour: that is a P0 (camera inside or against a surface, or nothing lit), so the verdict cannot be pass`);
 
   const targetsIn = body.targets ?? [];
   const editsIn = body.edits ?? [];

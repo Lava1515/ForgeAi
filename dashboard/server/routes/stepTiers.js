@@ -43,6 +43,8 @@ export const STEP_TIERS = Object.freeze({
   topic_dedup: Object.freeze({ default: 'haiku', triggers: HAIKU_TRIGGERS }),
   theme: Object.freeze({ default: 'sonnet', triggers: Object.freeze({}) }),
   script: Object.freeze({ default: 'sonnet', triggers: Object.freeze({ fact_check_rejected_twice: 'opus' }) }),
+  // The shot list written after the voice is recorded (codebuilt/direction.js). Same tier as the script; never agy.
+  direction: Object.freeze({ default: 'sonnet', triggers: Object.freeze({}) }),
   fact_check: Object.freeze({ default: 'sonnet', triggers: Object.freeze({ number_disagreement_after_round: 'opus' }) }),
   build: Object.freeze({
     default: 'sonnet',
@@ -55,7 +57,7 @@ export const STEP_TIERS = Object.freeze({
 // schema_failed_twice trigger. agy models are a fixed table (a caller cannot name another one). agy never takes a script,
 // a build or a build review: its build on the comparison brief was broken and its report said success. fact_check keeps its own rule.
 export const LIGHT_STEPS = Object.freeze(new Set(['titles', 'tags', 'subtitle_text', 'topic_dedup']));
-export const AGY_FORBIDDEN_STEPS = Object.freeze(new Set(['script', 'build', 'review']));
+export const AGY_FORBIDDEN_STEPS = Object.freeze(new Set(['script', 'direction', 'build', 'review']));
 export const AGY_LIGHT_MODELS = Object.freeze({ flash_high: 'gemini-3.8-flash-high', flash_low: 'gemini-3.8-flash-low' });
 export const isLightStep = (step) => LIGHT_STEPS.has(step);
 

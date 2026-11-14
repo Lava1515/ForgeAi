@@ -11,13 +11,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pickPreviewFrames } from './previewFrames.js';
-import { buildLookPrompt, parseLookReply, applyScopedEdits } from './visualLoopPrompts.js';
+import { buildLookPrompt, parseLookReply, applyScopedEdits, LOOK_FIX_ROUNDS } from './visualLoopPrompts.js';
 import { LoopError } from './loopErrors.js';
 
-export const MAX_FIX_ROUNDS = 2;
+export const MAX_FIX_ROUNDS = LOOK_FIX_ROUNDS; // 3 since 2026-11-14: two fix rounds left real P0s in every draft of the night of 11-13
 export const MAX_LOOKS = MAX_FIX_ROUNDS + 1;
-export const MAX_REPLY_RETRIES = 2; // shared across the whole loop: invalid replies, refused edits and failed attempts
-export const MAX_CALLS = 12;
+export const MAX_REPLY_RETRIES = 3; // shared across the whole loop: invalid replies, refused edits and failed attempts
+export const MAX_CALLS = 16;
 // A preview that ends without frames (the generated code raised, or the kit's own QA refused the scene) is fixed from its
 // error text alone. Those fix rounds are cheap and do not use up a look: job mwf9bowk-8ff1e1 (2026-11-13) spent two of its
 // three looks on "shots share one composition" and ended with nothing rendered.
@@ -37,7 +37,7 @@ const isScriptCrash = (error) => CRASH_CODES.has(error?.code) && !(error.code ==
 
 export const LOOP_MESSAGES = Object.freeze({
   look_unavailable: 'The visual check could not run (the Claude CLI could not look at pictures, is not logged in, or hit its usage limit). Nothing was rendered.',
-  look_failed: 'The visual check did not approve the build within three looks. Nothing was rendered.',
+  look_failed: 'The visual check did not approve the build within its looks. Nothing was rendered.',
   loop_timeout: 'The visual check ran out of time. Nothing was rendered.',
   preview_failed: 'The preview render could not be made. Nothing was rendered.',
   aborted: 'The job was cancelled during the visual check.',
@@ -238,7 +238,9 @@ async function loop(input, deps, { now, newCode, stage }) {
     const prompt = buildLookPrompt({
       brief: input.brief, script: input.script, shots: planned, buildScript: current, kitContract: input.kitContract,
       sheets: sheets.map((s) => ({ code: s.code, tiles: s.tiles })), shotStarts, fps, round: r, finalRound, qaText: crash?.text, previous: prior,
+      guides: typeof input.lookGuides === 'string' ? input.lookGuides : '', fixRoundsLeft: Math.max(0, MAX_LOOKS - 1 - looks),
     });
+    const flatTiles = sheets.flatMap((s) => s.tiles.filter((t) => t.flag === 'flat').map((t) => t.n));
     const roundCalls = [];
     let feedback = '';
     for (let attempt = 0; ; attempt += 1) {
@@ -280,7 +282,7 @@ async function loop(input, deps, { now, newCode, stage }) {
       }
       let reply = null; let nextScript = null; let refusal = null;
       try {
-        reply = parseLookReply(answer.text, { shots: planned, sheetCodes, finalRound });
+        reply = parseLookReply(answer.text, { shots: planned, sheetCodes, finalRound, flatTiles });
         if (reply.verdict === 'fix' && !finalRound) {
           const edited = applyScopedEdits(current, reply, { validate: input.validate });
           nextScript = edited.source;

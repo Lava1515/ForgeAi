@@ -68,7 +68,8 @@ export function createPreviewSheetMaker({ repoRoot = REPO_ROOT, python = 'python
       if (!(bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)) throw fail('a sheet is not a JPEG');
       return {
         file: s.file, path: file, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, w: s.w, h: s.h, code,
-        tiles: s.tiles.map((t) => ({ n: t.n, frame: t.frame })),
+        // Measured per tile by the sheet script (mean luma, spread, blown share, and a flag for a flat, dark or blown frame); absent from an older script.
+        tiles: s.tiles.map((t) => ({ n: t.n, frame: t.frame, ...(['flat', 'dark', 'blown', 'plain'].includes(t.flag) ? { flag: t.flag } : {}), ...(Number.isFinite(t.luma) ? { luma: t.luma } : {}), ...(Number.isFinite(t.spread) ? { spread: t.spread } : {}) })),
       };
     });
   }

@@ -16,6 +16,7 @@ from . import media, run
 
 # Seconds the executor adds before every cue and before the voice (blender_worker/codebuilt/timeline.py LEAD; a test keeps them equal).
 LEAD = 0.35
+MIX_SR = 44100
 
 
 def _word_cues(word_data, duration):
@@ -69,11 +70,17 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     # measure against active voice samples, and keep the staged trusted voice unchanged.
     voice, sr = sf.read(str(audio), dtype="float32", always_2d=False)
     duration = len(voice) / sr
-    music = audio_kit.synth_music(duration, sr=sr, seed=3, fade_out_s=min(1.2, duration / 2))
     word_data = json.loads(words.read_text(encoding="utf-8"))
+    # The voice is recorded at 24 kHz. Music and effects synthesized at that rate lose everything above 12 kHz and sounded
+    # dull and distant (review of 2026-11-14), so the bed is made and mixed at MIX_SR; the mixer resamples the voice.
+    # The bed is chosen from the narration text: the same video always gets the same music, different videos differ.
+    choice = audio_kit.music_choice(" ".join(str(w.get("w", "")) for w in word_data.get("words", []) if isinstance(w, dict)))
+    music = audio_kit.synth_music(duration, sr=MIX_SR, seed=choice["seed"], bpm=choice["bpm"],
+                                  progression=audio_kit.PROGRESSIONS[choice["progression"]], fade_out_s=min(1.2, duration / 2))
     word_events = _word_cues(word_data, duration)
-    effects = audio_kit.synth_effects(word_events, duration, sr=int(sr), seed=3)
-    mixed = audio_kit.mix_stems((voice, sr), (music, sr), (effects, sr), sr=int(sr), voice_peak=None)
+    effects = audio_kit.synth_effects(word_events, duration, sr=MIX_SR, seed=3)
+    mixed = audio_kit.mix_stems((voice, sr), (music, MIX_SR), (effects, MIX_SR), sr=MIX_SR, voice_peak=None)
+    mixed.report["music_choice"] = choice
     audio_raw = out / "audio"
     if audio_raw.is_symlink() or audio_raw.is_junction():
         raise media.MediaError("audio output must not be a link")
@@ -83,7 +90,7 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
         if target.is_symlink() or target.is_junction() or (target.exists() and target.stat().st_nlink > 1):
             raise media.MediaError("audio output must not be a linked file")
         media.inside(audio_out, target)
-    audio_paths = audio_kit.write_outputs(mixed, audio_out, name="cb5", channels=1, print_levels=False)
+    audio_paths = audio_kit.write_outputs(mixed, audio_out, name="cb5", channels=2, print_levels=False)
     # A fresh directory cannot alias an existing frames/out junction. Keep intermediates
     # with the job for diagnosis; never recursively delete agent-controlled job contents.
     work = Path(tempfile.mkdtemp(prefix=".cb5-post-", dir=job))
