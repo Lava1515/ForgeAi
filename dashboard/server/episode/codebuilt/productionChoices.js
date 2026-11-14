@@ -4,7 +4,7 @@
 // to the topic pick, the script prompt, the fact check and the build planner prompt, so a choice made before the run shapes the video and not only its topic.
 // Free text (genre, theme) is data in a quoted JSON string with a closed character set, never an instruction. The single-job route passes no choices and its
 // prompts are unchanged.
-export const CHOICE_TYPES = Object.freeze(['factual', 'whatif', 'loop']);
+export const CHOICE_TYPES = Object.freeze(['factual', 'whatif']);
 export const TEXT_CHOICE = /^[\p{L}\p{N} ,.'&/+()-]{1,60}$/u;
 export const isWhatIfTopic = (topic) => typeof topic === 'string' && /^what if\b/i.test(topic.trim()) && topic.trim().endsWith('?');
 

@@ -59,7 +59,7 @@ def _graded_frame(path, width, height, vig):
 
 
 def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, width=None, height=None, crf=17, preset="medium",
-           sheet_count=12, sheet_cols=6, video_type=None):
+           sheet_count=12, sheet_cols=6):
     """Run the whole post step. Returns the report dict (also written to OUT/NAME.post.json).
 
     Guards first, before anything is written: `name` must be a bare file name, `out_dir` has no '..', every output path must resolve
@@ -69,23 +69,19 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
     video, srt, sheet_path, report_path = (media.output_path(out_root, name, suffix)
                                            for suffix in (".mp4", ".srt", "_sheet.jpg", ".post.json"))
     files = _frames(frames_dir)
-    looping = video_type == 'loop'
-    if looping:
-        files = files[:-1]  # independent frame N is QA evidence, not an encoded frame
-    words_json, audio = (None if looping else media.input_file(words_json)), media.input_file(audio)
+    words_json, audio = media.input_file(words_json), media.input_file(audio)
     with open_frame(files[0]) as first:
         width, height = width or first.width, height or first.height
     if width % 2 or height % 2:
         raise ValueError("yuv420p needs an even width and height")
-    words = [] if looping else captions.load_words(words_json)[1]
+    _, words = captions.load_words(words_json)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    track = None if looping else captions.Track(words, width, height, lead=lead)
-    boxes = [] if looping else track.worst_boxes()
+    track = captions.Track(words, width, height, lead=lead)
+    boxes = track.worst_boxes()
     off_zone = [b for b in boxes if not captions.inside_safe_zone(b, width, height)]
-    cs = [] if looping else captions.cues(track.chunks, lead=lead)
-    if not looping:
-        srt.write_text(subtitles.to_srt(cs), encoding="utf-8")
+    cs = captions.cues(track.chunks, lead=lead)
+    srt.write_text(subtitles.to_srt(cs), encoding="utf-8")
 
     vig = grade.vignette_mask(width, height)
     # The frames run `lead` seconds (plus a tail) longer than the voice: the executor shifts every cue by `lead`. So the voice is delayed
@@ -121,8 +117,7 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
                 i, future = pending.popleft()
                 out = future.result()
                 fill()
-                if track is not None:
-                    track.draw(out, i / fps)
+                track.draw(out, i / fps)
                 ff.stdin.write(out.tobytes())
         ff.stdin.close()
         err = ff.stderr.read().decode("utf-8", "replace")[-media.STDERR_TAIL:]
@@ -140,12 +135,12 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
     measured = media.probe(video)
     expected = len(files) / fps
     problems = media.judge(measured, width, height, fps, expected)
-    check = {"errors": [], "skipped": "loop has no captions"} if looping else subtitles.check_srt(srt.read_text(encoding="utf-8"), duration=measured["duration"])
+    check = subtitles.check_srt(srt.read_text(encoding="utf-8"), duration=measured["duration"])
     sheet.contact_sheet(video, sheet_path, count=sheet_count, cols=sheet_cols)
     report = {
-        "version": "codebuilt-post-v1", "video": str(video), "subtitles": None if looping else str(srt), "contact_sheet": str(sheet_path),
+        "version": "codebuilt-post-v1", "video": str(video), "subtitles": str(srt), "contact_sheet": str(sheet_path),
         "probe": measured, "probe_problems": problems, "subtitle_check": check,
-        "captions": {"groups": 0 if looping else len(track.chunks), "cues": len(cs), "lead": lead, "all_inside_safe_zone": not off_zone,
+        "captions": {"groups": len(track.chunks), "cues": len(cs), "lead": lead, "all_inside_safe_zone": not off_zone,
                      "safe_zone": captions.safe_zone(width, height), "boxes_outside": off_zone},
         "ok": not problems and not check["errors"] and not off_zone,
     }
