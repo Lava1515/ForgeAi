@@ -4,8 +4,9 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { askGemini, GEMINI_LITE_MODEL } from './gemini.js';
 import { sendGeneric5xx } from './redact.js';
-import { getActiveChannel, getChannelToken, saveChannelToken, getChannelById, safeChildDir } from './channelsManager.js';
+import { getAllChannels, getActiveChannel, getChannelToken, saveChannelToken, getChannelById, safeChildDir } from './channelsManager.js';
 import { readCostSummary } from '../perf/creationCost.js';
+import { autoReleaseTick, readReleaseLog } from './autoRelease.js';
 
 // YouTube publishing: one-time OAuth sign-in (uploads need the channel owner's consent; API keys can't upload),
 // then resumable uploads of finished video drafts.
@@ -261,6 +262,37 @@ export function capCheck(drafts, channelId, at, max) {
   return { day, next: null };
 }
 
+// The upload itself (resumable insert), shared by the Publish button and auto release. Records meta.youtube and saves it.
+async function uploadDraftVideo({ folder, metaPath, meta, token, tags, privacy, madeForKids, language, scheduledAt }) {
+  const { access_token: accessToken } = await googleToken({ refresh_token: token.refresh_token, grant_type: 'refresh_token' });
+  const video = fs.readFileSync(path.join(folder, path.basename(meta.video_file)));
+  const init = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': 'video/mp4',
+      'X-Upload-Content-Length': String(video.length),
+    },
+    body: JSON.stringify({ snippet: buildSnippet(meta, tags, language), status: uploadStatus(meta, privacy, madeForKids) }),
+  });
+  if (!init.ok) throw new Error(await googleError(init));
+  const upload = await fetch(init.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: video });
+  if (!upload.ok) throw new Error(await googleError(upload));
+  const uploaded = await upload.json();
+  meta.youtube = {
+    video_id: uploaded.id,
+    url: `https://www.youtube.com/shorts/${uploaded.id}`,
+    privacy: uploaded.status?.privacyStatus || privacy,
+    published_at: new Date().toISOString(),
+    made_for_kids: madeForKids,
+    ...(scheduledAt && { publish_at: scheduledAt }),
+  };
+  delete meta.future_upload_at;
+  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  return meta.youtube;
+}
+
 export async function youtubePublishHandler(req, res) {
   const scheduled = parsePublishAt(req.body?.publishAt);
   if (scheduled.error) return res.status(400).json({ error: scheduled.error });
@@ -297,34 +329,7 @@ export async function youtubePublishHandler(req, res) {
 
   publishing.add(draftId);
   try {
-    const { access_token: accessToken } = await googleToken({ refresh_token: token.refresh_token, grant_type: 'refresh_token' });
-    const video = fs.readFileSync(path.join(folder, path.basename(meta.video_file)));
-
-    const init = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': 'video/mp4',
-        'X-Upload-Content-Length': String(video.length),
-      },
-      body: JSON.stringify({ snippet: buildSnippet(meta, tags, language), status: uploadStatus(meta, privacy, madeForKids) }),
-    });
-    if (!init.ok) throw new Error(await googleError(init));
-    const upload = await fetch(init.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: video });
-    if (!upload.ok) throw new Error(await googleError(upload));
-    const uploaded = await upload.json();
-
-    meta.youtube = {
-      video_id: uploaded.id,
-      url: `https://www.youtube.com/shorts/${uploaded.id}`,
-      privacy: uploaded.status?.privacyStatus || privacy,
-      published_at: new Date().toISOString(),
-      made_for_kids: madeForKids,
-      ...(scheduled.at && { publish_at: scheduled.at }),
-    };
-    delete meta.future_upload_at;
-    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    await uploadDraftVideo({ folder, metaPath, meta, token, tags, privacy, madeForKids, language, scheduledAt: scheduled.at });
     res.json(meta.youtube);
   } catch (err) {
     console.error(`YouTube publish ${draftId} failed:`, err.message);
@@ -396,6 +401,29 @@ export async function releaseDue(now = Date.now()) {
   }
 }
 
+// ---- auto release (backlog P2): per-channel, off by default; rules and the quality bar live in autoRelease.js ----
+const RELEASE_LOG = process.env.FORGEAI_RELEASE_LOG || path.join(REPO_ROOT, 'data/release_log.jsonl');
+
+// Called every minute from the server start-up (index.js), next to releaseDue. Does nothing unless a channel has it switched on AND a cap set.
+export async function autoReleaseRun(now = Date.now()) {
+  const channels = (getAllChannels() || []).filter((c) => c?.id);
+  if (!channels.some((c) => c.auto_release?.enabled === true)) return [];
+  return autoReleaseTick({
+    channels, drafts: allDrafts(), now, capCheck, logFile: RELEASE_LOG,
+    writeMeta: ({ metaPath, meta }) => fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2)),
+    upload: async (draft, publishAt) => {
+      const token = readToken(null, draft.meta.channel_id || null);
+      if (!token?.refresh_token) throw new Error('No YouTube connection for this channel.');
+      if (!canSchedule(token)) throw new Error('Scheduling needs more YouTube access; reconnect YouTube.');
+      const language = getChannelById(draft.meta.channel_id)?.profile?.language || 'en';
+      return uploadDraftVideo({ ...draft, token, tags: undefined, privacy: 'unlisted', madeForKids: Boolean(draft.meta.made_for_kids), language, scheduledAt: publishAt });
+    },
+  });
+}
+
+// GET: the release log, newest first.
+export const releaseLogHandler = (req, res) => res.json(readReleaseLog(RELEASE_LOG));
+
 // Cancel a scheduled release: the video stays unlisted on YouTube.
 export function youtubeCancelScheduleHandler(req, res) {
   const { draftId, metaPath, meta } = readDraft(req.params.draftId);
@@ -421,6 +449,7 @@ const queueItem = ({ draftId, meta }) => ({
   dynamic_tone: meta.dynamic_tone !== false,
   script: meta.script || (Array.isArray(meta.sentences) ? meta.sentences.map((s) => s.text).join(' ') : (meta.listing_copy?.description || '')),
   youtube: meta.youtube || null,
+  ai_disclosure: Boolean(meta.ai_disclosure),
   engine: meta.engine || undefined,
   style: meta.style || undefined,
   provenance: meta.provenance || undefined,

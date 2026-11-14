@@ -15,12 +15,14 @@ const parseTags = (text) => text.split(/[\s,]+/).map((t) => t.replace(/^#+/, '')
 // Publish a finished video draft to the connected YouTube channel (as a Short).
 export default function PublishYouTube({ product, onPublished }) {
   const tagsId = useId();
+  const titleId = useId();
   const [status, setStatus] = useState(null);
   const [privacy, setPrivacy] = useState('public');
   const [madeForKids, setMadeForKids] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [published, setPublished] = useState(product.youtube);
+  const [title, setTitle] = useState(product.title || '');
   const [tags, setTags] = useState(formatTags(product.tags));
   const [suggesting, setSuggesting] = useState(false);
 
@@ -32,7 +34,7 @@ export default function PublishYouTube({ product, onPublished }) {
     setBusy(true);
     setError('');
     try {
-      setPublished(await api.publishToYoutube(product.folder_name || product.id, { privacy, madeForKids, tags: parseTags(tags) }));
+      setPublished(await api.publishToYoutube(product.folder_name || product.id, { privacy, madeForKids, tags: parseTags(tags), title: title.trim() }));
       onPublished?.();
     } catch (err) {
       setError(err.message);
@@ -98,6 +100,20 @@ export default function PublishYouTube({ product, onPublished }) {
           </div>
 
           <div className="space-y-1.5">
+            <label htmlFor={titleId} className="text-xs font-medium text-ink-300">Title</label>
+            <input
+              id={titleId}
+              type="text"
+              maxLength={100}
+              value={title}
+              disabled={busy}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-ink-200 focus:outline-none focus:border-ember-500/60 focus:ring-1 focus:ring-ember-500/30"
+            />
+            <p className="text-xs text-ink-400">Up to 100 characters. It must describe the video; a date or digits alone is refused.</p>
+          </div>
+
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor={tagsId} className="text-xs font-medium text-ink-300">Tags</label>
               <button
@@ -132,6 +148,12 @@ export default function PublishYouTube({ product, onPublished }) {
             />
             <span className="leading-tight">Made for kids (required by YouTube; answer honestly)</span>
           </label>
+
+          {product.ai_disclosure && (
+            <p className="text-xs text-ink-400">
+              Marked "altered or synthetic content" on YouTube, because the visuals and the narration voice are computer-made. YouTube requires this for realistic synthetic content.
+            </p>
+          )}
 
           <button
             type="button"
