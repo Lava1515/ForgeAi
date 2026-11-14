@@ -112,7 +112,7 @@ function requestedChannelTypes(type) {
 function supportsRequestedTypes(channel, type) {
   let assigned;
   try { assigned = cleanChannelVideoTypes(channel?.video_types); } catch { assigned = []; }
-  return requestedChannelTypes(type).every((candidate) => assigned.includes(candidate));
+  return type === null ? assigned.length > 0 : requestedChannelTypes(type).every((candidate) => assigned.includes(candidate));
 }
 
 function findMappedChannel(type, channels) {
@@ -233,6 +233,8 @@ export function createCodebuiltRunCoordinator({
     else {
       const out = decide('contentMode', { custom_theme_text: c.topic ?? c.theme ?? inspiration });
       type = out.body.contentMode === 'whatif' ? 'whatif' : 'factual';
+      const assigned = cleanChannelVideoTypes(channel?.video_types);
+      if (!assigned.includes(type)) type = assigned[0];
       resolved.type = { source: 'auto', reason: out.resolved.contentMode?.reason ?? 'default', value: type };
     }
     let topic = c.topic;

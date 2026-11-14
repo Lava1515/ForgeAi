@@ -64,7 +64,7 @@ export function createVideoResearch({ channels = getAllChannels, youtube = youtu
       if (!picked) throw Object.assign(new Error('Choose a listed candidate'), { status: 400 });
       const channel = channels().find((c) => c.id === session.result.channelId);
       if (!channel) throw Object.assign(new Error('Channel no longer exists'), { status: 400 });
-      const type = session.result.type === 'what-if' ? 'whatif' : 'factual';
+      const type = session.result.type === 'what-if' ? 'whatif' : session.result.type === 'history' ? 'history' : 'factual';
       const job = start({ topic: picked.topic, channelId: channel.id, type, duration });
       session.used = true;
       return { job, selectedCandidateId: picked.id, selection: auto ? 'auto' : 'owner' };

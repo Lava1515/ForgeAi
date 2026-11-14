@@ -151,6 +151,7 @@ export default function ChannelModal({
       setAvoid('');
     }
     setError('');
+
     setSuccessMsg('');
     setConfirmDelete(false);
   }, [channel]);
@@ -205,6 +206,10 @@ export default function ChannelModal({
     setIsSaving(true);
     setError('');
 
+    if (autoReleaseDailyCap.trim() && (!Number.isSafeInteger(Number(autoReleaseDailyCap)) || Number(autoReleaseDailyCap) <= 0)) {
+      setError('Daily cap must be a positive whole number, or leave it empty.');
+      return;
+    }
     const trimmedNiche = niche.trim().slice(0, 200);
     const selectedFormat = 'narrated';
     const trimmedLanguage = language.trim() || 'en';

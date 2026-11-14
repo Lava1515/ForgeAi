@@ -74,16 +74,17 @@ const typesOfChannel = (channel) => Array.isArray(channel?.video_types)
   : [...SUPPORTED_CHANNEL_TYPES]; // Legacy channels deliberately retain their former all-types behavior.
 
 export function resolveChannelForType({ channels = [], channelId = '', type } = {}) {
-  const required = blankOrAuto(type) ? ['factual', 'whatif'] : [type];
+  const required = blankOrAuto(type) ? [] : [type];
+  const supports = (channel) => typesOfChannel(channel).length > 0 && required.every((item) => typesOfChannel(channel).includes(item));
   if (channelId) {
     const channel = channels.find((item) => item.id === channelId);
     if (!channel) return { channel: null, error: 'The selected channel is unavailable.' };
-    if (!required.every((item) => typesOfChannel(channel).includes(item))) {
+    if (!supports(channel)) {
       return { channel: null, error: `The selected channel is not assigned to ${blankOrAuto(type) ? 'Auto (factual and What if)' : type}.` };
     }
     return { channel, error: null };
   }
-  const matches = channels.filter((channel) => required.every((item) => typesOfChannel(channel).includes(item)));
+  const matches = channels.filter(supports);
   if (!matches.length) return { channel: null, error: `No channel is assigned to ${blankOrAuto(type) ? 'Auto (factual and What if)' : type}.` };
   if (matches.length > 1) return { channel: null, error: `Several channels are assigned to ${blankOrAuto(type) ? 'Auto (factual and What if)' : type}; choose a channel.` };
   return { channel: matches[0], error: null };
