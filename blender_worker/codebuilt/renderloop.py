@@ -163,6 +163,101 @@ def tune_cycles(log=print):
     return out
 
 
+def loop_state():
+    """Evaluated transforms, camera optics, visibility, light and shader input values."""
+    import bpy
+    bpy.context.view_layer.update()
+    graph = bpy.context.evaluated_depsgraph_get()
+    values = {}
+    def scalar(key, value):
+        if isinstance(value, (int, float, bool)):
+            values[key] = float(value)
+        elif not isinstance(value, str):
+            try:
+                items = list(value)
+            except TypeError:
+                return
+            for i, v in enumerate(items):
+                scalar(f'{key}/{i}', v)
+    scene = bpy.context.scene
+    values['active_camera'] = scene.camera.name if scene.camera else None
+    for obj in scene.objects:
+        ev = obj.evaluated_get(graph)
+        key = 'object/' + obj.name
+        for i, row in enumerate(ev.matrix_world):
+            scalar(f'{key}/matrix/{i}', row)
+        scalar(key + '/hidden', ev.hide_render)
+        for prop in ('sensor_width', 'sensor_height'):
+            if ev.type == 'CAMERA':
+                scalar(key + '/' + prop, getattr(ev.data, prop))
+        if ev.type in ('CAMERA', 'LIGHT'):
+            for prop in ('lens', 'ortho_scale', 'shift_x', 'shift_y', 'clip_start', 'clip_end',
+                         'energy', 'color', 'shadow_soft_size', 'size', 'size_y', 'spot_size', 'spot_blend'):
+                if hasattr(ev.data, prop):
+                    scalar(key + '/' + prop, getattr(ev.data, prop))
+            if ev.type == 'CAMERA':
+                for prop in ('use_dof', 'focus_distance', 'aperture_fstop'):
+                    scalar(key + '/dof/' + prop, getattr(ev.data.dof, prop))
+    blocks = list(bpy.data.materials) + list(bpy.data.lights) + list(bpy.data.worlds)
+    for block in blocks:
+        key = block.bl_rna.identifier + '/' + block.name
+        for prop in ('diffuse_color', 'metallic', 'roughness', 'energy', 'color'):
+            if hasattr(block, prop):
+                scalar(key + '/' + prop, getattr(block, prop))
+        if block.use_nodes and block.node_tree:
+            for node in block.node_tree.nodes:
+                for i, socket in enumerate(node.inputs):
+                    if hasattr(socket, 'default_value'):
+                        scalar(f'{key}/{node.name}/input/{i}', socket.default_value)
+                for i, socket in enumerate(node.outputs):
+                    if hasattr(socket, 'default_value'):
+                        scalar(f'{key}/{node.name}/output/{i}', socket.default_value)
+    return values
+
+
+def check_loop_state(apply, nframes, snapshot=None, samples=24):
+    """No renders: pose frame 0, `samples` whole frames spread over the cycle, and frame N. Raise before frame zero is rendered.
+
+    The state at N must equal frame 0 (the loop closes). Something must differ from frame 0 somewhere in the cycle (it moves): the
+    whole cycle is sampled, because a sine that starts at its middle is back at the same value at the half cycle. And the state may
+    not stand still for more than a third of the cycle."""
+    import math
+    snapshot = snapshot or loop_state
+    nframes = int(nframes)
+    frames = sorted({min(nframes - 1, int(round(i * nframes / samples))) for i in range(samples)})
+    states = []
+    for frame in frames + [nframes]:
+        apply(frame)
+        states.append(snapshot())
+    def equal(a, b):
+        return a.keys() == b.keys() and all(
+            math.isclose(a[k], b[k], rel_tol=1e-6, abs_tol=1e-5)
+            if isinstance(a[k], (int, float)) and isinstance(b[k], (int, float))
+            else a[k] == b[k] for k in a)
+    if not equal(states[0], states[-1]):
+        raise ValueError('loop preflight: state at N does not equal frame 0')
+    cycle = states[:-1]
+    moved = sum(1 for st in cycle[1:] if not equal(cycle[0], st))
+    if moved == 0:
+        raise ValueError('loop preflight: no motion anywhere in the cycle')
+    still = longest = 0
+    for i in range(len(cycle)):                      # around the seam too
+        still = still + 1 if equal(cycle[i], cycle[(i + 1) % len(cycle)]) else 0
+        longest = max(longest, still)
+    if longest * nframes / len(cycle) > nframes / 3:
+        raise ValueError('loop preflight: no motion for more than a third of the cycle')
+    apply(0)
+    return {'passed': True, 'frames': frames + [nframes], 'frames_differing_from_0': moved, 'longest_still_samples': longest}
+
+
+def loop_glyphs():
+    """Names of text objects and text curves in the scene. A silent loop shows no glyphs; a source scan cannot prove that, the scene can."""
+    import bpy
+    names = ['object/' + o.name for o in bpy.context.scene.objects if o.type == 'FONT']
+    names += ['curve/' + c.name for c in bpy.data.curves if c.bl_rna.identifier == 'TextCurve' and c.users > 0]
+    return sorted(set(names))
+
+
 def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=print, hold=1, require_qa=False):
     """Pose and render each frame to out_dir/NNNN.png; returns the frames actually rendered.
 
@@ -180,6 +275,20 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         shotcheck.require_qa("render_frames", apply, frames, hold)
 
     spec = load_preview_spec()
+    # codex · gpt-6.1-sol · 2026-11-14: the host's hash-verified format contract,
+    # not a generated-code flag, requests an independently posed endpoint.
+    loop_end = None
+    if os.path.isfile('/job/inputs/pathpack.json'):
+        with open('/job/inputs/pathpack.json', encoding='utf-8') as fh:
+            pack = json.load(fh)
+        if pack.get('videoType') == 'loop':
+            glyphs = loop_glyphs()
+            if glyphs:
+                raise ValueError('loop preflight: text in a silent loop: ' + ', '.join(glyphs[:8]))
+            preflight = check_loop_state(apply, pack['loop']['nframes'])
+            log('LOOP_PREFLIGHT ' + json.dumps(preflight))
+            if spec is None:
+                loop_end = pack['loop']['nframes']
     if spec is not None:
         # Preview mode: QA above has already been spent for the full frame list. Only the listed frames are rendered,
         # each for real (hold 1: no copies), into the preview folder, at the spec scale.
@@ -201,7 +310,7 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
     timing = {"version": 1, "clock": "perf_counter_seconds", "apply_s": 0.0, "render_s": 0.0,
               "note": "render_s includes engine sync, BVH, tracing, denoising and PNG write; other_s includes held copies and diagnostics",
               "tuned": tuned}
-    for f in frames:
+    for f in list(frames) + ([loop_end] if loop_end is not None else []):
         fp = os.path.join(out_dir, f"{f:04d}.png")
         if skip_existing and os.path.exists(fp):
             continue
