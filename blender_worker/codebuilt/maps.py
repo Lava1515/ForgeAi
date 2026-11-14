@@ -624,7 +624,7 @@ class WorldMap:
             need_w, need_h = span, 0.0
         else:
             need_w, need_h = max(w * margin, min_span), h * margin
-        d = max(need_w / 2 / hh, need_h / 2 * math.sin(el) / hv, min_span / 2 / hh)
+        d = max(need_w / 2 / hh, need_h / 2 * math.sin(el) / hv) if span is not None else max(need_w / 2 / hh, need_h / 2 * math.sin(el) / hv, min_span / 2 / hh)
         tgt = (cx, cy + up, self.origin[2] + self.thickness)
         az = math.radians(azimuth)
         pos = (tgt[0] + d * math.cos(el) * math.sin(az), tgt[1] - d * math.cos(el) * math.cos(az), tgt[2] + d * math.sin(el))
@@ -708,7 +708,8 @@ def facts(a, b=None, detail="50m"):
     out = dict(name=ca.name, area_km2=_round2(ca.area_km2), continent=ca.continent, disputed=ca.disputed)
     if b is not None:
         cb = d.find(b)
-        out.update(other=cb.name, other_area_km2=_round2(cb.area_km2), ratio=round(ca.area_km2 / cb.area_km2, 2))
+        ratio = round(ca.area_km2 / cb.area_km2, 2) if cb.area_km2 > 0 else 0.0
+        out.update(other=cb.name, other_area_km2=_round2(cb.area_km2), ratio=ratio)
     return out
 
 
@@ -716,4 +717,5 @@ def _round2(v):
     if v <= 0:
         return 0
     e = 10 ** (int(math.floor(math.log10(v))) - 1)
-    return int(round(v / e) * e)
+    val = round(v / e) * e
+    return int(val) if val >= 10 else round(val, 2)
