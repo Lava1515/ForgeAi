@@ -66,12 +66,12 @@ async function googleError(res) {
 
 const clean = (s = '') => String(s).replace(/[<>]/g, '').trim();
 
-// Hashtag-safe tags: no "#", no spaces or punctuation, deduped (case-insensitive), "shorts" always included.
+// YouTube tags: no "#", no spaces or punctuation, deduped (case-insensitive).
 // YouTube ignores every description hashtag past 15, and caps tags at 500 characters in total.
 export function normalizeTags(list = []) {
   const seen = new Set();
   const tags = [];
-  for (const raw of [...list, 'shorts']) {
+  for (const raw of list) {
     const tag = String(raw).replace(/[^\p{L}\p{N}_]/gu, '');
     if (!tag || seen.has(tag.toLowerCase())) continue;
     seen.add(tag.toLowerCase());
@@ -89,15 +89,47 @@ export function normalizeTags(list = []) {
 export const AI_NOTICE = '(Visual simulation and narration created with the assistance of 3D modeling and AI.)';
 export const DEFAULT_MAX_DAILY_POSTS = 2;
 
-// Title/description/tags from the draft's metadata; YouTube rejects < and > and titles over 100 chars.
+const CALENDAR_WORDS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'ינואר', 'פברואר', 'מרץ', 'מרס', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר', 'ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const CLOCK_WORDS = new Set(['t', 'z', 'st', 'nd', 'rd', 'th', 'am', 'pm', 'utc', 'gmt', 'יום', '年', '月', '日', '時', '分', '秒']);
+// A token counts as a real word unless it is digits, a clock mark, or a calendar name (full, or an abbreviation of 3+ letters; Hebrew may carry the prefix ב).
+function isRealWord(token) {
+  const t = token.toLowerCase();
+  if (/^\p{N}+$/u.test(t) || CLOCK_WORDS.has(t)) return false;
+  const forms = [t, t.replace(/^ב/u, '')];
+  return !forms.some((f) => f.length >= 3 && CALENDAR_WORDS.some((w) => w.startsWith(f)) || CALENDAR_WORDS.includes(f));
+}
+
+// Return a user-facing error, or null when a draft's editable listing title is suitable to upload.
+export function uploadTitleError(value, draftId) {
+  const title = clean(value);
+  if (!title) return 'Add a title before uploading this video.';
+  if (title.length > 100) return 'The title must be 100 characters or fewer.';
+  if (title === String(draftId ?? '')) return 'Replace the draft ID with a title that describes the video.';
+  // A title with no real word is refused: only digits, separators, month or weekday names (English and Hebrew), clock marks.
+  const words = title.replace(/(\p{N})(?=\p{L})|(\p{L})(?=\p{N})/gu, '$1$2 ').split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean);
+  if (!words.some(isRealWord)) return 'Use a descriptive title; a date, a time or digits alone cannot be uploaded.';
+  return null;
+}
+
+// Title/description/tags from the draft's metadata; YouTube rejects < and > in titles.
 // tags: the user's chosen tags; defaults to the draft's own hashtags.
-export function buildSnippet(meta, tags) {
+export function buildSnippet(meta, tags, language = 'en') {
   const listing = meta.listing_copy || {};
   const chosen = normalizeTags(tags || [...(meta.social?.hashtags || []), ...(listing.tags || [])]);
-  const base = clean(listing.title || meta.product?.title || meta.social?.caption || 'New short');
-  const title = `${base.slice(0, 100 - ' #Shorts'.length)} #Shorts`;
-  const description = [clean(listing.description || meta.script), meta.ai_disclosure ? AI_NOTICE : '', chosen.map((t) => `#${t}`).join(' ')].filter(Boolean).join('\n\n').slice(0, 5000);
-  return { title, description, tags: chosen, categoryId: '24' };
+  const title = clean(listing.title || meta.product?.title || meta.social?.caption || '');
+  // One draft field marks a silent loop: video_type (written by the loop post step) or production_choices.type.
+  const loop = meta.video_type === 'loop' || meta.production_choices?.type === 'loop';
+  const narration = loop ? '' : clean(meta.script || '');
+  // First line: one sentence saying what the video shows. Not repeated when the narration already opens with it.
+  const lead = clean(listing.description || '') || narration || title;
+  const firstSentence = lead.split(/(?<=[.!?])\s+/u)[0].slice(0, 150);
+  const summary = narration.startsWith(firstSentence) ? '' : (/[.!?]$/u.test(firstSentence) ? firstSentence : `${firstSentence}.`);
+  const hashtags = chosen.slice(0, 5).map((t) => `#${t}`).join(' ');
+  const description = [summary, narration, AI_NOTICE, hashtags].filter(Boolean).join('\n\n').slice(0, 5000);
+  const snippet = { title, description, tags: chosen, categoryId: '24', defaultLanguage: language || 'en' };
+  if (!loop) snippet.defaultAudioLanguage = language || 'en';
+  return snippet;
 }
 
 export function youtubeStatusHandler(req, res) {
@@ -238,7 +270,11 @@ export async function youtubePublishHandler(req, res) {
   const { draftId, folder, metaPath, meta } = readDraft(req.params.draftId);
   if (!meta) return res.status(404).json({ error: `Draft "${draftId}" not found` });
   if (!meta.video_file) return res.status(400).json({ error: 'This draft has no video to publish.' });
-  if (meta.youtube?.video_id) return res.status(409).json({ error: 'Already published to YouTube.', youtube: meta.youtube });
+  if (meta.youtube?.video_id && req.body?.force !== true) return res.status(409).json({ error: 'Already published to YouTube. Set force to true to upload this draft again.', youtube: meta.youtube });
+  // The same fallback chain buildSnippet uses; an empty typed title falls back to the draft's own.
+  const requestedTitle = (typeof req.body?.title === 'string' && clean(req.body.title)) || meta.listing_copy?.title || meta.product?.title || meta.social?.caption;
+  const titleError = uploadTitleError(requestedTitle, draftId);
+  if (titleError) return res.status(400).json({ error: titleError });
   // KAN-778: a semantic explainer needs a current server-validated review receipt for every upload (public, unlisted, private or scheduled). Nothing in the body counts.
   const semanticRefusal = isSemanticDraft({ folder, meta }) ? await semanticGate({ draftId, folder, meta }) : null;
   if (semanticRefusal) return res.status(409).json(semanticRefusal);
@@ -259,9 +295,9 @@ export async function youtubePublishHandler(req, res) {
       return res.status(409).json({ error: `This channel already has ${max} video(s) going public on ${full.day}.${full.next ? ` Next free slot: ${full.next}.` : ''}`, next_free: full.next });
     }
   }
-  if (typeof req.body?.title === 'string' && clean(req.body.title)) {
-    meta.listing_copy = { ...meta.listing_copy, title: clean(req.body.title).slice(0, 90) };
-  }
+  meta.listing_copy = { ...meta.listing_copy, title: clean(requestedTitle) };
+  const channel = getChannelById(meta.channel_id || getActiveChannel(req)?.id);
+  const language = channel?.profile?.language || 'en';
 
   publishing.add(draftId);
   try {
@@ -276,7 +312,7 @@ export async function youtubePublishHandler(req, res) {
         'X-Upload-Content-Type': 'video/mp4',
         'X-Upload-Content-Length': String(video.length),
       },
-      body: JSON.stringify({ snippet: buildSnippet(meta, tags), status: uploadStatus(meta, privacy, madeForKids) }),
+      body: JSON.stringify({ snippet: buildSnippet(meta, tags, language), status: uploadStatus(meta, privacy, madeForKids) }),
     });
     if (!init.ok) throw new Error(await googleError(init));
     const upload = await fetch(init.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: video });
