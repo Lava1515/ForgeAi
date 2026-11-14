@@ -1,4 +1,4 @@
-// KAN-923 (CB14): a finished code-built job becomes a normal draft behind the existing Episode review-receipt gate (KAN-828).
+// KAN-923 (CB14): a finished code-built job becomes a normal draft.
 //
 // This is a callable component only. Nothing here picks a UI path, a route or a default stage; the CB5 runner (or a later route) calls codebuiltToDraft().
 //
@@ -12,21 +12,15 @@
 // each must be a regular, single-link, non-empty file of the right type; extra files in the job folder are ignored, never copied. Files are copied (never linked)
 // and hashed during the copy, so a file that changes while it is read fails its manifest hash.
 //
-// Receipt: this adapter NEVER issues a receipt. The draft carries the Episode marker `episode_draft` that routes/episodeReview.js recognises (dispatched from
-// routes/semanticReview.js), so publish, scheduled release and future-upload refuse it until a human receipt exists. The marker's final_sha256 is the video's hash and
-// its approved_gate_hash is a digest of the whole bundle (video, code, audio, subtitles, contact sheets, report), so a receipt is bound to all of them: a change to
-// any editable file followed by resealCodebuiltDraft() (or the sanctioned reviseCodebuiltDraft()) makes the stored receipt stale.
-// The shared Episode gate (routes/episodeReview.js) runs the on-disk drift check for code-built drafts itself (episode/codebuilt/bundle.js), so publish, scheduled
-// release, future-upload and receipt issue all refuse a raw edit of the non-video files. codebuiltGate() below is the same check as a standalone call.
+// Review: there is no review gate any more; the marker's hashes only seal the bundle so a reseal/revise can tell what changed.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { writeCreationCost, normalizeJobCalls } from '../../perf/creationCost.js';
 import { getChannelById, resolveChannelPolicy } from '../../routes/channelsManager.js';
-import { episodeGate } from '../../routes/episodeReview.js';
 
-// Version of the `episode_draft` marker written into a draft's metadata; routes/episodeReview.js reads it.
+// Version of the `episode_draft` marker written into a draft's metadata.
 const EPISODE_MARKER_VERSION = 1;
 import { CODEBUILT_DRAFT_VERSION, MB, ROLES, CB5_LOOP_SOURCES, CB5_SOURCES, CB5_PNG_SHEET, CB5_REPORT_VERSION, specForFile, isObject, sha256, bundleDigest, safeLinks, hashFile, isCodebuiltDraft, verifyCodebuiltDraft } from './bundle.js';
 
@@ -323,7 +317,7 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
       ai_disclosure: true,
       generation_details: { draft_version: CODEBUILT_DRAFT_VERSION, path: 'codebuilt', job_id: jobId, ...(visualLoop ? { visual_loop: visualLoop, ...(visualLoop.visual_check ? { visual_check: visualLoop.visual_check } : {}) } : {}), metadata_source: cleanMeta(premise?.title, 100) ? 'premise' : metadataSource === 'light_router' && cleanMeta(titleOverride, LIMITS.title) ? 'light_router' : 'topic_fallback', ...(cb5 ? { producer: CB5_REPORT_VERSION } : {}), final: { file: 'video.mp4', sha256: files.video.sha256 } },
       codebuilt: { version: 1, job_id: jobId, bundle_sha256: digest, files, links: linksFor(draftId, files) },
-      // The marker the review-receipt gate recognises. NO receipt is written here: a person issues it after watching and listening.
+      // The marker that seals the bundle (video hash, bundle digest). No review is required to publish.
       episode_draft: { version: EPISODE_MARKER_VERSION, episode_id: jobId, final_sha256: files.video.sha256, approved_gate_hash: digest, finish_hash: cb5 ? files.report.sha256 : sha256(manifestText) },
     };
     const metadataText = `${JSON.stringify(metadata, null, 2)}\n`;
@@ -366,13 +360,6 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
 }
 
 // ---- drift, reseal, revise ------------------------------------------------------------------------------------------------------------------------------
-// The existing Episode gate plus the drift check. null = ready. Otherwise the refusal body, same shape as episodeGate's.
-export function codebuiltGate(draft, deps = {}) {
-  const drift = verifyCodebuiltDraft(draft, deps);
-  if (!drift.ok) return { error: `This code-built video has changed since it was reviewed: ${drift.blockers.map((b) => b.message).join('; ')}.`, semantic_review: { episode: true, status: 'needs_review', ready: false, blockers: drift.blockers, links: null } };
-  return episodeGate(draft);
-}
-
 function writeMeta(folder, meta, fsApi) {
   const text = `${JSON.stringify(meta, null, 2)}\n`;
   if (Buffer.byteLength(text) > LIMITS.metadataBytes) throw new CodebuiltDraftError('too_large');
@@ -381,7 +368,7 @@ function writeMeta(folder, meta, fsApi) {
   fsApi.renameSync(tmp, path.join(folder, 'metadata.json'));
 }
 
-// Re-reads the files in the draft folder, validates them by kind, and re-seals the marker. The receipt (if any) becomes stale because its binding changes.
+// Re-reads the files in the draft folder, validates them by kind, and re-seals the marker.
 // -> { changed, meta }. A published draft is refused: the version that went out is the version that was reviewed.
 export function resealCodebuiltDraft(draft, { fsApi = fs } = {}) {
   if (!isCodebuiltDraft(draft)) throw new CodebuiltDraftError('bad_option');
@@ -412,7 +399,7 @@ export function resealCodebuiltDraft(draft, { fsApi = fs } = {}) {
 }
 
 // The sanctioned way to replace one editable file (code, audio, subtitles, report, contact sheet, video): it validates the new bytes by kind, writes them
-// atomically inside the draft folder, and re-seals. Any receipt issued before is stale afterwards.
+// atomically inside the draft folder, and re-seals.
 export function reviseCodebuiltDraft(draft, role, bytes, { fsApi = fs } = {}) {
   if (!isCodebuiltDraft(draft) || !Object.hasOwn(ROLES, role) || !Object.hasOwn(draft.meta.codebuilt.files, role)) throw new CodebuiltDraftError('bad_option');
   if (draft.meta.youtube) throw new CodebuiltDraftError('published');

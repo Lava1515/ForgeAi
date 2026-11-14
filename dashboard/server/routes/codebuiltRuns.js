@@ -1,4 +1,4 @@
-// KAN-928 (CB16): routes of the owner-started code-built batch. Mutations (start, abort) are mounted behind requireAdmin in app.js; reads are open,
+// KAN-928 (CB16): routes of the owner-started code-built batch; reads are open,
 // like the single-job routes. The body is checked against a fixed key list and a size cap, errors are generic (no path, stack or model text), and the
 // run belongs to the channel the owner has active unless the request names one. The single-job routes in episodes.js are untouched.
 import { getActiveChannel } from './channelsManager.js';

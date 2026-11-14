@@ -1,5 +1,5 @@
 // Code-built start routes (owner UI): queue, read and abort one job. The work runs in the background
-// (episode/codebuilt/start.js). Admin-only mutations are mounted behind requireAdmin in app.js. Errors are generic.
+// (episode/codebuilt/start.js). Errors are generic.
 import { getActiveChannel } from './channelsManager.js';
 import { codebuiltStarter, StartError } from '../episode/codebuilt/start.js';
 

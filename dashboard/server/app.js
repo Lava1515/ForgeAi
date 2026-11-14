@@ -1,7 +1,7 @@
 import express from 'express';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { networkSecurity } from './middleware/networkSecurity.js';
-import { requireAdmin, requireAdminOrService, requireFeedAccess, startFeedSession, warnIfAdminTokenMissing, warnIfServiceTokenMissing } from './middleware/auth.js';
+import { warnIfServiceTokenMissing } from './middleware/auth.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -144,38 +144,37 @@ export function createApp() {
   app.use(failClosed500);
   app.use(securityHeaders());
   app.use(networkSecurity());
-  warnIfAdminTokenMissing();
   warnIfServiceTokenMissing();
   app.use(express.json());
 
   // Channels
   app.get('/api/channels', getChannelsHandler);
   app.get('/api/channels/:id', getSingleChannelHandler);
-  app.post('/api/channels', requireAdmin, createChannelHandler);
-  app.put('/api/channels/:id', requireAdmin, updateChannelHandler);
-  app.delete('/api/channels/:id', requireAdmin, deleteChannelHandler);
-  app.post('/api/channels/switch', requireAdmin, switchChannelHandler);
-  app.post('/api/channels/research-rules', requireAdmin, researchRulesHandler);
+  app.post('/api/channels', createChannelHandler);
+  app.put('/api/channels/:id', updateChannelHandler);
+  app.delete('/api/channels/:id', deleteChannelHandler);
+  app.post('/api/channels/switch', switchChannelHandler);
+  app.post('/api/channels/research-rules', researchRulesHandler);
   app.get('/api/channel', getChannelHandler);
   app.post('/api/channel/scan', scanChannelHandler);
 
   // Code-built videos: one job, or an owner-started batch of 1..10 (background, sequential)
-  app.post('/api/codebuilt/start', requireAdmin, startCodebuiltHandler);
+  app.post('/api/codebuilt/start', startCodebuiltHandler);
   app.get('/api/codebuilt/jobs', listCodebuiltHandler);
   app.get('/api/codebuilt/jobs/:jobId', getCodebuiltHandler);
-  app.post('/api/codebuilt/jobs/:jobId/abort', requireAdmin, abortCodebuiltHandler);
-  app.post('/api/codebuilt/jobs/:jobId/resume', requireAdmin, resumeCodebuiltHandler);
-  app.post('/api/codebuilt/runs', requireAdmin, startCodebuiltRunHandler);
-  app.post('/api/video-research', requireAdmin, researchCandidatesHandler);
+  app.post('/api/codebuilt/jobs/:jobId/abort', abortCodebuiltHandler);
+  app.post('/api/codebuilt/jobs/:jobId/resume', resumeCodebuiltHandler);
+  app.post('/api/codebuilt/runs', startCodebuiltRunHandler);
+  app.post('/api/video-research', researchCandidatesHandler);
   app.get('/api/codebuilt/runs', listCodebuiltRunsHandler);
   app.get('/api/codebuilt/runs/:runId', getCodebuiltRunHandler);
-  app.post('/api/codebuilt/runs/:runId/abort', requireAdmin, abortCodebuiltRunHandler);
+  app.post('/api/codebuilt/runs/:runId/abort', abortCodebuiltRunHandler);
   mountJobProgress(app); // before the artifact routes: read-only progress of a running job
   mountJobArtifacts(app);
 
   // Status, kill switch, and the model CLI logins
   app.get('/api/status', getStatusHandler);
-  app.post('/api/control', requireAdmin, postControlHandler);
+  app.post('/api/control', postControlHandler);
   app.post('/api/gemini/dismiss-fallback', (req, res) => {
     clearLastGeminiFallback();
     res.json({ ok: true });
@@ -186,10 +185,10 @@ export function createApp() {
   app.get('/api/agy/callback', agyCallbackHandler);
   app.post('/api/agy/test', testAgyHandler);
   app.get('/api/claude', getClaudeHandler);
-  app.put('/api/claude', requireAdmin, setClaudeHandler);
-  app.post('/api/claude/login', requireAdmin, startClaudeLoginHandler);
-  app.post('/api/claude/login/code', requireAdmin, claudeLoginCodeHandler);
-  app.post('/api/claude/test', requireAdmin, testClaudeHandler);
+  app.put('/api/claude', setClaudeHandler);
+  app.post('/api/claude/login', startClaudeLoginHandler);
+  app.post('/api/claude/login/code', claudeLoginCodeHandler);
+  app.post('/api/claude/test', testClaudeHandler);
 
   // Voice and edit service health
   app.get('/api/service/narrative', getServiceStatusHandler);
@@ -197,23 +196,22 @@ export function createApp() {
 
   // Videos and drafts
   app.get('/api/products', getProductsHandler);
-  app.delete('/api/products/:draftId', requireAdmin, deleteProductHandler);
-  app.patch('/api/products/:draftId', requireAdmin, updateProductHandler);
+  app.delete('/api/products/:draftId', deleteProductHandler);
+  app.patch('/api/products/:draftId', updateProductHandler);
   app.get('/api/drafts/media/:draftId/:filename', getMediaHandler);
 
   // Live log feed
   app.get('/api/runs/active', activeRunsHandler);
-  app.get('/api/events', requireFeedAccess, sseEventsHandler);
-  app.post('/api/events/session', requireAdmin, startFeedSession);
+  app.get('/api/events', sseEventsHandler);
 
   // YouTube publishing (OAuth sign-in once, then upload drafts)
   app.get('/api/youtube/status', youtubeStatusHandler);
   app.get('/api/youtube/connect', youtubeConnectHandler);
   app.get('/api/youtube/callback', youtubeCallbackHandler);
-  app.post('/api/youtube/disconnect', requireAdmin, youtubeDisconnectHandler);
-  app.post('/api/youtube/publish/:draftId', requireAdmin, youtubePublishHandler);
-  app.post('/api/youtube/tags/:draftId', requireAdmin, youtubeSuggestTagsHandler);
-  app.post('/api/youtube/schedule/:draftId/cancel', requireAdmin, youtubeCancelScheduleHandler);
+  app.post('/api/youtube/disconnect', youtubeDisconnectHandler);
+  app.post('/api/youtube/publish/:draftId', youtubePublishHandler);
+  app.post('/api/youtube/tags/:draftId', youtubeSuggestTagsHandler);
+  app.post('/api/youtube/schedule/:draftId/cancel', youtubeCancelScheduleHandler);
   app.get('/api/youtube/drafts', youtubeDraftsHandler);
 
   // Growth: per-channel report, strategy and topic ideas

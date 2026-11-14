@@ -1,4 +1,3 @@
-import { adminAuthorized, auditDenied } from '../middleware/auth.js';
 import { getActiveRuns, getRecentTasks } from './runs.js';
 import { getLastGeminiFallback, clearLastGeminiFallback } from './gemini.js';
 import fs from 'node:fs';
@@ -184,15 +183,8 @@ export async function getStatusHandler(req, res) {
   }
 }
 
-// Same opt-in rule as middleware/auth.js: config-changing actions need X-Admin-Token only when ADMIN_TOKEN is set (403 if wrong).
-
 export async function postControlHandler(req, res) {
   const { action, reason = '' } = req.body || {};
-
-  if ((action === 'set_urls' || action === 'set_tts_url') && process.env.ADMIN_TOKEN && !adminAuthorized(req)) {
-    auditDenied(req, 403, `admin action rejected: ${JSON.stringify(String(action).slice(0, 40))}, X-Admin-Token does not match`);
-    return res.status(403).json({ error: 'Forbidden: X-Admin-Token must match ADMIN_TOKEN' });
-  }
 
   if (action === 'dismiss_fallback' || action === 'dismiss_gemini_fallback') {
     clearLastGeminiFallback();

@@ -1,5 +1,4 @@
-// KAN-923 (CB14): what a code-built draft is made of, and the on-disk drift check. This module imports nothing from routes/, so routes/episodeReview.js can use it
-// (the Episode gate checks code-built drafts for drift on every path: publish, scheduled release, future-upload, the Library status, and receipt issue) without a cycle.
+// KAN-923 (CB14): what a code-built draft is made of, and the on-disk drift check (used when a draft is resealed or revised).
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -48,7 +47,7 @@ export const sha256 = (data) => crypto.createHash('sha256').update(data).digest(
 const blocker = (code, message) => ({ code, message });
 const DRAFT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-// The digest the receipt binds to. Names and hashes in a fixed order; a different set of files is a different digest.
+// The digest of the whole bundle. Names and hashes in a fixed order; a different set of files is a different digest.
 export function bundleDigest(files) {
   return sha256(JSON.stringify({ v: CODEBUILT_DRAFT_VERSION, files: Object.keys(files).sort().map((role) => [role, files[role].sha256]) }));
 }
@@ -75,9 +74,6 @@ export function hashFile(file, fsApi = fs) {
   } catch { return null; }
 }
 export const isCodebuiltDraft = ({ meta } = {}) => isObject(meta) && isObject(meta.codebuilt) && meta.codebuilt.version === 1 && isObject(meta.episode_draft) && meta.episode_draft.version === 1;
-// A draft that claims to be code-built in any way (the engine, the generation path, or the codebuilt key). Stripping one key does not turn it into an ordinary episode.
-export const claimsCodebuilt = ({ meta } = {}) => isObject(meta) && (meta.engine === 'codebuilt' || meta.codebuilt !== undefined || (isObject(meta.generation_details) && meta.generation_details.path === 'codebuilt'));
-
 // -> { ok, blockers }. Compares every file on disk with the hashes sealed in the marker. Writes nothing.
 export function verifyCodebuiltDraft(draft, { fsApi = fs } = {}) {
   const blockers = [];
@@ -93,12 +89,4 @@ export function verifyCodebuiltDraft(draft, { fsApi = fs } = {}) {
   for (const required of ['video', 'code', 'audio', ...(draft.meta.video_type === 'loop' ? [] : ['subtitles']), 'report', 'contact_sheet']) if (!isObject(files[required])) blockers.push(blocker(`codebuilt_${required}_missing`, `${required} is not part of the draft`));
   if (!blockers.length && (bundleDigest(files) !== sealed || draft.meta.episode_draft.approved_gate_hash !== sealed)) blockers.push(blocker('codebuilt_bundle', 'the draft bundle does not match its sealed digest'));
   return { ok: blockers.length === 0, blockers };
-}
-
-// For the Episode gate: [] for an ordinary Episode draft (nothing changes for it); drift blockers for a code-built one; a blocker for one that claims to be code-built
-// but whose marker is unreadable (fails closed).
-export function codebuiltBlockers(draft, deps = {}) {
-  if (!claimsCodebuilt(draft)) return [];
-  if (!isCodebuiltDraft(draft)) return [blocker('codebuilt_marker', 'the code-built draft marker is unreadable; it needs a fresh review')];
-  return verifyCodebuiltDraft(draft, deps).blockers;
 }

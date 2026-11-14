@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { askGemini, GEMINI_LITE_MODEL } from './gemini.js';
 import { sendGeneric5xx } from './redact.js';
 import { getActiveChannel, getChannelToken, saveChannelToken, getChannelById, safeChildDir } from './channelsManager.js';
-import { isSemanticDraft, semanticGate, withSemanticReview } from './semanticReview.js'; // KAN-778
 import { readCostSummary } from '../perf/creationCost.js';
 
 // YouTube publishing: one-time OAuth sign-in (uploads need the channel owner's consent; API keys can't upload),
@@ -275,9 +274,6 @@ export async function youtubePublishHandler(req, res) {
   const requestedTitle = (typeof req.body?.title === 'string' && clean(req.body.title)) || meta.listing_copy?.title || meta.product?.title || meta.social?.caption;
   const titleError = uploadTitleError(requestedTitle, draftId);
   if (titleError) return res.status(400).json({ error: titleError });
-  // KAN-778: a semantic explainer needs a current server-validated review receipt for every upload (public, unlisted, private or scheduled). Nothing in the body counts.
-  const semanticRefusal = isSemanticDraft({ folder, meta }) ? await semanticGate({ draftId, folder, meta }) : null;
-  if (semanticRefusal) return res.status(409).json(semanticRefusal);
   // Made for kids: the draft's made_for_kids flag is the default; an explicit body value still wins.
   const madeForKids = req.body?.madeForKids === undefined ? Boolean(meta.made_for_kids) : req.body.madeForKids === true;
   const token = meta.channel_id ? readToken(req, meta.channel_id) : readToken(req);
@@ -356,23 +352,9 @@ function allDrafts() {
 export const dueReleases = (drafts, now = Date.now()) =>
   drafts.filter(({ meta }) => meta.youtube?.publish_at && meta.youtube.privacy === 'unlisted' && new Date(meta.youtube.publish_at).getTime() <= now);
 
-// KAN-778: the unattended release never flips a semantic explainer public without a current review receipt (the video stays unlisted); ordinary drafts pass untouched.
-async function reviewedOnly(drafts) {
-  const kept = [];
-  for (const d of drafts) {
-    const refusal = isSemanticDraft(d) ? await semanticGate(d) : null;
-    if (!refusal) { kept.push(d); continue; }
-    if (d.meta.youtube.release_error !== refusal.error) {
-      d.meta.youtube = { ...d.meta.youtube, release_error: refusal.error };
-      fs.writeFileSync(d.metaPath, JSON.stringify(d.meta, null, 2));
-    }
-  }
-  return kept;
-}
-
 // Runs every minute from index.js. A failure is recorded on the draft and retried next minute.
 export async function releaseDue(now = Date.now()) {
-  const due = await reviewedOnly(dueReleases(allDrafts(), now));
+  const due = dueReleases(allDrafts(), now);
   if (!due.length) return;
   const legacy = readToken(); // channel-less drafts keep using the single legacy sign-in
   const accessTokens = new Map(); // refresh_token -> access token (or null after a failed sign-in)
@@ -445,14 +427,12 @@ const queueItem = ({ draftId, meta }) => ({
 });
 
 // Shorts tab: auto videos waiting for review, and the ones scheduled or released (newest first).
-// KAN-778: semantic drafts carry semantic_review (status, blockers, links); with none in the list the answer is built synchronously, byte for byte as before.
-const whenReady = (parts, send) => (parts.some((p) => p instanceof Promise) ? Promise.all(parts).then(send) : send(parts));
 export function shortsQueueHandler(req, res) {
   const autos = allDrafts().filter(({ meta }) => meta.auto && meta.video_file).sort((a, b) => String(b.meta.created_at).localeCompare(String(a.meta.created_at)));
-  return whenReady([
-    withSemanticReview(autos.filter(({ meta }) => !meta.youtube && !meta.future_upload_at), queueItem),
-    withSemanticReview(autos.filter(({ meta }) => meta.youtube).slice(0, 30), queueItem),
-  ], ([review, scheduled]) => res.json({ review, scheduled }));
+  return res.json({
+    review: autos.filter(({ meta }) => !meta.youtube && !meta.future_upload_at).map(queueItem),
+    scheduled: autos.filter(({ meta }) => meta.youtube).slice(0, 30).map(queueItem),
+  });
 }
 
 // Drafts tab: future uploads (marked by hand or parked by the upload limit), not published yet, oldest first.
@@ -460,5 +440,5 @@ export function youtubeDraftsHandler(req, res) {
   const queued = allDrafts()
     .filter(({ meta }) => meta.future_upload_at && meta.video_file && !meta.youtube)
     .sort((a, b) => a.meta.future_upload_at.localeCompare(b.meta.future_upload_at));
-  return whenReady([withSemanticReview(queued, queueItem)], ([items]) => res.json(items));
+  return res.json(queued.map(queueItem));
 }

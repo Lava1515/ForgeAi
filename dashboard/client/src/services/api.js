@@ -17,53 +17,6 @@ export function setActiveChannelId(id) {
   } catch {}
 }
 
-// KAN-438: the server wants X-Admin-Token on state-changing routes once ADMIN_TOKEN is set.
-// The token lives in sessionStorage only (gone when the tab closes), is never put in localStorage and never logged.
-const ADMIN_TOKEN_KEY = 'forgeai_admin_token';
-export const getAdminToken = () => { try { return sessionStorage.getItem(ADMIN_TOKEN_KEY) || ''; } catch { return ''; } };
-export const setAdminToken = (token) => {
-  try { token ? sessionStorage.setItem(ADMIN_TOKEN_KEY, token) : sessionStorage.removeItem(ADMIN_TOKEN_KEY); } catch {}
-};
-
-function adminError(message) {
-  const error = new Error(message);
-  error.status = 401;
-  return error;
-}
-
-// fetch that sends the saved admin token on every non-GET call. On a 401 "admin_token_required" it asks for the token once
-// (window.prompt: shows the text as typed, ponytail: swap for a masked dialog if the dashboard is ever shared) and retries once.
-export async function adminFetch(url, init = {}) {
-  const method = String(init.method || 'GET').toUpperCase();
-  if (method === 'GET' || method === 'HEAD') return fetch(url, init);
-  const send = (token) => fetch(url, { ...init, headers: { ...init.headers, ...(token ? { 'X-Admin-Token': token } : {}) } });
-  const needsToken = async (res) => {
-    if (res.status !== 401) return false;
-    try { return (await res.clone().json())?.code === 'admin_token_required'; } catch { return false; }
-  };
-
-  const sent = getAdminToken();
-  const first = await send(sent);
-  if (!(await needsToken(first))) return first;
-
-  let token = getAdminToken();
-  if (!token || token === sent) { // no one else stored a fresh token meanwhile: ask
-    setAdminToken('');
-    const answer = typeof globalThis.prompt === 'function'
-      ? globalThis.prompt(sent ? 'The admin token was rejected. Enter the correct admin token (ADMIN_TOKEN):' : 'This action needs the admin token (ADMIN_TOKEN). Enter it:')
-      : null;
-    token = String(answer || '').trim();
-    if (!token) throw adminError('Admin token required: this action was blocked. Try again and enter the admin token when asked.');
-    setAdminToken(token);
-  }
-  const second = await send(token);
-  if (await needsToken(second)) {
-    setAdminToken('');
-    throw adminError('Admin token rejected: it does not match ADMIN_TOKEN on the server. Try again with the right one.');
-  }
-  return second;
-}
-
 /**
  * Common fetch wrapper with JSON parsing and basic error handling
  */
@@ -77,7 +30,7 @@ async function request(endpoint, options = {}) {
     ...(options.headers || {})
   };
 
-  const response = await adminFetch(url, { ...fetchOptions, headers });
+  const response = await fetch(url, { ...fetchOptions, headers });
   
   if (!response.ok) {
     let errorMsg = `HTTP ${response.status} ${response.statusText}`;
@@ -217,22 +170,12 @@ export async function researchChannelRules({ genre, name, description }) {
 }
 
 // replay: also receive the server's recent events first, so a reloaded page catches up on running jobs.
-// KAN-789: once ADMIN_TOKEN is set the feed needs a session cookie (EventSource cannot send X-Admin-Token), so the stream opens only after
-// POST /api/events/session (adminFetch sends the token and asks for it when missing). If the cookie expires the browser closes the
-// EventSource (HTTP 401); renew the session and reopen once the user is still subscribed.
 export function subscribeEvents(onEvent, onError, { replay = false } = {}) {
   const url = `${BASE_URL}/api/events${replay ? '?replay=1' : ''}`;
   let es = null;
   let closed = false;
 
   const open = async () => {
-    try {
-      const res = await adminFetch(`${BASE_URL}/api/events/session`, { method: 'POST' });
-      if (!res.ok) throw new Error(`log feed session refused (${res.status})`);
-    } catch (err) {
-      if (!closed && onError) onError(err);
-      return;
-    }
     if (closed) return;
     es = new EventSource(url);
 
@@ -250,7 +193,7 @@ export function subscribeEvents(onEvent, onError, { replay = false } = {}) {
 
     es.onerror = (err) => {
       if (onError) onError(err);
-      if (es.readyState === 2 && !closed) setTimeout(() => { if (!closed) open(); }, 5000); // CLOSED = the server refused: renew the session
+      if (es.readyState === 2 && !closed) setTimeout(() => { if (!closed) open(); }, 5000); // CLOSED: reopen
     };
   };
   open();
@@ -377,7 +320,7 @@ export async function testClaude() {
 
 // Episodes (KAN-885 / KAN-824)
 
-// Episode Room (KAN-886): run stages and decide the animatic gate through the existing admin-token routes.
+// Episode Room (KAN-886): run stages and decide the animatic gate through the existing routes.
 
 // Code-built start (owner UI): queued background job, status poll, abort.
 export async function startCodebuiltJob(body) {

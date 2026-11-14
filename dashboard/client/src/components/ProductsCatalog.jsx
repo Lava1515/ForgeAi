@@ -21,7 +21,6 @@ import Button from '../ui/Button.jsx';
 import Badge from '../ui/Badge.jsx';
 import EmptyState from '../ui/EmptyState.jsx';
 import Banner from '../ui/Banner.jsx';
-import SemanticReviewNote, { semanticNotReady } from './SemanticReviewNote.jsx';
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -388,7 +387,6 @@ export default function ProductsCatalog() {
                       </div>
                     </div>
 
-                    <SemanticReviewNote review={product.semantic_review} />
                     {product.visual_check?.approved === false && <div className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-200" data-testid="visual-check-warning"><p className="font-semibold">Visual check not approved</p><ul className="mt-1 list-disc pl-4 text-amber-100">{(product.visual_check.findings || []).map((finding, index) => <li key={index}>{finding.severity}: {finding.issue}{finding.fix ? ` — ${finding.fix}` : ''}</li>)}</ul></div>}
 
                     {/* Tags Preview & Actions */}
@@ -407,7 +405,6 @@ export default function ProductsCatalog() {
                               type="button"
                               onClick={(e) => toggleFlag(e, product, key)}
                               aria-pressed={isSet}
-                              disabled={key === 'future_upload' && !isSet && semanticNotReady(product.semantic_review)}
                               aria-label={accessibleLabel}
                               title={accessibleLabel}
                               className={`min-w-[32px] min-h-[32px] w-8 h-8 flex items-center justify-center rounded-lg hover:bg-ink-800 transition focus:outline-none focus:ring-1 focus:ring-ember-500/50 ${

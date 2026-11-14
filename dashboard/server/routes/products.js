@@ -3,8 +3,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getChannelById, getActiveChannel, safeChildDir } from './channelsManager.js';
 import { escapeXml } from '../lib/objects.js';
-import { isSemanticDraft, semanticGate, semanticReviewOf } from './semanticReview.js';
-import { isEpisodeDraft, issueEpisodeReceipt, withdrawEpisodeReceipt } from './episodeReview.js'; // KAN-828
 import { isCodebuiltDraft, safeLinks } from '../episode/codebuilt/bundle.js'; // KAN-923
 import { readCostSummary } from '../perf/creationCost.js';
 
@@ -133,7 +131,6 @@ export function scanDrafts() {
       liked: Boolean(meta.liked),
       saved: Boolean(meta.saved),
       future_upload: Boolean(meta.future_upload_at && !meta.youtube),
-      ...(isSemanticDraft({ folder: draftFolder, meta }) && (isEpisodeDraft({ meta }) ? { episode_draft: true } : { semantic_explainer: true })), // KAN-778: only semantic drafts get the key; KAN-828: Episode drafts get episode_draft
       ...(isCodebuiltDraft({ meta }) && { codebuilt_links: safeLinks(draftId, meta.codebuilt.files) }), // KAN-923: editable code/audio/subtitles/contact sheets/report
       ...(generation.visual_check?.approved === false && { visual_check: generation.visual_check }),
       comfyui_prompt: generation.comfyui_prompt || '',
@@ -155,20 +152,10 @@ export function scanDrafts() {
 }
 
 export function getProductsHandler(req, res) {
-  const drafts = scanDrafts();
-  if (!drafts.some((d) => d.semantic_explainer || d.episode_draft)) return res.json(drafts);
-  // KAN-778: semantic explainers carry their review status, blockers and source/evidence/preview/QA links.
-  return Promise.all(drafts.map(async (d) => (d.semantic_explainer || d.episode_draft ? { ...d, semantic_review: await semanticReviewOf(semanticDraft(d.folder_name)) } : d))).then((all) => res.json(all));
-}
-function semanticDraft(folderName) {
-  const folder = safeChildDir(DRAFTS_DIR, folderName);
-  let meta = null;
-  try { meta = JSON.parse(fs.readFileSync(path.join(folder, 'metadata.json'), 'utf8').replace(/^﻿/, '')); } catch {}
-  return { draftId: folderName, folder, meta };
+  res.json(scanDrafts());
 }
 
 // Library toggles: { liked, saved, future_upload } (any subset). Publishing to YouTube clears future_upload.
-// KAN-778: a semantic explainer's future_upload=true needs a current review receipt; { semantic_review: {reviewer, checks} } records one (null withdraws it).
 export async function updateProductHandler(req, res) {
   const draftDir = safeChildDir(DRAFTS_DIR, req.params.draftId);
   if (!draftDir) return res.status(400).json({ error: 'Invalid draft id' });
@@ -179,30 +166,17 @@ export async function updateProductHandler(req, res) {
   } catch {
     return res.status(404).json({ error: `Draft "${req.params.draftId}" not found` });
   }
-  const { liked, saved, future_upload, semantic_review } = req.body || {};
-  const draft = { draftId: req.params.draftId, folder: draftDir, meta };
-  let semantic;
-  if (semantic_review !== undefined) {
-    if (!isEpisodeDraft(draft)) return res.status(400).json({ error: 'Only a code-built or Episode draft takes a review.' });
-    if (semantic_review === null) withdrawEpisodeReceipt(draft);
-    else {
-      const issued = issueEpisodeReceipt(draft, semantic_review);
-      if (!issued.ok) return res.status(issued.status).json({ error: issued.error, ...(issued.blockers && { blockers: issued.blockers }) });
-    }
-    semantic = await semanticReviewOf(draft);
-  }
+  const { liked, saved, future_upload } = req.body || {};
   if (typeof liked === 'boolean') meta.liked = liked;
   if (typeof saved === 'boolean') meta.saved = saved;
   if (typeof future_upload === 'boolean') {
     if (future_upload && !meta.video_file) return res.status(400).json({ error: 'Only videos can be queued for upload.' });
     if (future_upload && meta.youtube) return res.status(409).json({ error: 'Already published to YouTube.' });
-    const refusal = future_upload && isSemanticDraft(draft) ? await semanticGate(draft) : null;
-    if (refusal) return res.status(409).json(refusal);
     if (future_upload) meta.future_upload_at ||= new Date().toISOString();
     else delete meta.future_upload_at;
   }
   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-  res.json({ liked: Boolean(meta.liked), saved: Boolean(meta.saved), future_upload: Boolean(meta.future_upload_at), ...(semantic && { semantic_review: semantic }) });
+  res.json({ liked: Boolean(meta.liked), saved: Boolean(meta.saved), future_upload: Boolean(meta.future_upload_at) });
 }
 
 export function deleteProductHandler(req, res) {
