@@ -15,6 +15,9 @@ import { jobsRoot } from '../episode/codebuilt/draftAdapter.js';
 import { assertRealDir } from '../episode/codebuilt/jobPaths.js';
 
 const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,50}$/;
+const PREVIEW_ID = /-pv[1-9][0-9]?$/;                                  // preview jobs of the visual loop: not addressable here
+const RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;           // Windows device names
+const validId = (id) => JOB_ID.test(id) && !PREVIEW_ID.test(id) && !RESERVED.test(id);
 const FRAME = /^\d{4}\.png$/;
 const MAX_ROUNDS = 12;
 const MAX_SHEET_BYTES = 3 * 1024 * 1024;
@@ -38,12 +41,16 @@ function stageDir(root, id) {
 function countFrames(realRoot, id) {
   try {
     assertRealDir(path.join(realRoot, id), 'job output');
-    const frames = assertRealDir(path.join(realRoot, id, 'frames'), 'frames');
+    const framesPath = path.join(realRoot, id, 'frames');
+    const frames = assertRealDir(framesPath, 'frames');
     let n = 0; let seen = 0;
     const dir = fs.opendirSync(frames);
     try {
       for (let entry = dir.readSync(); entry && seen < MAX_FRAMES_LISTED; entry = dir.readSync()) { seen += 1; if (FRAME.test(entry.name)) n += 1; }
     } finally { dir.closeSync(); }
+    // The container owns this folder and could swap it for a junction between the check above and the read. Check again after
+    // reading: if the path no longer resolves to the same plain directory, the count is thrown away (it was only ever a count).
+    if (assertRealDir(framesPath, 'frames') !== frames) return null;
     return n;
   } catch { return null; }
 }
@@ -69,7 +76,7 @@ export function createJobProgressHandlers({ root = jobsRoot } = {}) {
   const rootOf = () => (typeof root === 'function' ? root() : root);
   const progress = (req, res) => {
     const id = String(req.params.jobId ?? '');
-    if (!JOB_ID.test(id)) return res.status(404).json({ error: 'Progress unavailable' });
+    if (!validId(id)) return res.status(404).json({ error: 'Progress unavailable' });
     let dirs;
     try { dirs = stageDir(rootOf(), id); } catch { return res.status(404).json({ error: 'Progress unavailable' }); }
     const plan = readPlan(dirs.stage);
@@ -89,7 +96,7 @@ export function createJobProgressHandlers({ root = jobsRoot } = {}) {
   const sheet = (req, res) => {
     const id = String(req.params.jobId ?? '');
     const round = Number(req.params.round);
-    if (!JOB_ID.test(id) || !Number.isInteger(round) || round < 0 || round >= MAX_ROUNDS) return res.status(404).json({ error: 'Sheet unavailable' });
+    if (!validId(id) || !Number.isInteger(round) || round < 0 || round >= MAX_ROUNDS) return res.status(404).json({ error: 'Sheet unavailable' });
     let file = null;
     try { file = sheetFile(stageDir(rootOf(), id).stage, round); } catch { file = null; }
     if (!file) return res.status(404).json({ error: 'Sheet unavailable' });
