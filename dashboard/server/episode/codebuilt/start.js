@@ -57,7 +57,10 @@ export const ACTIVE = Object.freeze(['queued', 'scripting', 'factchecking', 'voi
 export const FINAL = Object.freeze(['done', 'failed', 'aborted', 'interrupted']);
 export const STAGE_DIR = '.start';
 // Refusals of a voice recording that a second recording can cure (see the voice step in execute).
-export const VOICE_RETRIES = 1;
+// 0 since the same day: the voice engine derives its seeds from the text, so recording the same script again gives the same audio.
+// The cure for a bad sentence is the engine's pace gate (episode/voice.js sends pace_gate_v1). The loop stays for a voice stage
+// that is not deterministic.
+export const VOICE_RETRIES = 0;
 export const VOICE_RETRY_REASONS = Object.freeze(['audio_not_matching', 'bad_tail', 'bad_lead', 'bad_word_times', 'timing_mismatch']);
 // The finished video may be this many seconds under the requested duration before the job stops (TTS pace varies; see planner.js targetWords).
 // 60 and 90 s keep 4 s; the shorter videos scale it (about 7 percent) so a 30 s request cannot finish at 26 s.
