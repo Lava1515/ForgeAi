@@ -23,6 +23,7 @@ export const FETCH_TIMEOUT_MS = 8000;
 export const MAX_REDIRECTS = 3;
 export const SOURCES_PER_CLAIM = 2;
 export const MAX_FETCHES = 80;
+export const MAX_PARALLEL_FETCHES = 8;
 
 export class RetrievalUnavailable extends Error {
   constructor(detail = 'retrieval is not available') { super(detail); this.name = 'RetrievalUnavailable'; this.code = 'retrieval_unavailable'; }
@@ -80,11 +81,12 @@ function guardedLookup(hostname, options, callback) {
 
 const TEXT_TYPES = /^(?:text\/(?:html|plain)|application\/xhtml\+xml)\b/i;
 
-function getOnce(url, { lookup = guardedLookup, request = https.request } = {}) {
+function getOnce(url, { lookup = guardedLookup, request = https.request, signal } = {}) {
   return new Promise((resolve) => {
     let settled = false;
-    const done = (value) => { if (!settled) { settled = true; resolve(value); } };
-    const req = request(url, { method: 'GET', lookup, timeout: FETCH_TIMEOUT_MS, headers: { 'user-agent': 'ForgeAI-factcheck/1', accept: 'text/html,text/plain;q=0.9' } }, (res) => {
+    let deadline;
+    const done = (value) => { if (!settled) { settled = true; clearTimeout(deadline); resolve(value); } };
+    const req = request(url, { method: 'GET', lookup, timeout: FETCH_TIMEOUT_MS, signal, headers: { 'user-agent': 'ForgeAI-factcheck/1', accept: 'text/html,text/plain;q=0.9' } }, (res) => {
       const status = res.statusCode ?? 0;
       if ([301, 302, 303, 307, 308].includes(status)) { res.resume(); return done({ redirect: res.headers.location ?? null }); }
       if (status !== 200 || !TEXT_TYPES.test(String(res.headers['content-type'] ?? ''))) { res.resume(); return done(null); }
@@ -98,6 +100,9 @@ function getOnce(url, { lookup = guardedLookup, request = https.request } = {}) 
       res.on('end', () => done({ body: Buffer.concat(chunks).toString('utf8') }));
       res.on('error', () => done(null));
     });
+    // request's timeout is an inactivity timeout. Keep a separate wall-clock
+    // deadline so a slow trickle cannot hold a retrieval slot indefinitely.
+    deadline = setTimeout(() => { req.destroy(); done(null); }, FETCH_TIMEOUT_MS);
     req.on('timeout', () => { req.destroy(); done(null); });
     req.on('error', () => done(null));
     req.end();
@@ -165,19 +170,47 @@ export function createBatchRetrieval({ ready: readyFn, retrieve: retrieveFn, fet
     if (!response || response.error || response.status >= 400 || !Array.isArray(response.facts) || !response.facts.length) throw new RetrievalUnavailable('retrieval returned no facts');
 
     const claimText = new Map((request.claims ?? []).map((c) => [c.id, c.text]));
+    // Cache promises as soon as a URL is scheduled, so repeated citations share
+    // both successful fetches and failures even while the first fetch is pending.
     const cache = new Map();
     let fetches = 0;
+    let activeFetches = 0;
+    const fetchWaiters = [];
+    const acquireFetchSlot = async () => {
+      if (activeFetches < MAX_PARALLEL_FETCHES) { activeFetches += 1; return; }
+      await new Promise((resolve) => fetchWaiters.push(resolve));
+    };
+    const releaseFetchSlot = () => {
+      const next = fetchWaiters.shift();
+      if (next) next();
+      else activeFetches -= 1;
+    };
     let validatedSources = 0;
     let droppedSources = 0;
     let searchOnly = 0;
     const pageFor = async (url) => {
-      if (cache.has(url)) return cache.get(url);
-      if (fetches >= maxFetches) return null;
+      const checked = checkedUrl(url);
+      if (!checked) return null;
+      checked.hash = '';
+      const key = checked.href;
+      if (cache.has(key)) return cache.get(key);
+      if (fetches >= maxFetches) { cache.set(key, Promise.resolve(null)); return null; }
       fetches += 1;
-      let text = null;
-      try { text = await fetchPage(url); } catch { text = null; }
-      cache.set(url, typeof text === 'string' ? text : null);
-      return cache.get(url);
+      const pending = (async () => {
+        await acquireFetchSlot();
+        let timeout;
+        const controller = new AbortController();
+        try {
+          const text = await Promise.race([
+            Promise.resolve().then(() => fetchPage(key, { signal: controller.signal })),
+            new Promise((resolve) => { timeout = setTimeout(() => { controller.abort(); resolve(null); }, FETCH_TIMEOUT_MS); }),
+          ]);
+          return typeof text === 'string' ? text : null;
+        } catch { return null; }
+        finally { clearTimeout(timeout); releaseFetchSlot(); }
+      })();
+      cache.set(key, pending);
+      return pending;
     };
     // A statement keeps only the sources whose page really contains it; the passage recorded is then the checked statement, never model-authored text.
     const validate = async (item, text) => {
@@ -197,10 +230,8 @@ export function createBatchRetrieval({ ready: readyFn, retrieve: retrieveFn, fet
       if (acceptSearchOnly && unmatched.length) { searchOnly += 1; return { ...item, text, sources: unmatched, validated: 'search_only' }; }
       return { ...item, verdict: 'uncertain', sources: [] };
     };
-    const facts = [];
-    for (const fact of response.facts.slice(0, 500)) facts.push(await validate(fact, claimText.get(fact?.id) ?? fact?.text ?? ''));
-    const background = [];
-    for (const fact of (Array.isArray(response.background) ? response.background : []).slice(0, 30)) background.push(await validate(fact, fact?.text ?? ''));
+    const facts = await Promise.all(response.facts.slice(0, 500).map((fact) => validate(fact, claimText.get(fact?.id) ?? fact?.text ?? '')));
+    const background = await Promise.all((Array.isArray(response.background) ? response.background : []).slice(0, 30).map((fact) => validate(fact, fact?.text ?? '')));
     return { facts, background, evidence_source: 'antigravity_cli', independent_validation: { version: RETRIEVAL_VERSION, fetched_pages: fetches, validated_sources: validatedSources, dropped_sources: droppedSources, search_only_claims: searchOnly } };
   };
 }
