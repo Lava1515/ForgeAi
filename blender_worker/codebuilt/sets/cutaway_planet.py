@@ -72,6 +72,7 @@ def build(origin=(0.0, 0.0, 0.0)):
     clock = stage.text(c, "txtT", "00:00", 1.0, tm["w"], P((0, 0, 6.55)))
     label = stage.text(c, "txtL", "12,742 KM", 0.55, tm["y"], P((0, -6, 5.75)))
     label.scale = (0, 0, 0)  # hidden until a shot shows it
+    clock.scale = (0, 0, 0)  # hidden too: a "00:00" left on screen tripped the text check of an unrelated video (job mwfoupp9-07ab7d)
     return b.handles((0.0, 0.0, 0.0), earth=earth, atmosphere=atmo, core=core, marker=marker, halo=halo, trail=trail,
                      shaft_line=shaft, clock=clock, label=label, stars=stars,
                      radii=dict(crust_outer=RE, crust_inner=RM, core_outer=RC, core_inner=RI))

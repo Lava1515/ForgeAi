@@ -224,7 +224,17 @@ export function createCodebuiltStarter({
       try {
       const planWords = words;
       if (Number.isFinite(planWords?.dur)) {
-        const shotStarts = shotStartsFor(planWords); const nframes = frameCountFor(planWords);
+        const nframes = frameCountFor(planWords);
+        // A directed job (direction.js) cut its shots on phrases: the host-written plan beside the build holds those cuts, the place ids and
+        // what each shot should show. Without a usable plan file the arithmetic cuts of the older builds apply.
+        let saved = null;
+        try { saved = JSON.parse(readSafe(path.join(stage, 'planner-plan.json'), 'utf8', 512 * 1024) || 'null'); } catch { saved = null; }
+        const savedOk = saved && saved.nframes === nframes && Array.isArray(saved.shotStarts) && saved.shotStarts.length > 0 && saved.shotStarts.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0)
+          && Array.isArray(saved.places) && saved.places.length > 0 && saved.places.every((x) => typeof x === 'string' && /^[a-z][a-z0-9]{1,15}$/.test(x));
+        const shotStarts = savedOk ? saved.shotStarts : shotStartsFor(planWords);
+        const places = savedOk ? saved.places : undefined;
+        const lookShots = savedOk && Array.isArray(saved.lookShots) && saved.lookShots.length === shotStarts.length && saved.lookShots.every((x) => x && typeof x.subject === 'string' && typeof x.narration === 'string') ? saved.lookShots : null;
+        const directionMarkdown = savedOk && typeof saved.directionMarkdown === 'string' ? saved.directionMarkdown.slice(0, 20000) : null;
         const numbered = [];
         for (const base of [path.join(stage, 'loop')]) {
           if (!safeDirectory(base)) continue;
@@ -234,7 +244,7 @@ export function createCodebuiltStarter({
         const candidates = [path.join(stage, 'loop', 'accepted.build.py'), ...numbered.map(({ base, n }) => path.join(base, `r${n}`, 'build.py')), path.join(stage, 'planner.build.py')];
         for (const file of candidates) {
           const code = readSafe(file); if (!code || !code.trim()) continue;
-          const why = validateReusableBuild(code, { nframes, shotStarts });
+          const why = validateReusableBuild(code, { nframes, shotStarts, places });
           if (!why.length) {
             let startRound = 0; const match = file.match(/[\\/]r(\d+)[\\/]build\.py$/);
             if (match) startRound = Number(match[1]) + 1;
@@ -246,11 +256,11 @@ export function createCodebuiltStarter({
                 const looked = JSON.parse(readSafe(path.join(base, `r${n}`, 'look.json')) || 'null');
                 const priorCode = readSafe(path.join(base, `r${n}`, 'build.py'));
                 if (looked?.status === 'complete' && Array.isArray(looked.reply?.findings)) {
-                  history.push({ round: n, findings: looked.reply.findings, ...(looked.crashed !== true && priorCode && !validateReusableBuild(priorCode, { nframes, shotStarts }).length && sha(priorCode) === looked.buildSha256 ? { buildScript: priorCode, buildSha256: looked.buildSha256 } : {}) });
+                  history.push({ round: n, findings: looked.reply.findings, ...(looked.crashed !== true && priorCode && !validateReusableBuild(priorCode, { nframes, shotStarts, places }).length && sha(priorCode) === looked.buildSha256 ? { buildScript: priorCode, buildSha256: looked.buildSha256 } : {}) });
                 }
               } catch {}
             }
-            build = { code, path: file, sha256: sha(code), nframes, shotStarts, startRound, history }; break;
+            build = { code, path: file, sha256: sha(code), nframes, shotStarts, startRound, history, ...(places ? { places } : {}), ...(lookShots ? { lookShots } : {}), ...(directionMarkdown ? { directionMarkdown } : {}) }; break;
           }
         }
       }
@@ -395,13 +405,16 @@ export function createCodebuiltStarter({
     const injected = loopPieces();
     const { nframes, shotStarts } = plan;
     if (!Number.isInteger(nframes) || !Array.isArray(shotStarts) || !shotStarts.length) throw new StartError('look_failed', 502);
+    // What each shot should show: the director's shot list when the build was directed, else the script's own beats by position.
+    const directed = Array.isArray(plan.lookShots) && plan.lookShots.length === shotStarts.length ? plan.lookShots : null;
     const shots = shotStarts.map((start, i) => {
-      const s = Array.isArray(scripted.shots) ? scripted.shots[i] : null;
-      return { subject: clip(s?.subject, 200) || `part ${i + 1}`, narration: clip(s?.narration, 400) || `the narration from ${Number(start).toFixed(1)} s` };
+      const s = directed ? directed[i] : Array.isArray(scripted.shots) ? scripted.shots[i] : null;
+      return { subject: clip(s?.subject, directed ? 900 : 200) || `part ${i + 1}`, narration: clip(s?.narration, 400) || `the narration from ${Number(start).toFixed(1)} s` };
     });
+    const places = Array.isArray(plan.places) && plan.places.length ? plan.places : undefined;
     const validate = typeof plan.validate === 'function' ? plan.validate : injected.validate ?? ((code) => {
       if (typeof pl.validateBuildScript !== 'function') return ['no build validator is available'];
-      const why = [...pl.validateBuildScript(code, { nframes, shotStarts })];
+      const why = [...pl.validateBuildScript(code, { nframes, shotStarts, places })];
       if (!why.length && typeof pl.pythonSyntaxCheck === 'function') { const bad = pl.pythonSyntaxCheck(code); if (bad) why.push(`Python syntax error, ${bad}`); }
       if (!why.length && typeof pl.pythonQaStructureCheck === 'function') { const structure = pl.pythonQaStructureCheck(code); if (Array.isArray(structure)) why.push(...structure); }
       return why;
@@ -411,8 +424,10 @@ export function createCodebuiltStarter({
     const run = injected.runLoop ?? runVisualBuildLoop;
     try {
       return await run({
-        jobId: rec.id, stageDir: stage, brief: scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: resumeBuild?.code ?? plan.buildScript, startRound: resumeBuild?.startRound ?? 0, resumeHistory: resumeBuild?.history ?? [], kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
-        validate, probe, lookModel: 'sonnet', signal,
+        jobId: rec.id, stageDir: stage, brief: typeof plan.directionMarkdown === 'string' && plan.directionMarkdown ? `${scripted.brief}
+
+${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: resumeBuild?.code ?? plan.buildScript, startRound: resumeBuild?.startRound ?? 0, resumeHistory: resumeBuild?.history ?? [], kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
+        validate, probe, lookModel: 'sonnet', signal, lookGuides: (() => { try { return typeof pl.loadCodebuiltGuides === 'function' ? pl.loadCodebuiltGuides({ pack: pathPack, step: 'look' }) : ''; } catch { return ''; } })(),
       }, {
         runPreview, makeSheets: (args) => sheetMaker.makeSheets(args), askLook: injected.askLook ?? defaultAskLook, askText: injected.askText ?? defaultAskText,
         onCall: addCall, onPhase,
@@ -537,12 +552,17 @@ export function createCodebuiltStarter({
       throw new StartError('too_long', 422);
     }
     const pathPack = scripted.pathPack;
-    let plan = resume?.build ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT } : null;
+    let plan = resume?.build ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
     if (!plan) try {
       step(rec, 'planning');
       if (typeof pl.planCodebuiltBuild !== 'function') throw new StartError('planner_unavailable', 501);
-      plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, words, pathPack, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
-      try { fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript); fs.writeFileSync(path.join(stage, 'planner-plan.json'), JSON.stringify({ nframes: plan.nframes, shotStarts: plan.shotStarts })); } catch {}
+      plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
+      try {
+        fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript);
+        fs.writeFileSync(path.join(stage, 'planner-plan.json'), JSON.stringify({ nframes: plan.nframes, shotStarts: plan.shotStarts, ...(plan.places ? { places: plan.places, lookShots: plan.lookShots, directionMarkdown: plan.directionMarkdown } : {}) }));
+        if (plan.direction) { fs.writeFileSync(path.join(stage, 'direction.json'), `${JSON.stringify(plan.direction, null, 1)}
+`); fs.writeFileSync(path.join(stage, 'direction.md'), plan.directionMarkdown ?? ''); }
+      } catch {}
     } catch (error) {
       if (signal.aborted) throw new StartError('aborted');
       writePlannerDiagnostic(rec.id, error);

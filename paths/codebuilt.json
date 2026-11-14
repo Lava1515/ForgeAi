@@ -1,54 +1,117 @@
 {
   "id": "codebuilt",
   "skills": [
-    { "id": "video-shot-planner", "skill": "video-shot-planner", "mode": "guidance_only" },
-    { "id": "voice-subtitle-sync", "skill": "voice-subtitle-sync", "mode": "guidance_only" },
-    { "id": "video-release-qa", "skill": "video-release-qa", "mode": "guidance_only" },
-    { "id": "codebuilt-scene-generation", "skill": "codebuilt-scene-generation", "mode": "guidance_only" }
+    {
+      "id": "video-shot-planner",
+      "skill": "video-shot-planner",
+      "mode": "guidance_only"
+    },
+    {
+      "id": "voice-subtitle-sync",
+      "skill": "voice-subtitle-sync",
+      "mode": "guidance_only"
+    },
+    {
+      "id": "video-release-qa",
+      "skill": "video-release-qa",
+      "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-script",
+      "skill": "codebuilt-script",
+      "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-direction",
+      "skill": "codebuilt-direction",
+      "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-scene-generation",
+      "skill": "codebuilt-scene-generation",
+      "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-look-review",
+      "skill": "codebuilt-look-review",
+      "mode": "guidance_only"
+    }
   ],
   "rules": {
     "steps": {
-      "script": ["reel-script"],
-      "shot_list": ["shorts-video-director", "video-shot-planner"],
-      "people_and_creatures": ["character-artist"],
-      "places": ["environment-artist"],
-      "look": ["stylized-style"],
-      "lighting": ["blender-lighting"],
-      "materials": ["blender-materials"],
-      "camera": ["cinematic-camera"],
-      "effects": ["vfx-fx"],
-      "final_pass": ["compositing"],
-      "subtitles": ["voice-subtitle-sync"],
-      "before_finishing": ["video-release-qa"]
+      "script": [
+        "reel-script"
+      ],
+      "shot_list": [
+        "shorts-video-director",
+        "video-shot-planner"
+      ],
+      "people_and_creatures": [
+        "character-artist"
+      ],
+      "places": [
+        "environment-artist"
+      ],
+      "look": [
+        "stylized-style"
+      ],
+      "lighting": [
+        "blender-lighting"
+      ],
+      "materials": [
+        "blender-materials"
+      ],
+      "camera": [
+        "cinematic-camera"
+      ],
+      "effects": [
+        "vfx-fx"
+      ],
+      "final_pass": [
+        "compositing"
+      ],
+      "subtitles": [
+        "voice-subtitle-sync"
+      ],
+      "before_finishing": [
+        "video-release-qa"
+      ]
     },
     "skillUse": [
-      "Load only the named project-authored codebuilt-scene-generation SKILL.md for the build step as guidance. Do not load user-level skills or copy skill text into generated code.",
-      "If a skill conflicts with the brief or the playbook, the brief wins; say so in the report.",
-      "cinematic-camera is used for rules and vocabulary only (move names, depth of field, checking every frame). Do not call any pipeline a skill describes; build with frame-by-frame code.",
-      "The build skill is authored in this project, is limited to one SKILL.md, and is mounted at /skills/codebuilt-scene-generation read-only."
+      "Each pipeline step loads the project-authored skill that skillsByStep assigns to it, as text in that step's prompt: codebuilt-script (script), codebuilt-direction (shot list after the voice), codebuilt-scene-generation (Blender build), codebuilt-look-review (visual check). Each restates for this pipeline what the installed skills in rules.steps teach.",
+      "Only project-authored skills in this repository's .claude/skills are read. User-level skills are not loaded by the pipeline and skill text is never copied into generated code.",
+      "If a skill conflicts with the brief, the direction or the playbook, those win; say so in the report.",
+      "Only codebuilt-scene-generation is mounted into the job container, read-only, at /skills/codebuilt-scene-generation, and it is limited to one SKILL.md."
     ],
-    "skillsByStep": { "build": "codebuilt-scene-generation" },
+    "skillsByStep": {
+      "script": [
+        "codebuilt-script"
+      ],
+      "direction": [
+        "codebuilt-direction"
+      ],
+      "build": [
+        "codebuilt-scene-generation"
+      ],
+      "look": [
+        "codebuilt-look-review"
+      ]
+    },
     "playbook": [
-      "Script: 75 to 95 words, 30 to 40 s spoken, hook in the first second, numbers instead of adjectives, one idea per sentence, every fact checked and simplifications named.",
+      "Script: a story a viewer can see, hook in the first sentence, numbers instead of adjectives, one idea per sentence, every fact checked and simplifications named, a pay-off at the end.",
       "Narration first, with per-word timestamps. Every cut, on-screen text and sound effect is placed from a word timestamp, never a guessed time.",
-      "Shot list: one idea per shot, 2 to 6 s each, about 8 shots; write the narration line, camera move and subject action for each.",
-      "Build every model from code in headless Blender; no downloaded assets.",
+      "Direction after the voice: 2 to 5 places built once, shots of 2 to 8 s cut on phrase starts, each with what is seen, what moves and how the camera moves; the view changes every 2 to 4 s.",
+      "Build every model from code in headless Blender; no downloaded assets. Ready sets and props from the kit, primitives for what is special to the story.",
       "Pose each frame as a function of time and render it as a still, with no keyframes, so any frame renders alone and the full render splits across processes.",
-      "Preview 12 to 24 frames at half size on one contact sheet, look at it, fix, repeat; most quality comes from this loop.",
-      "Full render at 1080x1920, 30 fps; captions word by word; keep text out of the top 10 percent and bottom 20 percent of the frame and the subject in the middle 60 percent.",
+      "Preview 12 to 24 frames at half size on contact sheets, look at them, fix, repeat; most quality comes from this loop.",
+      "Subject large (a third to two thirds of the frame height) in the upper middle of the frame; captions sit low in the frame; keep text out of the top 10 percent and bottom 20 percent.",
+      "Full render at 1080x1920, 30 fps; captions word by word.",
       "Sound: music about 18 dB under the voice and effects about 10 to 13 dB under, measured as RMS on the stems; print the numbers, never mix by guessed gains.",
       "Check: probe the finished file, run the subtitle checker, view a contact sheet of the finished video, and report what was not verified (for example, nobody listened to the audio)."
     ],
     "skillReports": {
-      "status": "unclear",
-      "reason": "The two Sonnet-with-skills runs (Earth stops spinning, new what-if) left no per-skill report: their output folders hold frames, audio, scripts and logs but no REPORT.md, so no skill is recorded as having changed nothing. The shorts-playbook SKILLS-ADDENDUM asked for one, and the plan marks both runs pending.",
-      "dropped": [],
-      "unclear": [
-        "reel-script", "shorts-video-director", "video-shot-planner", "character-artist", "environment-artist",
-        "stylized-style", "blender-lighting", "blender-materials", "cinematic-camera", "vfx-fx",
-        "compositing", "voice-subtitle-sync", "video-release-qa"
-      ],
-      "nextAction": "When the two Sonnet-with-skills reports exist, move every skill reported as changing nothing from the step table into dropped with its reason, and re-run node scripts/paths/sync.mjs."
+      "status": "replaced",
+      "reason": "Since 2026-11-14 the pipeline loads four project-authored step skills (skillsByStep) that restate the installed skills listed in steps; the per-skill report of the chat runs was never produced and is no longer waited for."
     }
   }
 }

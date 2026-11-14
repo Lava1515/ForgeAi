@@ -44,3 +44,28 @@ export function loadCodebuiltBuildSkill({ pack, root = REPO_ROOT } = {}) {
   return { skill: name, text: safeSkillText(root, name) };
 }
 
+
+/** Skill names the pack assigns to a step: rules.skillsByStep[step] is one name or a list of names. */
+export function guideNamesFor(pack, step) {
+  const value = pack?.rules?.skillsByStep?.[step];
+  const names = typeof value === 'string' ? [value] : Array.isArray(value) ? value : [];
+  return names.filter((name) => typeof name === 'string');
+}
+
+/**
+ * The guidance text for one pipeline step (script, direction, build, look): every project-authored SKILL.md the pack assigns to
+ * that step, in order, each under its own heading. Only names the pack lists in `skills` as guidance_only are read, and only from
+ * this repository's .claude/skills folder (same path checks as the build skill). A step with no assigned skill gives ''.
+ * The text goes into a prompt as guidance; nothing here is mounted, executed or copied into generated code.
+ */
+export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT } = {}) {
+  const names = guideNamesFor(pack, step);
+  const approved = new Set((Array.isArray(pack?.skills) ? pack.skills : []).filter((entry) => entry?.mode === 'guidance_only').map((entry) => entry.skill));
+  const parts = [];
+  for (const name of names) {
+    if (!approved.has(name)) throw new Error(`skill ${name} is assigned to step ${step} but is not approved by the code-built path pack`);
+    // The YAML frontmatter (name, description) is for skill listings, not for a prompt.
+    parts.push(`### ${name}\n${safeSkillText(root, name).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim()}`);
+  }
+  return parts.join('\n\n');
+}

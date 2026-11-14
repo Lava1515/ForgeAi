@@ -188,3 +188,21 @@ def project(angle, point, origin=(0.0, 0.0, 0.0)):
 def subject_in_frame(spec, angle, origin=(0.0, 0.0, 0.0)):
     x, y, z = project(angle, offset(origin, spec.subject), origin)
     return framing.in_zone(x, y, z)
+
+
+def manual_text():
+    """What a build model needs to USE each set without reading its code: what build() makes and returns (the module's own
+    docstring), where the subject is, three camera poses that are known to frame it, and the world colour. Pure Python."""
+    import ast
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = []
+    for s in SPECS:
+        with open(os.path.join(here, s.name + ".py"), encoding="utf-8") as fh:
+            doc = ast.get_docstring(ast.parse(fh.read())) or ""
+        body = " ".join(line.strip() for line in doc.split("\n")[1:] if line.strip())
+        angles = "; ".join(f"{a.name}: pos {a.pos}, target {a.target}, lens {a.lens}" for a in s.angles)
+        out.append(f"{s.name}.build(origin) -> handles dict. {body} Subject point (relative to origin): {s.subject}. "
+                   f"Tested camera poses, relative to origin (add the origin to pos and target): {angles}. "
+                   f"World background colour {s.scene.background}. Every set also returns collection, origin, subject (world point) and lights.")
+    return "\n".join(out)

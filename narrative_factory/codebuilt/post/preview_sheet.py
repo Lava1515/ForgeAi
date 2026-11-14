@@ -76,6 +76,24 @@ def _open_png(path):
         raise SheetError(f"a frame is not a valid PNG ({type(error).__name__})") from None
 
 
+FLAT_STD = 0.025      # luma standard deviation below this: one flat colour (camera inside a wall, sky dome or plate; or nothing lit)
+DARK_MEAN = 0.05      # mean luma below this: almost black
+BLOWN_SHARE = 0.25    # more than this share of pixels at luma 0.97 or above: blown out
+
+
+def frame_stats(im):
+    """Measured facts about one preview frame, for the look prompt: mean luma and its spread (0..1), the share of blown pixels and
+    a flag: 'flat' (a single flat colour, the mark of a camera inside or against a surface), 'dark', 'blown' or None."""
+    small = im.convert("L").resize((54, 96), Image.BILINEAR)
+    px = list(small.getdata())
+    n = len(px)
+    mean = sum(px) / n / 255.0
+    std = (sum((p / 255.0 - mean) ** 2 for p in px) / n) ** 0.5
+    blown = sum(1 for p in px if p >= 247) / n
+    flag = "flat" if std < FLAT_STD else "dark" if mean < DARK_MEAN else "blown" if blown > BLOWN_SHARE else None
+    return {"luma": round(mean, 3), "spread": round(std, 3), "blown": round(blown, 3), "flag": flag}
+
+
 def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_SHEET):
     if not isinstance(code, str) or not CODE_RE.match(code):
         raise SheetError("code must be 5 characters A-Z or 0-9")
@@ -97,11 +115,12 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
         for slot, (number, path) in enumerate(group):
             n = (index - 1) * per_sheet + slot + 1
             im = _open_png(path).resize((cw, ch), Image.LANCZOS)
+            stats = frame_stats(im)
             td = ImageDraw.Draw(im)
             td.rectangle([0, 0, 120, 26], fill=(0, 0, 0))
             td.text((6, 3), f"T{n}  f{number}", fill=(255, 235, 60), font=small)
             sheet.paste(im, ((slot % cols) * cw, HEADER_H + (slot // cols) * ch))
-            tiles.append({"n": n, "frame": number})
+            tiles.append({"n": n, "frame": number, **stats})
         name = f"sheet_{index}.jpg"
         sheet.save(out_dir / name, format="JPEG", quality=85, optimize=False)
         sheets.append({"file": name, "code": code, "tiles": tiles, "w": sheet.width, "h": sheet.height})
