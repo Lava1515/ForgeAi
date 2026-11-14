@@ -710,7 +710,7 @@ def facts(a, b=None, detail="50m"):
     out = dict(name=ca.name, area_km2=_round2(ca.area_km2), continent=ca.continent, disputed=ca.disputed)
     if b is not None:
         cb = d.find(b)
-        ratio = round(ca.area_km2 / cb.area_km2, 2) if cb.area_km2 > 0 else 0.0
+        ratio = round(ca.area_km2 / cb.area_km2, 2) if cb.area_km2 > 0 else None
         out.update(other=cb.name, other_area_km2=_round2(cb.area_km2), ratio=ratio)
     return out
 
@@ -720,4 +720,4 @@ def _round2(v):
         return 0
     e = 10 ** (int(math.floor(math.log10(v))) - 1)
     val = round(v / e) * e
-    return int(val) if val >= 10 else round(val, 2)
+    return int(val) if val >= 10 else round(val, max(0, 1 - int(math.floor(math.log10(v)))))
