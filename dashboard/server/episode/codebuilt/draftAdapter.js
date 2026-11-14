@@ -13,6 +13,7 @@
 // and hashed during the copy, so a file that changes while it is read fails its manifest hash.
 //
 // Review: there is no review gate any more; the marker's hashes only seal the bundle so a reseal/revise can tell what changed.
+import { lengthCheck } from './lengthCheck.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -234,7 +235,21 @@ const srtText = (buffer) => (decodeText(buffer) || '').split(/\r?\n/).filter((l)
 
 // Options: jobId, channelId (a known, not-for-kids channel), now (Date | () => Date | ISO string), jobsDir / draftsDir (default agent-jobs / FORGEAI_DRAFTS_DIR),
 // getChannel (default: the channel store), fsApi (tests). -> { created, draftId, metadata }. The same job with the same bytes returns { created: false }.
-export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), jobsDir = jobsRoot(), draftsDir = draftsRoot(), getChannel = getChannelById, fsApi = fs, topic, premise, title: titleOverride, tags: tagOverrides, metadataSource } = {}) {
+// Release evidence (backlog P2). Only what a real check returned is stored; absent input stores nothing, so auto release finds no pass.
+// factCheck: the fact stage's own verdict ({ verified, summary }) passed by start.js after the stage ran; kept only when verified === true.
+// length: recomputed here from the requested seconds and the probed duration of the finished video.
+export function releaseEvidence({ factCheck, requestedDuration, duration, videoType }) {
+  const out = {};
+  if (factCheck && factCheck.verified === true) {
+    const n = (v) => (Number.isInteger(v) && v >= 0 && v <= 1000 ? v : null);
+    out.fact_check = { verified: true, claims: n(factCheck.summary?.claims), false_claims: n(factCheck.summary?.false_claims), uncertain_claims: n(factCheck.summary?.uncertain_claims) };
+  }
+  const check = lengthCheck(requestedDuration, duration, 'factual');
+  if (check) out.length_check = check;
+  return out;
+}
+
+export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), jobsDir = jobsRoot(), draftsDir = draftsRoot(), getChannel = getChannelById, fsApi = fs, videoType, topic, premise, title: titleOverride, tags: tagOverrides, metadataSource, requestedDuration, factCheck } = {}) {
   if (typeof jobId !== 'string' || !JOB_ID.test(jobId)) throw new CodebuiltDraftError('invalid_id');
   const channel = resolveChannel(channelId, getChannel);
   const createdAt = typeof now === 'function' ? now() : now;
@@ -312,7 +327,7 @@ export function codebuiltToDraft({ jobId, channelId, now = () => new Date(), job
       engine: 'codebuilt',
       made_for_kids: false,
       ai_disclosure: true,
-      generation_details: { draft_version: CODEBUILT_DRAFT_VERSION, path: 'codebuilt', job_id: jobId, ...(visualLoop ? { visual_loop: visualLoop, ...(visualLoop.visual_check ? { visual_check: visualLoop.visual_check } : {}) } : {}), metadata_source: cleanMeta(premise?.title, 100) ? 'premise' : metadataSource === 'light_router' && cleanMeta(titleOverride, LIMITS.title) ? 'light_router' : 'topic_fallback', ...(cb5 ? { producer: CB5_REPORT_VERSION } : {}), final: { file: 'video.mp4', sha256: files.video.sha256 } },
+      generation_details: { draft_version: CODEBUILT_DRAFT_VERSION, path: 'codebuilt', job_id: jobId, ...releaseEvidence({ factCheck, requestedDuration, duration, videoType }), ...(visualLoop ? { visual_loop: visualLoop, ...(visualLoop.visual_check ? { visual_check: visualLoop.visual_check } : {}) } : {}), metadata_source: cleanMeta(premise?.title, 100) ? 'premise' : metadataSource === 'light_router' && cleanMeta(titleOverride, LIMITS.title) ? 'light_router' : 'topic_fallback', ...(cb5 ? { producer: CB5_REPORT_VERSION } : {}), final: { file: 'video.mp4', sha256: files.video.sha256 } },
       codebuilt: { version: 1, job_id: jobId, bundle_sha256: digest, files, links: linksFor(draftId, files) },
       // The marker that seals the bundle (video hash, bundle digest). No review is required to publish.
       episode_draft: { version: EPISODE_MARKER_VERSION, episode_id: jobId, final_sha256: files.video.sha256, approved_gate_hash: digest, finish_hash: cb5 ? files.report.sha256 : sha256(manifestText) },
