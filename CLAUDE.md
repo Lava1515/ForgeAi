@@ -15,8 +15,9 @@ not marked blocked can be taken by the fleet.
    Record every such thing in `licenses/register.json` (licence, source link, date, how you checked) and run
    `python tools/license_check.py`. The check runs before every commit and fails on anything missing or not allowed.
 2. **Lean process, fleet allowed.** Take work from `docs/BACKLOG.md`. One review by a different model family
-   before merging. No ticket system, no supervisor relays. The owner sets how many workers run at once (default
-   3). Each worker uses its own git worktree and its own files; two workers never edit the same file. Never change
+   before merging. No ticket system, no supervisor relays. Fleet (owner, 2026-11-14): Sol supervises; at most 3 Codex
+   workers (Sol, Luna), 4 Claude workers (Opus, Sonnet, Haiku) and 15 agy workers (5 each on the nintendo, clash
+   and folk_guy accounts) at once; fewer is fine. Each worker uses its own git worktree and its own files; two workers never edit the same file. Never change
    a file a running job is using (the mounted Python under `blender_worker/` and `narrative_factory/`, the server
    code, `dashboard/client/dist`) while a video run is in progress: finish on a branch, merge after the run, and
    restart the dashboard then. Tell the owner what was merged.
