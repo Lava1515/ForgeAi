@@ -40,26 +40,26 @@ export const isActiveJob = (job) => !!job && ACTIVE_STATUSES.includes(job.status
 
 // KAN-928 (CB16): one Start can run 1..10 videos. Count 1 with a typed topic and no advanced choice keeps using the single-job route.
 export const CODEBUILT_COUNTS = Object.freeze([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-export const CODEBUILT_TYPES = Object.freeze(['Auto', 'factual', 'whatif']);
+export const CODEBUILT_TYPES = Object.freeze(['Auto', 'factual', 'whatif', 'history']);
 export const CODEBUILT_VOICES = Object.freeze(['Auto', 'aiden', 'dylan', 'eric', 'ono_anna', 'ryan', 'serena', 'sohee', 'uncle_fu', 'vivian']);
 export const RUN_ACTIVE_STATUSES = Object.freeze(['queued', 'running', 'aborting']);
 export const isActiveRun = (run) => !!run && RUN_ACTIVE_STATUSES.includes(run.status);
 const TEXT_CHOICE = /^[\p{L}\p{N} ,.'&/+()-]{1,60}$/u;
 
 /** Body of POST /api/codebuilt/start. Throws on a bad topic or duration; the server checks both again. */
-export function buildCodebuiltStartBody({ topic, duration, buildModel }) {
+export function buildCodebuiltStartBody({ topic, duration, buildModel, channelId }) {
   const text = typeof topic === 'string' ? topic.trim() : '';
   if (!text || text.length > 200 || /[\x00-\x1F\x7F]/.test(text)) throw new Error('Topic must be between 1 and 200 characters');
   if (!CODEBUILT_DURATIONS.includes(duration)) throw new Error('Duration must be 30, 45, 60 or 90 seconds');
   if (buildModel !== undefined && !BUILD_MODELS.includes(buildModel)) throw new Error('Invalid build model');
-  return { topic: text, duration, ...(buildModel !== undefined ? { buildModel } : {}) };
+  return { topic: text, duration, ...(buildModel !== undefined ? { buildModel } : {}), ...(channelId ? { channelId } : {}) };
 }
 
 const blankOrAuto = (v) => v === undefined || v === null || (typeof v === 'string' && (!v.trim() || v.trim().toLowerCase() === 'auto'));
 
 /** True when the request needs the batch route: several videos, an Auto topic, or a choice the single-job route does not have. */
-export function usesRunRoute({ count = 1, topic, genre, theme, type, autoDuration } = {}) {
-  return count > 1 || blankOrAuto(topic) || !blankOrAuto(genre) || !blankOrAuto(theme) || !blankOrAuto(type) || autoDuration === true;
+export function usesRunRoute({ count = 1, topic, genre, theme, type, autoDuration, channelId } = {}) {
+  return Boolean(channelId) || count > 1 || blankOrAuto(topic) || !blankOrAuto(genre) || !blankOrAuto(theme) || !blankOrAuto(type) || autoDuration === true;
 }
 
 const isWhatIfTopic = (t) => /^what if\b/i.test(t) && t.endsWith('?');
@@ -68,16 +68,44 @@ const isWhatIfTopic = (t) => /^what if\b/i.test(t) && t.endsWith('?');
  * The reason the current form cannot be started, or null. Shown inline and blocks Start, so a combination the server refuses never has to be sent.
  * A typed topic is one video (a longer run would be the same video again): use a theme for several. The type and a typed topic must agree.
  */
-export function runFormProblem({ count = 1, topic, type } = {}) {
+const SUPPORTED_CHANNEL_TYPES = Object.freeze(['factual', 'whatif', 'history']);
+const typesOfChannel = (channel) => Array.isArray(channel?.video_types)
+  ? channel.video_types.filter((type) => SUPPORTED_CHANNEL_TYPES.includes(type))
+  : [...SUPPORTED_CHANNEL_TYPES]; // Legacy channels deliberately retain their former all-types behavior.
+
+export function resolveChannelForType({ channels = [], channelId = '', type } = {}) {
+  const required = blankOrAuto(type) ? [] : [type];
+  const supports = (channel) => typesOfChannel(channel).length > 0 && required.every((item) => typesOfChannel(channel).includes(item));
+  if (channelId) {
+    const channel = channels.find((item) => item.id === channelId);
+    if (!channel) return { channel: null, error: 'The selected channel is unavailable.' };
+    if (!supports(channel)) {
+      return { channel: null, error: `The selected channel is not assigned to ${blankOrAuto(type) ? 'Auto (factual and What if)' : type}.` };
+    }
+    return { channel, error: null };
+  }
+  const matches = channels.filter(supports);
+  if (!matches.length) return { channel: null, error: `No channel is assigned to ${blankOrAuto(type) ? 'Auto (factual and What if)' : type}.` };
+  if (matches.length > 1) return { channel: null, error: `Several channels are assigned to ${blankOrAuto(type) ? 'Auto (factual and What if)' : type}; choose a channel.` };
+  return { channel: matches[0], error: null };
+}
+
+export function runFormProblem({ count = 1, topic, type, channels, channelId = '', channelsLoaded = true, channelLoadError = '' } = {}) {
   const typed = typeof topic === 'string' ? topic.trim() : '';
+  if (!channelsLoaded) return channelLoadError || 'Loading channel assignments.';
   if (typed && count > 1) return 'A typed topic is one video. Set the number of videos to 1, or clear the topic and give a theme to get several different videos.';
   if (typed && type === 'whatif' && !isWhatIfTopic(typed)) return 'The video type is What if, so the topic must be a "What if ...?" question.';
   if (typed && type === 'factual' && isWhatIfTopic(typed)) return 'The video type is Factual, but the topic is a "What if ...?" question. Set the type to What if or Auto.';
+  if (typed && type === 'history' && isWhatIfTopic(typed)) return 'The video type is History, but the topic is a "What if ...?" question. Set the type to What if or Auto.';
+  if (channels !== undefined) {
+    const assignment = resolveChannelForType({ channels, channelId, type });
+    if (assignment.error) return assignment.error;
+  }
   return null;
 }
 
 /** Body of POST /api/codebuilt/runs. Auto and blank fields are left out (the server resolves them for every video). The server checks everything again. */
-export function buildCodebuiltRunBody({ count = 1, topic, genre, theme, type, voice, duration, autoDuration, buildModel } = {}) {
+export function buildCodebuiltRunBody({ count = 1, topic, genre, theme, type, voice, duration, autoDuration, buildModel, channelId } = {}) {
   if (!CODEBUILT_COUNTS.includes(count)) throw new Error('Number of videos must be a whole number from 1 to 10');
   const body = { count };
   const typed = typeof topic === 'string' ? topic.trim() : '';
@@ -108,6 +136,7 @@ export function buildCodebuiltRunBody({ count = 1, topic, genre, theme, type, vo
     if (!BUILD_MODELS.includes(buildModel)) throw new Error('Invalid build model');
     body.buildModel = buildModel;
   }
+  if (channelId) body.channelId = channelId;
   return body;
 }
 
@@ -159,13 +188,35 @@ export default function CodebuiltStart() {
   const [genre, setGenre] = useState('');
   const [theme, setTheme] = useState('');
   const [type, setType] = useState('Auto');
-  const [voice, setVoice] = useState('Auto');
+  const [channels, setChannels] = useState([]);
+  const [channelId, setChannelId] = useState('');
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
+  const [channelLoadError, setChannelLoadError] = useState('');
+  const [voice, setVoice] = useState(() => {
+    try {
+      const preferred = localStorage.getItem('forgeai_preferred_voice');
+      return CODEBUILT_VOICES.includes(preferred) ? preferred : 'Auto';
+    } catch { return 'Auto'; }
+  });
   const [job, setJob] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [run, setRun] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef(null);
+
+  useEffect(() => {
+    api.getChannels()
+      .then((result) => {
+        const rows = Array.isArray(result?.channels) ? result.channels : Array.isArray(result) ? result : [];
+        setChannels(rows);
+        setChannelsLoaded(true);
+      })
+      .catch((err) => {
+        setChannelLoadError(err?.data?.error || err.message || 'Could not load channel assignments.');
+        setChannelsLoaded(false);
+      });
+  }, []);
 
   useEffect(() => {
     const poll = async () => { try { const result = await api.listCodebuiltJobs(); setJobs(Array.isArray(result?.jobs) ? result.jobs : []); } catch {} };
@@ -191,15 +242,20 @@ export default function CodebuiltStart() {
   const start = async (e) => {
     if (e) e.preventDefault();
     setError(null);
-    const form = { count, topic, genre, theme, type, voice, duration, autoDuration, buildModel };
+    const channelAssignment = resolveChannelForType({ channels, channelId, type });
+    if (!channelsLoaded || channelAssignment.error) {
+      setError(channelLoadError || channelAssignment.error || 'Loading channel assignments.');
+      return;
+    }
+    const form = { count, topic, genre, theme, type, voice, duration, autoDuration, buildModel, channelId: channelAssignment.channel.id };
     setBusy(true);
     try {
       if (usesRunRoute(form)) {
-        const body = buildCodebuiltRunBody(form);
+        const body = buildCodebuiltRunBody({ ...form, channelId: channelAssignment.channel.id });
         setJob(null);
         setRun(await api.startCodebuiltRun(body));
       } else {
-        const body = buildCodebuiltStartBody({ topic, duration, buildModel });
+        const body = buildCodebuiltStartBody({ topic, duration, buildModel, channelId: channelAssignment.channel.id });
         setRun(null);
         setJob(await api.startCodebuiltJob(voice !== 'Auto' ? { ...body, voice } : body));
       }
@@ -220,7 +276,7 @@ export default function CodebuiltStart() {
   const otherActive = jobs.some((row) => row.id !== job?.id && isActiveJob(row));
   const active = isActiveJob(job) || isActiveRun(run) || otherActive;
   const several = count > 1;
-  const problem = runFormProblem({ count, topic, type: blankOrAuto(type) ? undefined : type });
+  const problem = runFormProblem({ count, topic, type: blankOrAuto(type) ? undefined : type, channels, channelId, channelsLoaded, channelLoadError });
   // The video that is running now, whoever started it (this page, another tab, a batch): the newest active row of the job list.
   const running = jobs.find((row) => isActiveJob(row)) ?? (isActiveJob(job) ? job : null);
   const abortRow = async (id) => {
@@ -238,6 +294,14 @@ export default function CodebuiltStart() {
       </p>
       {error && <Banner tone="error" title="Error:" onDismiss={() => setError(null)}>{error}</Banner>}
       <form onSubmit={start} className="space-y-3">
+        <label className="flex flex-col gap-1 text-xs text-ink-300">
+          <span>Channel for this video type</span>
+          <select value={channelId} onChange={(e) => setChannelId(e.target.value)} disabled={active || !channelsLoaded} aria-label="Video channel" data-codebuilt-channel
+            className="w-full rounded-lg bg-ink-900 border border-ink-700 px-3 py-2 text-sm text-ink-100">
+            <option value="">Map by video type (unique match only)</option>
+            {channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+          </select>
+        </label>
         <input
           type="text" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={200} disabled={active}
           placeholder={several ? 'Topic (Auto: each video gets its own topic)' : 'Topic (leave empty for Auto)'} aria-label="Code-built topic" data-codebuilt-topic
@@ -279,7 +343,7 @@ export default function CodebuiltStart() {
               <span>Video type</span>
               <select value={type} onChange={(e) => setType(e.target.value)} disabled={active} aria-label="Video type" data-codebuilt-type
                 className="rounded bg-ink-900 border border-ink-700 px-2 py-1 text-xs text-ink-100">
-                {CODEBUILT_TYPES.map((t) => (<option key={t} value={t}>{t === 'whatif' ? 'What if' : t === 'factual' ? 'Factual' : 'Auto'}</option>))}
+                {CODEBUILT_TYPES.map((t) => (<option key={t} value={t}>{t === 'whatif' ? 'What if' : t === 'factual' ? 'Factual' : t === 'history' ? 'History' : 'Auto'}</option>))}
               </select>
             </label>
             <label className="flex flex-col gap-1">

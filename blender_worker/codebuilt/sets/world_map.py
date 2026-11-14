@@ -17,7 +17,10 @@ def build(origin=(0.0, 0.0, 0.0), detail="110m", projection="equal_earth", palet
     b = SetBuilder(NAME, origin, seed=3)
     wm = maps.WorldMap(b.c, detail=detail, projection=projection, palette=palette, scale=scale, origin=b.origin, **kw)
     if highlight:
-        wm.highlight(highlight)
+        if isinstance(highlight, dict):
+            wm.highlight(**highlight)
+        else:
+            wm.highlight(highlight)
     s = wm.scale
     b.sun("LGT-sunMap", (-0.9 * s, -1.6 * s, 3.2 * s), (0, 0, 0), 2.0, (1.0, 0.97, 0.92), angle=2.0)
     b.area("LGT-fillMap", (0.0, -1.2 * s, 5.0 * s), (0, 0, 0), 700 * (s / 4.0) ** 2, 12 * s / 4.0, (0.75, 0.85, 1.0))

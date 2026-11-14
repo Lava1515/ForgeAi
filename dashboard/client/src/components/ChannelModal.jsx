@@ -26,6 +26,11 @@ const PRESET_GENRES = [
   { id: 'science', label: 'Science & Anomalies', icon: '🔬' },
   { id: 'general', label: 'General / Variety', icon: '🎭' },
 ];
+const CHANNEL_VIDEO_TYPES = [
+  { id: 'factual', label: 'Factual' },
+  { id: 'whatif', label: 'What if' },
+  { id: 'history', label: 'History' },
+];
 
 export default function ChannelModal({
   channel = null,
@@ -52,6 +57,9 @@ export default function ChannelModal({
   const [madeForKids, setMadeForKids] = useState(channel?.made_for_kids == null ? '' : String(channel.made_for_kids));
   const [style, setStyle] = useState(channel?.style || '');
   const [maxDailyPosts, setMaxDailyPosts] = useState(channel?.max_daily_posts || 2);
+  const [videoTypes, setVideoTypes] = useState(Array.isArray(channel?.video_types) ? channel.video_types : CHANNEL_VIDEO_TYPES.map(({ id }) => id));
+  const [autoReleaseEnabled, setAutoReleaseEnabled] = useState(channel?.auto_release?.enabled === true);
+  const [autoReleaseDailyCap, setAutoReleaseDailyCap] = useState(channel?.auto_release?.daily_cap == null ? '' : String(channel.auto_release.daily_cap));
   const [growthProfilePrompts, setGrowthProfilePrompts] = useState(channel?.growth_profile_prompts === true);
   const [growthTopicPicking, setGrowthTopicPicking] = useState(channel?.growth_topic_picking === true);
   const [researchSummary, setResearchSummary] = useState('');
@@ -102,6 +110,9 @@ export default function ChannelModal({
       setMadeForKids(channel.made_for_kids == null ? '' : String(channel.made_for_kids));
       setStyle(channel.style || '');
       setMaxDailyPosts(channel.max_daily_posts || 2);
+      setVideoTypes(Array.isArray(channel.video_types) ? channel.video_types : CHANNEL_VIDEO_TYPES.map(({ id }) => id));
+      setAutoReleaseEnabled(channel.auto_release?.enabled === true);
+      setAutoReleaseDailyCap(channel.auto_release?.daily_cap == null ? '' : String(channel.auto_release.daily_cap));
       setGrowthProfilePrompts(channel.growth_profile_prompts === true);
       setGrowthTopicPicking(channel.growth_topic_picking === true);
       setResearchSummary('');
@@ -129,15 +140,18 @@ export default function ChannelModal({
       setMadeForKids('');
       setStyle('');
       setMaxDailyPosts(2);
+      setVideoTypes(CHANNEL_VIDEO_TYPES.map(({ id }) => id));
+      setAutoReleaseEnabled(false);
+      setAutoReleaseDailyCap('');
       setGrowthProfilePrompts(false);
       setGrowthTopicPicking(false);
       setResearchSummary('');
       setNiche('');
-      setFormat('narrated');
       setLanguage('en');
       setAvoid('');
     }
     setError('');
+
     setSuccessMsg('');
     setConfirmDelete(false);
   }, [channel]);
@@ -192,6 +206,11 @@ export default function ChannelModal({
     setIsSaving(true);
     setError('');
 
+    if (autoReleaseDailyCap.trim() && (!Number.isSafeInteger(Number(autoReleaseDailyCap)) || Number(autoReleaseDailyCap) <= 0)) {
+      setError('Daily cap must be a positive whole number, or leave it empty.');
+      setIsSaving(false);
+      return;
+    }
     const trimmedNiche = niche.trim().slice(0, 200);
     const trimmedLanguage = language.trim() || 'en';
     const avoidPhrases = avoid
@@ -226,6 +245,8 @@ export default function ChannelModal({
       kids_clip_seconds: channel?.kids_clip_seconds ?? null,
       style: style === 'viral_v1' ? 'viral_v1' : '',
       max_daily_posts: Number(maxDailyPosts) || 2,
+      video_types: videoTypes,
+      auto_release: { enabled: autoReleaseEnabled, daily_cap: autoReleaseDailyCap.trim() ? Number(autoReleaseDailyCap) : null },
       growth_profile_prompts: growthProfilePrompts,
       growth_topic_picking: growthTopicPicking,
       youtube_channel_id: youtubeChannelId.trim(),
@@ -414,6 +435,11 @@ export default function ChannelModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
+                  <label className="block text-xs font-medium text-ink-300 mb-1.5">Format</label>
+                  <div className="px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100">Narrated</div>
+                </div>
+
+                <div>
                   <label className="block text-xs font-medium text-ink-300 mb-1.5">Language</label>
                   <input
                     type="text"
@@ -442,6 +468,44 @@ export default function ChannelModal({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <fieldset className="sm:col-span-3">
+                  <legend className="block text-xs font-medium text-ink-300 mb-2">Video types for this channel</legend>
+                  <div className="flex flex-wrap gap-4">
+                    {CHANNEL_VIDEO_TYPES.map(({ id, label }) => (
+                      <label key={id} className="flex items-center gap-2 text-sm text-ink-200">
+                        <input
+                          type="checkbox"
+                          checked={videoTypes.includes(id)}
+                          onChange={(e) => setVideoTypes((current) => e.target.checked ? [...current, id] : current.filter((type) => type !== id))}
+                          className="accent-ember-500"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-ink-400 mt-1">A channel can handle more than one type.</p>
+                </fieldset>
+                <fieldset className="sm:col-span-3 rounded-xl border border-ink-800 p-3">
+                  <legend className="px-1 text-xs font-medium text-ink-300">Auto release</legend>
+                  <label className="flex items-center gap-2 text-sm text-ink-200">
+                    <input type="checkbox" checked={autoReleaseEnabled} onChange={(e) => setAutoReleaseEnabled(e.target.checked)} className="accent-ember-500" />
+                    Enable auto release for this channel
+                  </label>
+                  <div className="mt-3 max-w-xs">
+                    <label className="block text-xs font-medium text-ink-300 mb-1.5" htmlFor="auto-release-daily-cap">Daily release cap</label>
+                    <input
+                      id="auto-release-daily-cap"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={autoReleaseDailyCap}
+                      onChange={(e) => setAutoReleaseDailyCap(e.target.value)}
+                      placeholder="No cap set"
+                      className="w-full px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100 placeholder-ink-600 focus:outline-none focus:border-ember-500/70 transition shadow-inner"
+                    />
+                    <p className="text-[11px] text-ink-400 mt-1">Auto release stays off by default. A positive whole-number cap is required before any release.</p>
+                  </div>
+                </fieldset>
                 <div>
                   <label className="block text-xs font-medium text-ink-300 mb-1.5">Max videos going public per day</label>
                   <input

@@ -37,8 +37,18 @@
       "mode": "guidance_only"
     },
     {
+      "id": "codebuilt-history",
+      "skill": "codebuilt-history",
+      "mode": "guidance_only"
+    },
+    {
       "id": "codebuilt-maps",
       "skill": "codebuilt-maps",
+      "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-teardown",
+      "skill": "codebuilt-teardown",
       "mode": "guidance_only"
     }
   ],
@@ -103,6 +113,16 @@
         "codebuilt-look-review"
       ]
     },
+    "typeSkills": {
+      "history": {
+        "script": [
+          "codebuilt-history"
+        ],
+        "direction": [
+          "codebuilt-history"
+        ]
+      }
+    },
     "playbook": [
       "Script: a story a viewer can see, hook in the first sentence, numbers instead of adjectives, one idea per sentence, every fact checked and simplifications named, a pay-off at the end.",
       "Narration first, with per-word timestamps. Every cut, on-screen text and sound effect is placed from a word timestamp, never a guessed time.",
@@ -142,6 +162,22 @@
           "nations",
           "capital city",
           "true size"
+        ]
+      },
+      {
+        "skill": "codebuilt-teardown",
+        "steps": [
+          "direction",
+          "build"
+        ],
+        "keywords": [
+          "stealth jet",
+          "f-117",
+          "f-117a",
+          "nighthawk",
+          "stealth fighter",
+          "stealth aircraft",
+          "stealth teardown"
         ]
       }
     ]

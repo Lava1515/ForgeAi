@@ -12,15 +12,23 @@ const PRIVACY = [
 // "#a, b c" -> ['a', 'b', 'c']; the server cleans and caps them (15 tags, 500 chars).
 const parseTags = (text) => text.split(/[\s,]+/).map((t) => t.replace(/^#+/, '')).filter(Boolean);
 
+// A schedule that is still waiting: YouTube's own (private + publishAt) or an older local one (unlisted + publish_at).
+const isScheduled = (y) => Boolean(y?.publish_at) && (y.privacy === 'private' || y.privacy === 'unlisted');
+const whenText = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
 // Publish a finished video draft to the connected YouTube channel (as a Short).
 export default function PublishYouTube({ product, onPublished }) {
   const tagsId = useId();
+  const titleId = useId();
+  const whenId = useId();
   const [status, setStatus] = useState(null);
   const [privacy, setPrivacy] = useState('public');
   const [madeForKids, setMadeForKids] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [published, setPublished] = useState(product.youtube);
+  const [when, setWhen] = useState(''); // datetime-local value, empty = publish now
+  const [title, setTitle] = useState(product.title || '');
   const [tags, setTags] = useState(formatTags(product.tags));
   const [suggesting, setSuggesting] = useState(false);
 
@@ -32,7 +40,20 @@ export default function PublishYouTube({ product, onPublished }) {
     setBusy(true);
     setError('');
     try {
-      setPublished(await api.publishToYoutube(product.folder_name || product.id, { privacy, madeForKids, tags: parseTags(tags) }));
+      setPublished(await api.publishToYoutube(product.folder_name || product.id, { privacy, madeForKids, tags: parseTags(tags), title: title.trim(), publishAt: when ? new Date(when).toISOString() : undefined }));
+      onPublished?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelSchedule = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setPublished(await api.cancelYoutubeSchedule(product.folder_name || product.id));
       onPublished?.();
     } catch (err) {
       setError(err.message);
@@ -62,9 +83,21 @@ export default function PublishYouTube({ product, onPublished }) {
         {status?.connected && <span className="text-xs font-mono text-ink-400">{status.channel || 'channel connected'}</span>}
       </div>
 
-      {published ? (
+      {published && isScheduled(published) ? (
+        <div className="space-y-2">
+          <a href={published.url} target="_blank" rel="noreferrer" className="text-sm text-ember-400 hover:underline inline-flex items-center gap-1.5 min-h-[36px] py-1">
+            {new Date(published.publish_at).getTime() > Date.now() ? `Scheduled for ${whenText(published.publish_at)}` : `Scheduled time passed (${whenText(published.publish_at)}); waiting for YouTube`} <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+          <div>
+            <button type="button" onClick={cancelSchedule} disabled={busy} className="chip min-h-[32px] h-8 text-xs disabled:opacity-50">
+              {busy ? 'Cancelling...' : 'Cancel schedule'}
+            </button>
+            <span className="ml-2 text-xs text-ink-400">The video stays {published.privacy} on YouTube.</span>
+          </div>
+        </div>
+      ) : published ? (
         <a href={published.url} target="_blank" rel="noreferrer" className="text-sm text-ember-400 hover:underline inline-flex items-center gap-1.5 min-h-[36px] py-1">
-          Published ({published.privacy}) <ExternalLink className="w-3.5 h-3.5" />
+          {published.privacy === 'public' ? 'Published' : `Uploaded (${published.privacy})`} <ExternalLink className="w-3.5 h-3.5" />
         </a>
       ) : !status && error ? (
         <p className="text-xs text-ink-400">Couldn't check the YouTube connection. Reopen this page to try again.</p>
@@ -88,13 +121,43 @@ export default function PublishYouTube({ product, onPublished }) {
                 type="button"
                 role="radio"
                 aria-checked={privacy === p.id}
-                disabled={busy}
+                disabled={busy || Boolean(when)}
                 onClick={() => setPrivacy(p.id)}
                 className={`chip min-h-[32px] h-8 text-xs ${privacy === p.id ? 'chip-active' : ''}`}
               >
                 {p.label}
               </button>
             ))}
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor={whenId} className="text-xs font-medium text-ink-300">Publish at (optional)</label>
+            <div className="flex items-center gap-2">
+              <input
+                id={whenId}
+                type="datetime-local"
+                value={when}
+                disabled={busy}
+                onChange={(e) => setWhen(e.target.value)}
+                className="bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-ink-200 focus:outline-none focus:border-ember-500/60"
+              />
+              {when && <button type="button" onClick={() => setWhen('')} disabled={busy} className="chip min-h-[32px] h-8 text-xs">Clear</button>}
+            </div>
+            <p className="text-xs text-ink-400">Leave empty to use the visibility above. A time (within 60 days) uploads it private and YouTube makes it public then.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor={titleId} className="text-xs font-medium text-ink-300">Title</label>
+            <input
+              id={titleId}
+              type="text"
+              maxLength={100}
+              value={title}
+              disabled={busy}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full bg-ink-950 border border-ink-800 rounded-lg px-3 py-2 text-xs text-ink-200 focus:outline-none focus:border-ember-500/60 focus:ring-1 focus:ring-ember-500/30"
+            />
+            <p className="text-xs text-ink-400">Up to 100 characters. It must describe the video; a date or digits alone is refused.</p>
           </div>
 
           <div className="space-y-1.5">
@@ -133,6 +196,12 @@ export default function PublishYouTube({ product, onPublished }) {
             <span className="leading-tight">Made for kids (required by YouTube; answer honestly)</span>
           </label>
 
+          {product.ai_disclosure && (
+            <p className="text-xs text-ink-400">
+              This draft is marked "altered or synthetic content" on YouTube (the default for computer-made drafts). YouTube asks for that mark when realistic content is AI-generated or meaningfully AI-altered; check the setting in YouTube Studio if unsure.
+            </p>
+          )}
+
           <button
             type="button"
             onClick={publish}
@@ -140,7 +209,7 @@ export default function PublishYouTube({ product, onPublished }) {
             className="btn-ember inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[36px] rounded-lg text-sm font-medium transition"
           >
             {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Youtube className="w-4 h-4" />}
-            <span>{busy ? 'Uploading...' : 'Publish'}</span>
+            <span>{busy ? 'Uploading...' : when ? 'Schedule' : 'Publish'}</span>
           </button>
         </div>
       )}

@@ -4,6 +4,7 @@ import MobileNav from './components/MobileNav.jsx';
 import Library from './components/Library.jsx';
 import Insights from './components/Insights.jsx';
 import NewVideo from './components/episode/NewVideo.jsx';
+import Voices from './components/Voices.jsx';
 import GlobalLoggerDrawer from './components/GlobalLoggerDrawer.jsx';
 import ChannelModal from './components/ChannelModal.jsx';
 import Banner from './ui/Banner.jsx';
@@ -517,6 +518,12 @@ export default function App() {
             {host === 'newvideo' && (
               <div data-host-root="newvideo" className="fade-page">
                 <NewVideo />
+              </div>
+            )}
+
+            {host === 'voices' && (
+              <div data-host-root="voices" className="fade-page">
+                <Voices />
               </div>
             )}
           </div>

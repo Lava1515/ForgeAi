@@ -10,7 +10,7 @@ export async function produceLightMetadata(topic, { askRoleFn = askRole, onCallR
   const output = {};
   const safeTopic = clean(topic, 200);
   for (const [step, key, schema, prompt] of [
-    ['titles', 'title', validateTitle, `Return JSON {"title":"..."} with a concise video title for this topic: ${safeTopic}`],
+    ['titles', 'title', validateTitle, `Return JSON {"title":"..."} with a plain, accurate, descriptive video title for this topic, about 6 to 10 words as guidance (not a limit): say what the video shows or asks, in plain words. Avoid date-only titles, hashtags and clickbait; a relevant date or number in a descriptive title is welcome. Topic: ${safeTopic}`],
     ['tags', 'tags', validateTags, `Return JSON {"tags":[...]} with up to 8 short searchable tags for this topic: ${safeTopic}`],
   ]) {
     try {

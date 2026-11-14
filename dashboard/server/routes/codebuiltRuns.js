@@ -1,7 +1,6 @@
 // KAN-928 (CB16): routes of the owner-started code-built batch; reads are open,
 // like the single-job routes. The body is checked against a fixed key list and a size cap, errors are generic (no path, stack or model text), and the
 // run belongs to the channel the owner has active unless the request names one. The single-job routes in episodes.js are untouched.
-import { getActiveChannel } from './channelsManager.js';
 import { codebuiltRunCoordinator, RunError } from '../episode/codebuilt/runCoordinator.js';
 import { StartError } from '../episode/codebuilt/start.js';
 
@@ -24,7 +23,7 @@ const wrap = (task) => async (req, res) => { try { await task(req, res); } catch
 
 export const startCodebuiltRunHandler = wrap(async (req, res) => {
   const input = runBody(req);
-  res.status(202).json(codebuiltRunCoordinator().startRun({ ...input, channelId: input.channelId ?? getActiveChannel(req)?.id }));
+  res.status(202).json(codebuiltRunCoordinator().startRun(input));
 });
 export const listCodebuiltRunsHandler = wrap(async (req, res) => { res.json({ runs: codebuiltRunCoordinator().listRuns() }); });
 export const getCodebuiltRunHandler = wrap(async (req, res) => { res.json(codebuiltRunCoordinator().getRun(String(req.params.runId))); });

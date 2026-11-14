@@ -26,7 +26,8 @@ import {
   setGrowthABChannelHandler,
 } from './routes/growthRoutes.js';
 import { getServiceStatusHandler, testServiceUrlHandler } from './routes/services.js';
-import { youtubeStatusHandler, youtubeConnectHandler, youtubeCallbackHandler, youtubeDisconnectHandler, youtubePublishHandler, youtubeSuggestTagsHandler, youtubeCancelScheduleHandler, youtubeDraftsHandler } from './routes/youtube.js';
+import * as youtubeRoutes from './routes/youtube.js';
+import { getVoicesHandler, getSingleVoiceHandler, getVoiceSampleHandler } from './routes/voices.js';
 import {
   getChannelsHandler,
   getSingleChannelHandler,
@@ -41,6 +42,24 @@ import { startCodebuiltRunHandler, listCodebuiltRunsHandler, getCodebuiltRunHand
 import { mountJobArtifacts } from './routes/jobArtifacts.js';
 import { mountJobProgress } from './routes/jobProgress.js';
 import { researchCandidatesHandler } from './routes/videoResearch.js';
+
+const {
+  youtubeStatusHandler,
+  youtubeConnectHandler,
+  youtubeCallbackHandler,
+  youtubeDisconnectHandler,
+  youtubePublishHandler,
+  youtubeSuggestTagsHandler,
+  youtubeCancelScheduleHandler,
+  youtubeDraftsHandler,
+} = youtubeRoutes;
+
+const releaseLogHandler = (req, res, next) => {
+  if (typeof youtubeRoutes.releaseLogHandler === 'function') {
+    return youtubeRoutes.releaseLogHandler(req, res, next);
+  }
+  return res.status(501).json({ error: 'Release log handler not loaded' });
+};
 
 onGeminiFallback((fallback) => {
   broadcastEvent('gemini_fallback', fallback);
@@ -192,6 +211,11 @@ export function createApp() {
   app.get('/api/service/narrative', getServiceStatusHandler);
   app.post('/api/service/test-url', testServiceUrlHandler);
 
+  // Qwen Voices (P4 voice browser)
+  app.get('/api/voices', getVoicesHandler);
+  app.get('/api/voices/:id', getSingleVoiceHandler);
+  app.get('/api/voices/:id/sample', getVoiceSampleHandler);
+
   // Videos and drafts
   app.get('/api/products', getProductsHandler);
   app.delete('/api/products/:draftId', deleteProductHandler);
@@ -211,6 +235,7 @@ export function createApp() {
   app.post('/api/youtube/tags/:draftId', youtubeSuggestTagsHandler);
   app.post('/api/youtube/schedule/:draftId/cancel', youtubeCancelScheduleHandler);
   app.get('/api/youtube/drafts', youtubeDraftsHandler);
+  app.get('/api/youtube/release-log', releaseLogHandler);
 
   // Growth: per-channel report, strategy and topic ideas
   app.get('/api/growth/report', getGrowthReportHandler);

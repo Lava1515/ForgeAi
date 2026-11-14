@@ -141,7 +141,7 @@ const now = () => new Date().toISOString();
 export function checkStartRequest(input) {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new StartError('bad_request');
   if (Object.keys(input).some((k) => !['topic', 'duration', 'voice', 'channelId', 'buildModel', 'type'].includes(k))) throw new StartError('bad_request');
-  if (input.type !== undefined && (typeof input.type !== 'string' || !['auto', 'factual', 'whatif'].includes(input.type.trim().toLowerCase()))) throw new StartError('bad_request');
+  if (input.type !== undefined && (typeof input.type !== 'string' || !['auto', 'factual', 'whatif', 'history'].includes(input.type.trim().toLowerCase()))) throw new StartError('bad_request');
   const topic = typeof input.topic === 'string' ? input.topic.trim() : '';
   if (!topic || topic.length > TOPIC_MAX || /[\x00-\x1F\x7F]/.test(topic)) throw new StartError('bad_request');
   const duration = input.duration === undefined ? 60 : input.duration;
@@ -460,6 +460,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
 
   async function execute(rec, controller) {
     const { signal } = controller;
+    let verifiedFactCheck = null;
     const resume = resumeData.get(rec.id) ?? null;
     let priorCalls = [];
     if (resume) { try { const existing = JSON.parse(fs.readFileSync(path.join(stateRoot(), rec.id, 'cost_calls.json'), 'utf8')); priorCalls = Array.isArray(existing.calls) ? existing.calls : []; } catch {} }
@@ -570,6 +571,36 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       }
       checkAbort();
       if (verdict?.verified !== true) { writeFactDiagnostic(rec.id, verdict?.summary); throw new StartError('fact_check_blocked', 422); }
+      verifiedFactCheck = {
+        verified: true,
+        summary: {
+          claims: Number.isInteger(verdict?.summary?.claims) ? verdict.summary.claims : (Array.isArray(verdict?.facts?.claims) ? verdict.facts.claims.length : null),
+          false_claims: Number.isInteger(verdict?.summary?.false_claims) ? verdict.summary.false_claims : (Array.isArray(verdict?.facts?.false_claims) ? verdict.facts.false_claims.length : 0),
+          uncertain_claims: Number.isInteger(verdict?.summary?.uncertain_claims) ? verdict.summary.uncertain_claims : (Array.isArray(verdict?.facts?.uncertain_claims) ? verdict.facts.uncertain_claims.length : 0),
+        },
+      };
+      try {
+        fs.writeFileSync(path.join(stage, 'fact-check.json'), `${JSON.stringify(verifiedFactCheck, null, 1)}\n`);
+      } catch { /* audit artifact only */ }
+    } else if (rec.factCheck) {
+      try {
+        const receipt = JSON.parse(readSafe(path.join(stage, 'fact-check.json')) || 'null');
+        if (receipt && receipt.verified === true && receipt.summary) {
+          verifiedFactCheck = receipt;
+        } else {
+          const facts = JSON.parse(readSafe(path.join(stage, 'facts.json')) || 'null');
+          if (facts && (facts.verified === true || facts.status === 'verified') && facts.blocked !== true) {
+            verifiedFactCheck = {
+              verified: true,
+              summary: {
+                claims: Array.isArray(facts.claims) ? facts.claims.length : null,
+                false_claims: Array.isArray(facts.false_claims) ? facts.false_claims.length : 0,
+                uncertain_claims: Array.isArray(facts.uncertain_claims) ? facts.uncertain_claims.length : 0,
+              },
+            };
+          }
+        }
+      } catch { /* unverified */ }
     }
 
     // 3. Voice: the existing TTS stage and measured word times (an estimate is refused by the voice module).
@@ -700,7 +731,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     const title = validateTitle(metadata) ? metadata.title : undefined;
     const tags = validateTags(metadata) ? metadata.tags : undefined;
     try {
-      const out = toDraft({ jobId: rec.id, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}) });
+      const out = toDraft({ videoType: rec.contentMode, jobId: rec.id, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}), requestedDuration: rec.duration, ...(verifiedFactCheck ? { factCheck: verifiedFactCheck } : {}) });
       rec.draftId = out?.id ?? out?.draftId ?? draftIdForJob(rec.id);
       // KAN-933: requested versus actual seconds. The probed video length (draft metadata) wins over the voice estimate; a miss is recorded, never patched by stretching audio.
       const probed = out?.metadata?.social?.duration_seconds;
@@ -739,10 +770,16 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       // The batch's validated genre/theme/type travel with the job to the script, the fact check and the planner. A malformed value is refused, never dropped.
       let choices = null;
       if (batch && internal.choices !== undefined) { try { choices = normalizeProductionChoices(internal.choices); } catch { throw new StartError('bad_request'); } }
+      const type = typeof input?.type === 'string' ? input.type.trim().toLowerCase() : choices?.type;
       const id = newId();
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
-        ...(batch ? { factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
+        ...(batch ? { factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : internal.contentMode === 'history' ? 'history' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
+      if (type === 'history') {
+        rec.contentMode = 'history';
+        rec.factCheck = true;
+        rec.choices = { genre: choices?.genre ?? null, theme: choices?.theme ?? null, type: 'history' };
+      }
       save(rec);
       live.set(id, { rec, controller: new AbortController() });
       waiting.push(id);
