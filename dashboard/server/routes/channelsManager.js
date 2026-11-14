@@ -69,7 +69,11 @@ function safeWriteJson(file, data) {
 export function getAllChannels() {
   const list = safeReadJson(CHANNELS_FILE, null);
   if (Array.isArray(list) && list.length > 0) {
-    return list;
+    return list.map((channel) => {
+      let videoTypes;
+      try { videoTypes = cleanChannelVideoTypes(channel.video_types); } catch { videoTypes = []; }
+      return { ...channel, video_types: videoTypes, auto_release: cleanAutoRelease(channel.auto_release) };
+    });
   }
 
   // Seed initial default channel from existing legacy token if present
@@ -88,6 +92,8 @@ export function getAllChannels() {
     hero: null,
     growth_profile_prompts: false,
     growth_topic_picking: false,
+    video_types: ['factual', 'whatif', 'history'],
+    auto_release: { enabled: false, daily_cap: null },
     growth_ab_channel: 'default',
     voiceover_psychology_rules: BASE_VOICEOVER_RULES,
     video_psychology_rules: BASE_VIDEO_RULES,
@@ -218,6 +224,21 @@ export function resolveChannelPolicy(channel = {}, engineOverride) {
   };
 }
 export const cleanMaxPosts = (n) => Math.min(10, Math.max(1, Math.round(Number(n)) || 2));
+export const CHANNEL_VIDEO_TYPES = Object.freeze(['factual', 'whatif', 'history']);
+export function cleanChannelVideoTypes(types) {
+  if (types === undefined) return [...CHANNEL_VIDEO_TYPES];
+  if (!Array.isArray(types)) throw new TypeError('video_types must be an array');
+  if (types.some((type) => !CHANNEL_VIDEO_TYPES.includes(type))) throw new TypeError('video_types contains an unsupported type');
+  return [...new Set(types)];
+}
+export function cleanAutoRelease(value) {
+  const config = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const cap = config.daily_cap;
+  return {
+    enabled: config.enabled === true,
+    daily_cap: Number.isSafeInteger(cap) && cap > 0 ? cap : null,
+  };
+}
 export const STYLES = ['', 'viral_v1'];
 export const cleanStyle = (s) => (s === 'viral_v1' ? 'viral_v1' : '');
 export const cleanGrowthProfilePrompts = (value) => value === true;
@@ -350,6 +371,8 @@ export function sanitizeChannel(channel) {
 
   return {
     ...copy,
+    video_types: Array.isArray(copy.video_types) ? (() => { try { return cleanChannelVideoTypes(copy.video_types); } catch { return []; } })() : [...CHANNEL_VIDEO_TYPES],
+    auto_release: cleanAutoRelease(copy.auto_release),
     has_api_key: hasKey,
     connected,
     bound_account: boundAccount,
@@ -410,6 +433,8 @@ export async function createChannel(data = {}, ask = undefined) {
     kids_clip_seconds: cleanKidsClipSeconds(data.kids_clip_seconds),
     hero: cleanHero(data.hero),
     style: cleanStyle(data.style),
+    video_types: cleanChannelVideoTypes(data.video_types),
+    auto_release: cleanAutoRelease(data.auto_release),
     max_daily_posts: cleanMaxPosts(data.max_daily_posts),
     description: String(data.description || '').trim(),
     youtube_channel_id: String(data.youtube_channel_id || '').trim(),
@@ -500,6 +525,8 @@ export async function updateChannel(id, updates = {}, ask = undefined) {
     kids_clip_seconds: Object.hasOwn(updates, 'kids_clip_seconds') ? cleanKidsClipSeconds(updates.kids_clip_seconds) : existing.kids_clip_seconds ?? null,
     hero: Object.hasOwn(updates, 'hero') ? cleanHero(updates.hero) : (existing.hero ?? null),
     style: cleanStyle(updates.style !== undefined ? updates.style : existing.style),
+    video_types: cleanChannelVideoTypes(Object.hasOwn(updates, 'video_types') ? updates.video_types : existing.video_types),
+    auto_release: cleanAutoRelease(Object.hasOwn(updates, 'auto_release') ? updates.auto_release : existing.auto_release),
     max_daily_posts: cleanMaxPosts(updates.max_daily_posts ?? existing.max_daily_posts),
     api_key: apiKey,
     client_secret: clientSecret,
