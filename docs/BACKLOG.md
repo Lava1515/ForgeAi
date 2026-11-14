@@ -5,12 +5,17 @@ One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude
 owner put it later. Each lane lists the files it mostly touches so two workers do not collide. Workers work in
 worktrees and merge only after the running video run is finished (CLAUDE.md rule 2).
 
+## How the fleet takes this list (owner, 2026-11-14)
+
+Launch every READY lane. Put most of the workers on one lane at a time (the focus lane); the rest of the lanes
+run with the spare workers, one worker or two each, and never on a file another lane is editing. Sol supervises.
+
 ## Make the videos better and cheaper
 
 | Id | Lane | State | Notes and main files |
 |---|---|---|---|
 | M1 | Fact check speed | READY | One pass took about 447 s, nearly all page fetches. Fetch in parallel, cap per page, cache by URL. `episode/codebuilt/retrievalAdapter.js`, `routes/storySources.js` |
-| M2 | Failure triage | READY | Only 3 of the last 13 jobs finished (planner_failed x2, build_failed, look_failed, fact_check_blocked). Read the job folders, sort real bugs from model noise, fix the cheap ones, write the rest down. `episode/codebuilt/planner.js`, `start.js` |
+| M2 | Failure triage | READY | Sort real bugs from model noise in the job folders and fix the cheap ones. Narrated jobs since the fact check fix finished 2 of 2 so far; the older failures were mostly loop jobs (now removed) or fact check blocks before the fix. Open case: the what-if job `mwg8b8qd` stopped at `look_failed`. Keep watching new runs. `episode/codebuilt/planner.js`, `start.js` |
 | M3 | Map video proof | READY after the restart | Make 3 narrated map videos through the real path (type factual, map theme) and fix what breaks. Needs the running video run to be over. `blender_worker/codebuilt/maps.py`, `sets/world_map.py` |
 | M4 | History video type | READY | A `history` type next to `factual` and `whatif`: period places and people, sourced dates and numbers. `episode/codebuilt/productionChoices.js`, `planner.js`, `autoTopic.js`, new skill `codebuilt-history` |
 | M5 | Teardown, stylized first | READY | The simple "how it works" version of one subject (the stealth jet), built from our own shapes, every part name sourced. Realistic and detailed teardown comes later. Own `blender_worker/codebuilt/` files and a skill |
