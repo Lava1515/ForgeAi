@@ -200,7 +200,11 @@ async function execute({ folder, scenes, text, expectedWords, voice, ownerWavPat
     inspectWav(audio);
     answer = await postFactoryFn('/api/align', { audio_b64: audio.toString('base64'), text, lang: 'en' });
   } else {
-    answer = await postFactoryFn('/api/tts-timed', { run_id: runId || `episode_voice_${Date.now()}`, scenes, voice, timing_metadata: true, align_required: true });
+    // pace_gate_v1: the voice engine records again, with another seed, any sentence read far off pace (under 1.5 or over 4.2 words per
+    // second) and keeps the best take. Without it one bad sentence sank the whole job: "Temperatures fall, but the oceans stay warm for
+    // days." came out as 17 s with 15.6 s of silence in the middle (job mwg5e6hs-e826b9, 2026-11-14), the same on every try because the
+    // seeds are derived from the text.
+    answer = await postFactoryFn('/api/tts-timed', { run_id: runId || `episode_voice_${Date.now()}`, scenes, voice, timing_metadata: true, align_required: true, pace_gate_v1: true });
     if (!isPlainObject(answer)) fail('factory answer is invalid');
     audio = decodeAudio(answer.audio_base64);
   }
