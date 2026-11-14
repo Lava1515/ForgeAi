@@ -56,6 +56,10 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     if not raw.is_absolute():
         raise media.MediaError("job_dir must be absolute")
     job = raw.resolve()
+    pack = job / 'inputs' / 'pathpack.json'
+    if pack.is_file() and json.loads(pack.read_text(encoding='utf-8')).get('videoType') == 'loop':
+        from .loop import produce_loop
+        return produce_loop(job, fps=fps)
     frames = media.inside(job, job / "frames")
     words = media.inside(job, job / "words.json")
     audio = media.inside(job, job / "mix.wav")

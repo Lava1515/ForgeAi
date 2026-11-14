@@ -58,7 +58,7 @@ function checkInput(input, deps) {
   if (!input || typeof input !== 'object') throw bad('input must be an object');
   if (typeof input.jobId !== 'string' || !JOB_ID.test(input.jobId) || /-pv[1-9][0-9]?$/.test(input.jobId)) throw bad('jobId is invalid or reserved for a preview job');
   if (typeof input.stageDir !== 'string' || !path.isAbsolute(input.stageDir)) throw bad('stageDir must be absolute');
-  for (const key of ['brief', 'script', 'buildScript', 'kitContract']) if (typeof input[key] !== 'string' || !input[key].trim()) throw bad(`${key} is required`);
+  for (const key of ['brief', 'script', 'buildScript', 'kitContract']) if (typeof input[key] !== 'string' || (!input[key].trim() && !(key === 'script' && input.videoType === 'loop'))) throw bad(`${key} is required`);
   if (!Array.isArray(input.shots) || input.shots.length < 1 || input.shots.some((s) => !s || typeof s.subject !== 'string' || typeof s.narration !== 'string')) throw bad('shots must be a list of { subject, narration }');
   if (!Array.isArray(input.shotStarts) || input.shotStarts.length !== input.shots.length) throw bad('shotStarts must have one start per shot');
   if (!Number.isInteger(input.nframes) || input.nframes < 24) throw bad('nframes is invalid');
@@ -239,6 +239,7 @@ async function loop(input, deps, { now, newCode, stage }) {
       brief: input.brief, script: input.script, shots: planned, buildScript: current, kitContract: input.kitContract,
       sheets: sheets.map((s) => ({ code: s.code, tiles: s.tiles })), shotStarts, fps, round: r, finalRound, qaText: crash?.text, previous: prior,
       guides: typeof input.lookGuides === 'string' ? input.lookGuides : '', fixRoundsLeft: Math.max(0, MAX_LOOKS - 1 - looks),
+      ...(input.videoType === 'loop' ? { videoType: 'loop' } : {}),
     });
     const flatTiles = sheets.flatMap((s) => s.tiles.filter((t) => t.flag === 'flat').map((t) => t.n));
     const roundCalls = [];

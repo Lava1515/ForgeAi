@@ -27,12 +27,12 @@ import { isWhatIfTopic } from './productionChoices.js';
 export const RUN_VERSION = 'codebuilt-run-v1';
 export const MAX_COUNT = 10;
 export const DEFAULT_COUNT = 1;
-export const TYPES = Object.freeze(['factual', 'whatif']);
+export const TYPES = Object.freeze(['factual', 'whatif', 'loop']);
 export const RUN_DIR = '.runs';
 export const ACTIVE_RUN = Object.freeze(['queued', 'running', 'aborting']);
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
 const TEXT_CHOICE = /^[\p{L}\p{N} ,.'&/+()-]{1,60}$/u;
-const KEYS = Object.freeze(['count', 'genre', 'theme', 'topic', 'type', 'voice', 'duration', 'buildModel', 'channelId']);
+const KEYS = Object.freeze(['count', 'genre', 'theme', 'topic', 'type', 'voice', 'duration', 'buildModel', 'channelId', 'loop_idea']);
 const isAuto = (v) => v === undefined || v === null || (typeof v === 'string' && (!v.trim() || v.trim().toLowerCase() === 'auto'));
 
 const MESSAGES = Object.freeze({
@@ -80,7 +80,7 @@ export function checkRunRequest(input) {
   if (!isAuto(input.type)) {
     type = typeof input.type === 'string' ? input.type.trim().toLowerCase() : '';
     if (!TYPES.includes(type)) throw new RunError('bad_request');
-    if (topic && (type === 'whatif') !== isWhatIfTopic(topic)) throw new RunError('type_mismatch');
+    if (topic && type !== 'loop' && (type === 'whatif') !== isWhatIfTopic(topic)) throw new RunError('type_mismatch');
   }
   let voice = null;
   if (!isAuto(input.voice)) {
@@ -89,7 +89,7 @@ export function checkRunRequest(input) {
   }
   let duration = null;
   if (!isAuto(input.duration)) {
-    if (!DURATIONS.includes(input.duration)) throw new RunError('bad_request');
+    if (type === 'loop' ? !Number.isFinite(input.duration) || input.duration < 6 || input.duration > 20 || !Number.isInteger(input.duration * 30) : !DURATIONS.includes(input.duration) && !(type === null && Number.isFinite(input.duration) && input.duration >= 6 && input.duration <= 20 && Number.isInteger(input.duration * 30))) throw new RunError('bad_request');
     duration = input.duration;
   }
   let buildModel = 'Auto';
@@ -101,7 +101,8 @@ export function checkRunRequest(input) {
   }
   if (buildModel === 'Codex Sol') throw new RunError('build_model_unavailable', 422);
   if (input.channelId !== undefined && (typeof input.channelId !== 'string' || !input.channelId || input.channelId.length > 80)) throw new RunError('bad_request');
-  return { count, genre, theme, topic, type, voice, duration, buildModel, channelId: input.channelId };
+  if (input.loop_idea !== undefined && (typeof input.loop_idea !== 'string' || input.loop_idea.length > 2000 || /[\x00-\x1f\x7f]/.test(input.loop_idea))) throw new RunError('bad_request');
+  return { count, genre, theme, topic, type, voice, duration, buildModel, channelId: input.channelId, ...(input.loop_idea !== undefined ? { loop_idea: input.loop_idea } : {}) };
 }
 
 const publicError = (e) => (e ? { code: e.code, message: e.message, ...(e.stage ? { stage: e.stage } : {}) } : null);
@@ -203,11 +204,19 @@ export function createCodebuiltRunCoordinator({
       } catch { /* inspiration is optional */ }
     }
     let type = c.type;
-    if (type !== null) resolved.type = { source: 'owner' };
+    if (type === null && channel?.profile?.format === 'loop') type = 'loop';
+    if (type !== null) resolved.type = { source: c.type === null ? 'channel' : 'owner' };
     else {
       const out = decide('contentMode', { custom_theme_text: c.topic ?? c.theme ?? inspiration });
       type = out.body.contentMode === 'whatif' ? 'whatif' : 'factual';
       resolved.type = { source: 'auto', reason: out.resolved.contentMode?.reason ?? 'default', value: type };
+    }
+    if (type === 'loop') {
+      duration = c.duration ?? 10;
+      if (duration < 6 || duration > 20) throw new RunError('bad_request');
+      voice = null;
+      resolved.duration = { source: c.duration === null ? 'auto' : 'owner', value: duration, reason: 'loop format: 6 to 20 seconds' };
+      resolved.voice = { source: 'auto', reason: 'loop format has no narration', value: null };
     }
     let topic = c.topic;
     let themePick = null;
@@ -218,10 +227,10 @@ export function createCodebuiltRunCoordinator({
       resolved.topic = { source: 'auto', reason: `theme pick: rank 1 of ${themePick.ranked}`, value: topic };
     }
     // The topic and the type can never disagree after this point (the candidate filter and the request check already enforce it; this is the backstop).
-    if (isWhatIfTopic(topic) !== (type === 'whatif')) throw new RunError('type_mismatch');
+    if (type !== 'loop' && isWhatIfTopic(topic) !== (type === 'whatif')) throw new RunError('type_mismatch');
     // The same validated choices go to the script prompt, the fact check and the planner prompt of this video.
     const choices = { genre: c.genre, theme: c.theme, type };
-    return { topic, duration, voice, type, choices, resolved, themePick };
+    return { topic, duration, voice, type, choices, resolved, themePick, ...(type === 'loop' ? { loopIdea: c.loop_idea ?? themePick?.loop_idea } : {}) };
   }
 
   async function waitForJob(ctl, jobId, video, rec) {
@@ -272,7 +281,7 @@ export function createCodebuiltRunCoordinator({
         let queued;
         try {
           queued = theStarter().start(
-            { topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, buildModel: rec.request.buildModel, ...(rec.channelId ? { channelId: rec.channelId } : {}) },
+            { topic: resolved.topic, duration: resolved.duration, ...(resolved.type === 'loop' ? { type: 'loop', ...(typeof resolved.loopIdea === 'string' ? { loop_idea: resolved.loopIdea } : {}) } : { voice: resolved.voice }), buildModel: rec.request.buildModel, ...(rec.channelId ? { channelId: rec.channelId } : {}) },
             { factCheck: true, runId: rec.id, batchIndex: i, contentMode: resolved.type, choices: resolved.choices, preCalls: calls },
           );
         } catch (error) {
@@ -319,7 +328,7 @@ export function createCodebuiltRunCoordinator({
       if (!RUN_ID.test(id)) throw new RunError('internal', 500);
       const choices = { count: req.count, genre: req.genre ?? 'Auto', theme: req.theme ?? 'Auto', topic: req.topic ?? 'Auto', type: req.type ?? 'Auto', voice: req.voice ?? 'Auto', duration: req.duration ?? 'Auto', buildModel: req.buildModel };
       const rec = {
-        version: RUN_VERSION, id, status: 'queued', count: req.count, choices, request: { genre: req.genre, theme: req.theme, topic: req.topic, type: req.type, voice: req.voice, duration: req.duration, buildModel: req.buildModel }, channelId: req.channelId ?? null, createdAt: clock(), updatedAt: clock(),
+        version: RUN_VERSION, id, status: 'queued', count: req.count, choices, request: { genre: req.genre, theme: req.theme, topic: req.topic, type: req.type, voice: req.voice, duration: req.duration, buildModel: req.buildModel, ...(req.loop_idea !== undefined ? { loop_idea: req.loop_idea } : {}) }, channelId: req.channelId ?? null, createdAt: clock(), updatedAt: clock(),
         videos: Array.from({ length: req.count }, (_, index) => ({ index, status: 'pending', step: null, topic: null, jobId: null, draftId: null, error: null })),
       };
       save(rec); // a run that cannot even be recorded is refused

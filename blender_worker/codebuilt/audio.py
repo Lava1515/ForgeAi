@@ -249,6 +249,25 @@ def synth_effects(events, duration: float, sr: int = DEFAULT_SR, seed: int = 3) 
     return out
 
 
+def synth_loop(duration: float, sr: int = DEFAULT_SR) -> np.ndarray:
+    """Original cyclic tone/effect bed; no samples, voice, fades or cut-off tails.
+
+    codex · gpt-6.1-sol · 2026-11-14. Integer Fourier bins make both the
+    carrier and its amplitude modulation periodic on the exact sample grid.
+    """
+    _require_duration(duration)
+    n = int(round(duration * sr))
+    u = np.arange(n, dtype=float) / n
+    out = np.zeros(n)
+    for hz, gain, beats in ((110, 0.08, 4), (220, 0.035, 8), (330, 0.02, 12)):
+        carrier = np.sin(2 * np.pi * round(hz * n / sr) * u)
+        # A smooth rhythmic rest at the cycle boundary also gives a lossy
+        # encoder a quiet seam; there is no abrupt cut or whole-track fade.
+        envelope = (0.5 - 0.5 * np.cos(2 * np.pi * beats * u)) ** 6
+        out += gain * carrier * envelope
+    return out
+
+
 def _require_duration(duration) -> None:
     if not (isinstance(duration, (int, float)) and math.isfinite(duration) and duration > 0):
         raise AudioKitError("duration must be a positive finite number of seconds, got %r" % (duration,))

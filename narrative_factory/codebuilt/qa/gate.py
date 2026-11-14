@@ -49,9 +49,20 @@ def _add(findings, check, items):
 
 
 def gate(video, *, srt=None, stems=None, subject_report=None, expected=None, repair_round=0, build_tier="sonnet",
-         sample_fps=framing_frames.DEFAULT_SAMPLE_FPS, require_stems=False, ffmpeg=None):
+         sample_fps=framing_frames.DEFAULT_SAMPLE_FPS, require_stems=False, ffmpeg=None, video_type=None, seam_frames=None):
     """Run every check that has its input and return the verdict. `expected` overrides width, height, fps and duration."""
     findings, checked, skipped, details = [], [], [], {}
+    if video_type == 'loop':
+        from .loop_seam import check_seam
+        checked.append('loop_seam')
+        try:
+            if seam_frames is None or len(seam_frames) != 2:
+                raise ValueError('independently rendered frame 0 and frame N are required')
+            details['loop_seam'] = check_seam(*seam_frames)
+            if not details['loop_seam']['passed']:
+                _add(findings, 'loop_seam', [checks.finding('loop_seam', str(details['loop_seam']))])
+        except (OSError, ValueError) as err:
+            _add(findings, 'loop_seam', [checks.finding('loop_seam_missing', str(err))])
 
     try:
         info = media.probe(media.input_file(video), ffmpeg=ffmpeg)
@@ -60,6 +71,8 @@ def gate(video, *, srt=None, stems=None, subject_report=None, expected=None, rep
         return _verdict(findings, ["probe"], ["frames", "subtitles", "subject", "loudness"], {}, repair_round, build_tier)
     checked.append("probe")
     details["probe"] = info
+    if video_type == 'loop' and not 6 <= info['duration'] <= 20:
+        _add(findings, 'loop_length', [checks.finding('loop_length', 'loop duration must be 6 to 20 seconds')])
     _add(findings, "probe", checks.probe_findings(info, expected))
     if info["has_audio"]:
         _add(findings, "audio", checks.audio_silent_findings(video, ffmpeg=ffmpeg))

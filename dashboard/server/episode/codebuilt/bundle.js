@@ -31,6 +31,9 @@ export const CB5_REPORT_VERSION = 'codebuilt-cb5-v1';
 export const CB5_SOURCES = Object.freeze({
   video: 'out/video.mp4', code: 'build/build.py', audio: 'out/audio/cb5-mix.wav', subtitles: 'out/subtitles.srt', report: 'out/report.json', contact_sheet: 'out/contact_sheet.png',
 });
+// codex · gpt-6.1-sol · 2026-11-14: selected by the adapter only after validating the loop producer report.
+export const CB5_LOOP_SOURCES = Object.freeze(Object.fromEntries(Object.entries(CB5_SOURCES)
+  .filter(([role]) => role !== 'subtitles').map(([role, source]) => [role, role === 'audio' ? 'out/audio/loop.wav' : source])));
 export const CB5_PNG_SHEET = Object.freeze({ from: CB5_SOURCES.contact_sheet, to: 'contact_sheet.png', cap: 20 * MB, kind: 'png' });
 // The spec a stored file entry must match: the role's own file, or (contact_sheet only) the PNG variant. null = not an expected file for that role.
 export function specForFile(role, file) {
@@ -87,7 +90,7 @@ export function verifyCodebuiltDraft(draft, { fsApi = fs } = {}) {
     if (!actual) blockers.push(blocker(`codebuilt_${role}_missing`, `${role} is missing or not a plain file`));
     else if (actual !== entry.sha256) blockers.push(blocker(`codebuilt_${role}_changed`, `${role} changed after the draft was made; it needs a fresh review`));
   }
-  for (const required of ['video', 'code', 'audio', 'subtitles', 'report', 'contact_sheet']) if (!isObject(files[required])) blockers.push(blocker(`codebuilt_${required}_missing`, `${required} is not part of the draft`));
+  for (const required of ['video', 'code', 'audio', ...(draft.meta.video_type === 'loop' ? [] : ['subtitles']), 'report', 'contact_sheet']) if (!isObject(files[required])) blockers.push(blocker(`codebuilt_${required}_missing`, `${required} is not part of the draft`));
   if (!blockers.length && (bundleDigest(files) !== sealed || draft.meta.episode_draft.approved_gate_hash !== sealed)) blockers.push(blocker('codebuilt_bundle', 'the draft bundle does not match its sealed digest'));
   return { ok: blockers.length === 0, blockers };
 }

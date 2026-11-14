@@ -180,6 +180,14 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         shotcheck.require_qa("render_frames", apply, frames, hold)
 
     spec = load_preview_spec()
+    # codex · gpt-6.1-sol · 2026-11-14: the host's hash-verified format contract,
+    # not a generated-code flag, requests an independently posed endpoint.
+    loop_end = None
+    if spec is None and os.path.isfile('/job/inputs/pathpack.json'):
+        with open('/job/inputs/pathpack.json', encoding='utf-8') as fh:
+            pack = json.load(fh)
+        if pack.get('videoType') == 'loop':
+            loop_end = pack['loop']['nframes']
     if spec is not None:
         # Preview mode: QA above has already been spent for the full frame list. Only the listed frames are rendered,
         # each for real (hold 1: no copies), into the preview folder, at the spec scale.
@@ -201,7 +209,7 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
     timing = {"version": 1, "clock": "perf_counter_seconds", "apply_s": 0.0, "render_s": 0.0,
               "note": "render_s includes engine sync, BVH, tracing, denoising and PNG write; other_s includes held copies and diagnostics",
               "tuned": tuned}
-    for f in frames:
+    for f in list(frames) + ([loop_end] if loop_end is not None else []):
         fp = os.path.join(out_dir, f"{f:04d}.png")
         if skip_existing and os.path.exists(fp):
             continue

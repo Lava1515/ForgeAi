@@ -63,7 +63,7 @@ function previousSummary(previous) {
 }
 
 export function buildLookPrompt({
-  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous, guides = '', fixRoundsLeft = null,
+  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous, guides = '', fixRoundsLeft = null, videoType = null,
 }) {
   const hasSheets = sheets.length > 0;
   const uniqueCodes = [...new Set(sheets.map((x) => x.code))];
@@ -81,7 +81,14 @@ export function buildLookPrompt({
   const flagged = sheets.flatMap((sheet) => sheet.tiles.filter((t) => t.flag).map((t) => `T${t.n} (frame ${t.frame}) is ${t.flag === 'flat' ? 'ONE FLAT COLOUR (the camera is inside or against a surface, or nothing is lit)' : t.flag === 'dark' ? 'almost black' : t.flag === 'plain' ? 'nearly one colour: look closely, and if the frame is mostly one flat surface (a wall, floor, dome or plate filling it) that is a P0' : 'blown out (a quarter or more of it is pure white)'}`));
   if (flagged.length) parts.push(`MEASURED FROM THE PIXELS (facts, not opinions; a flat tile can never pass):\n${flagged.join('\n')}`);
   if (qaText) parts.push(`WHY THERE ARE NO PICTURES (preview/QA output):\n${cleanDiagnostic(qaText)}`);
-  parts.push(`LOOK CHECKLIST (P0 = must not ship as it is, P1 = should be fixed, P2 = a note):\n${LOOK_CHECKLIST.map((line) => `- ${line}`).join('\n')}`);
+  const checklist = videoType === 'loop' ? [
+    'One clear subject moves from frame zero. The subject is large, well lit and never clipped; no blank, black or blown-out frames (P0).',
+    'The motion completes a satisfying continuous cycle. Inspect the code: all object, camera, material and lighting state must be periodic with equal seam velocity; no crossfade, copied opening frame or concealed teleport (P0).',
+    'No narration, text, numeric readouts or captions. Do not reserve a caption band or request labels. Everything shown must remain truthful (P0).',
+    'Objects stay outside the camera and surfaces, contact reads clearly, colors and materials are coherent, no unintended intersections (P1).',
+    'The first/middle/end poses support the same cycle. The independent host frame-0/frame-N seam check is required after rendering; pictures alone cannot certify it.',
+  ] : LOOK_CHECKLIST;
+  parts.push(`LOOK CHECKLIST (P0 = must not ship as it is, P1 = should be fixed, P2 = a note):\n${checklist.map((line) => `- ${line}`).join('\n')}`);
   const prior = previousSummary(previous);
   if (prior) parts.push(prior.trim());
   if (guides) parts.push(`REVIEW GUIDANCE (project skills):\n${guides}`);
