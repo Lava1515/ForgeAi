@@ -149,7 +149,7 @@ const cliRetrieve = (request) => groundedSearch(request, (prompt, options) => as
  * -> async searchFn({ claims, topic, contentMode, premise }) for runFactsStage. Injectable: ready(), retrieve(request), fetchPage(url).
  * Without injected backends under `node --test` (NODE_TEST_CONTEXT) it refuses before any CLI or network use.
  */
-export function createBatchRetrieval({ ready: readyFn, retrieve: retrieveFn, fetchPage: fetchPageFn, maxFetches = MAX_FETCHES, perClaim = SOURCES_PER_CLAIM } = {}) {
+export function createBatchRetrieval({ ready: readyFn, retrieve: retrieveFn, fetchPage: fetchPageFn, maxFetches = MAX_FETCHES, perClaim = SOURCES_PER_CLAIM, acceptSearchOnly = true } = {}) {
   // Only a rig that injects all three backends can run under the test runner; any production default refuses there before a CLI or the network is touched.
   const injected = typeof readyFn === 'function' && typeof retrieveFn === 'function' && typeof fetchPageFn === 'function';
   const ready = readyFn ?? (() => getAgyStatus().ready === true);
@@ -169,6 +169,7 @@ export function createBatchRetrieval({ ready: readyFn, retrieve: retrieveFn, fet
     let fetches = 0;
     let validatedSources = 0;
     let droppedSources = 0;
+    let searchOnly = 0;
     const pageFor = async (url) => {
       if (cache.has(url)) return cache.get(url);
       if (fetches >= maxFetches) return null;
@@ -183,16 +184,23 @@ export function createBatchRetrieval({ ready: readyFn, retrieve: retrieveFn, fet
       if (item?.verdict === 'contradicted' || (Array.isArray(item?.sources) && item.sources.some((s) => s?.verdict === 'contradicted'))) return { ...item, verdict: 'contradicted' };
       if (item?.verdict !== 'supported') return { ...item, verdict: 'uncertain', sources: [] };
       const kept = [];
+      const unmatched = [];
       for (const source of (Array.isArray(item.sources) ? item.sources : []).slice(0, perClaim)) {
-        const page = checkedUrl(source?.url) ? await pageFor(String(source.url)) : null;
-        if (page && pageSupportsClaim(page, text)) { kept.push({ url: String(source.url), title: String(source.title ?? '').slice(0, 300), passage: text, verdict: 'supported', validated: 'page_fetch' }); validatedSources += 1; } else droppedSources += 1;
+        const url = checkedUrl(source?.url) ? String(source.url) : null;
+        const page = url ? await pageFor(url) : null;
+        if (page && pageSupportsClaim(page, text)) { kept.push({ url, title: String(source.title ?? '').slice(0, 300), passage: text, verdict: 'supported', validated: 'page_fetch' }); validatedSources += 1; }
+        else { droppedSources += 1; if (url) unmatched.push({ url, title: String(source.title ?? '').slice(0, 300), passage: String(source.passage ?? text).slice(0, 600), verdict: 'supported', validated: 'search_only' }); }
       }
-      return kept.length ? { ...item, text, sources: kept } : { ...item, verdict: 'uncertain', sources: [] };
+      if (kept.length) return { ...item, text, sources: kept };
+      // Owner, 2026-11-14: a script sentence is a paraphrase, so a true statement rarely appears word for word on a page. When the search stands behind the
+      // statement and names a real https source, the statement passes and is marked search_only (listed for the owner); with no source it stays uncertain.
+      if (acceptSearchOnly && unmatched.length) { searchOnly += 1; return { ...item, text, sources: unmatched, validated: 'search_only' }; }
+      return { ...item, verdict: 'uncertain', sources: [] };
     };
     const facts = [];
     for (const fact of response.facts.slice(0, 500)) facts.push(await validate(fact, claimText.get(fact?.id) ?? fact?.text ?? ''));
     const background = [];
     for (const fact of (Array.isArray(response.background) ? response.background : []).slice(0, 30)) background.push(await validate(fact, fact?.text ?? ''));
-    return { facts, background, evidence_source: 'antigravity_cli', independent_validation: { version: RETRIEVAL_VERSION, fetched_pages: fetches, validated_sources: validatedSources, dropped_sources: droppedSources } };
+    return { facts, background, evidence_source: 'antigravity_cli', independent_validation: { version: RETRIEVAL_VERSION, fetched_pages: fetches, validated_sources: validatedSources, dropped_sources: droppedSources, search_only_claims: searchOnly } };
   };
 }

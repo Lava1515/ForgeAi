@@ -52,7 +52,7 @@ export function createFactCheckStage({ runFacts = runFactsStage, searchFn = crea
     const reasons = Array.isArray(facts.reasons) ? facts.reasons.length : 0;
     return {
       verified: result?.verified === true && result?.blocked !== true,
-      summary: { false_claims: falseClaims, uncertain_claims: uncertain, other_reasons: Math.max(0, reasons - falseClaims - uncertain), claims: Array.isArray(facts.claims) ? facts.claims.length : lines.length },
+      summary: { search_only_claims: (Array.isArray(facts.claims) ? facts.claims : []).filter((x) => x?.verdict === 'supported' && Array.isArray(x.sources) && x.sources.length && x.sources.every((src) => src?.validated === 'search_only')).length, false_claims: falseClaims, uncertain_claims: uncertain, other_reasons: Math.max(0, reasons - falseClaims - uncertain), claims: Array.isArray(facts.claims) ? facts.claims.length : lines.length },
       facts,
     };
   };

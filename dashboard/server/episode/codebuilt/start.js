@@ -525,26 +525,55 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     if (!scripted.pathPack || typeof scripted.pathPack !== 'object' || scripted.pathPack.id !== 'codebuilt' || !Array.isArray(scripted.pathPack.skills)) throw new StartError('script_failed', 502);
     // Private stage artifacts remain reviewable even when a later step fails. They contain no CLI output.
     try { fs.mkdirSync(stage, { recursive: true }); } catch { /* audit artifacts are best effort */ }
-    for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [] })}\n`]]) {
-      try { fs.writeFileSync(path.join(stage, name), value); } catch { /* one failed audit artifact does not skip the others */ }
-    }
+    const saveScriptArtifacts = () => {
+      for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [] })}\n`]]) {
+        try { fs.writeFileSync(path.join(stage, name), value); } catch { /* one failed audit artifact does not skip the others */ }
+      }
+    };
+    saveScriptArtifacts();
     checkAbort();
 
     // 2b. Fact check (owner-started batch videos only; the single-job route is unchanged). Nothing is spent on voice or build when it does not verify.
     if (rec.factCheck && (!resume?.voiceOk || fresh)) {
       step(rec, 'factchecking');
       if (typeof factCheckStage !== 'function') throw new StartError('fact_check_unavailable', 501);
-      let verdict;
-      try { verdict = await factCheckStage({ topic: rec.topic, script: scripted.script, contentMode: rec.choices?.type ?? rec.contentMode ?? 'factual', signal, onCallRecord }); } catch (error) {
-        if (signal.aborted) { writeFactDiagnostic(rec.id, { error: true }); throw new StartError('aborted'); }
-        // No retrieval backend (or none that can be validated) is its own named failure, never filed as a fact problem and never passed.
-        if (error?.code === 'retrieval_unavailable') { writeFactDiagnostic(rec.id, { retrieval: false }); throw new StartError('retrieval_unavailable', 503); }
-        writeFactDiagnostic(rec.id, { error: true });
-        throw new StartError('fact_check_failed', 502);
-      }
-      if (verdict?.facts && typeof verdict.facts === 'object') {
-        try { fs.writeFileSync(path.join(stage, 'facts.json'), `${JSON.stringify(verdict.facts, null, 1)}
-`); } catch { /* audit artifact only */ }
+      const checkOnce = async (text) => {
+        let verdict;
+        try { verdict = await factCheckStage({ topic: rec.topic, script: text, contentMode: rec.choices?.type ?? rec.contentMode ?? 'factual', signal, onCallRecord }); } catch (error) {
+          if (signal.aborted) { writeFactDiagnostic(rec.id, { error: true }); throw new StartError('aborted'); }
+          // No retrieval backend (or none that can be validated) is its own named failure, never filed as a fact problem and never passed.
+          if (error?.code === 'retrieval_unavailable') { writeFactDiagnostic(rec.id, { retrieval: false }); throw new StartError('retrieval_unavailable', 503); }
+          writeFactDiagnostic(rec.id, { error: true });
+          throw new StartError('fact_check_failed', 502);
+        }
+        if (verdict?.facts && typeof verdict.facts === 'object') {
+          try { fs.writeFileSync(path.join(stage, 'facts.json'), `${JSON.stringify(verdict.facts, null, 1)}
+  `); } catch { /* audit artifact only */ }
+        }
+        return verdict;
+      };
+      let verdict = await checkOnce(scripted.script);
+      checkAbort();
+      // Owner, 2026-11-14: a script the check does not verify is written again once from the check's findings, and checked again. It still blocks after that.
+      if (verdict?.verified !== true && Array.isArray(verdict?.facts?.claims)) {
+        const corrections = verdict.facts.claims.filter((x) => x && (x.verdict === 'contradicted' || x.verdict === 'uncertain'))
+          .map((x) => ({ text: x.text, problem: x.verdict, evidence: x.verdict === 'contradicted' ? x.sources?.[0]?.passage : undefined }));
+        if (corrections.length) {
+          step(rec, 'scripting');
+          let again;
+          try {
+            const fn = scriptStage ?? pl.planCodebuiltScript;
+            again = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, corrections, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
+          } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
+          if (again && typeof again.script === 'string' && again.script.trim() && typeof again.brief === 'string' && again.pathPack?.id === 'codebuilt') {
+            for (const call of again.calls ?? []) addCall(call);
+            scripted = again;
+            saveScriptArtifacts();
+            checkAbort();
+            step(rec, 'factchecking');
+            verdict = await checkOnce(scripted.script);
+          }
+        }
       }
       checkAbort();
       if (verdict?.verified !== true) { writeFactDiagnostic(rec.id, verdict?.summary); throw new StartError('fact_check_blocked', 422); }
