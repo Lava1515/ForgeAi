@@ -22,3 +22,21 @@ test('premise rejects lists, missing stakes/payoff, fragments, bad lengths and a
   }
   assert.ok(rulePremise(good, ['TACOMA bridge']).reasons.some(r => r.detail === 'avoid:Tacoma bridge'.toLowerCase()));
 });
+
+// Review cases (claude-sonnet-5-5 review of lane B): word forms in the avoid list, list titles, other languages.
+test('premise floor: avoid list by word stems, list titles, non-English questions', () => {
+  const base = { subject: 'Chile', stake: 'A country 4,300 km long.', answer: 'The Andes and the ocean fence it in.', payoff: 'The map narrows to a ribbon.' };
+  const run = (title, avoid = [], extra = {}, language = 'en') => rulePremise({ ...base, title, ...extra }, avoid, language);
+  assert.equal(run('Why does Chile stretch 4,300 kilometres down the map?').pass, true);
+  assert.equal(run('What if Java moved onto the middle of Europe?', [], { subject: 'Java' }).pass, true);
+  const avoid = ['disputed borders', 'current wars', 'war'];
+  for (const title of ['Why Kashmir has a long border dispute today', 'Why this country is in a current war', 'Why Kashmir has Disputed Borders with its neighbours']) {
+    assert.ok(run(title, avoid, { subject: 'Kashmir' }).reasons.some((r) => r.detail.startsWith('avoid:')), title);
+  }
+  assert.ok(!run('Why does Chile lean toward the Pacific Ocean?', ['war']).reasons.some((r) => r.detail.startsWith('avoid:')));
+  for (const title of ['Ten countries that are shrinking quickly right now', 'Five surprising facts about Chile you should know']) {
+    assert.ok(run(title).reasons.some((r) => r.detail === 'list'), title);
+  }
+  assert.equal(run('Warum ist Chile so lang und so dünn?', [], {}, 'de').pass, true);
+  assert.ok(run('Why Chile is long', [], { subject: 'countries' }).reasons.some((r) => r.detail === 'subject'));
+});

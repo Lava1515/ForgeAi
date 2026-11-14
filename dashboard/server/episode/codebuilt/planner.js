@@ -765,7 +765,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   let shotStarts = direction ? input.shotStarts : null;
   const directionCalls = [];
   if (!direction && deps.direct !== false) {
-    const planned = await (deps.directFn ?? planCodebuiltDirection)({ topic, duration, script: input.script, brief: input.brief, beats: input.beats, words, pathPack: pack, choices, signal: input.signal }, { ...deps, forcedTier: forcedTier ?? deps.forcedTier });
+    const planned = await (deps.directFn ?? planCodebuiltDirection)({ topic, duration, script: input.script, brief: input.brief, beats: input.beats, words, pathPack: pack, choices, ...(input.premise ? { premise: input.premise } : {}), signal: input.signal }, { ...deps, forcedTier: forcedTier ?? deps.forcedTier });
     direction = planned.direction; shotStarts = planned.shotStarts;
     directionCalls.push(...(planned.calls ?? []));
   }

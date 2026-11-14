@@ -215,8 +215,9 @@ function ruleRepeat(c, o, videos, index) {
       const shared = [...titleWords].filter(w => previousWords.has(w)).length;
       const similarity = shared >= 2 ? shared / Math.max(1, Math.min(titleWords.size, previousWords.size)) : 0;
       if (similarity >= o.topic_similarity_limit) reasons.push({ rule: 'not_repeat', detail: 'title_wording', video_id: v.video_id, similarity: round3(similarity) });
-      const subject = normalise(c.subject);
-      if (subject && (subject === normalise(v.subject) || normalise(v.title).includes(subject))) reasons.push({ rule: 'not_repeat', detail: 'subject', video_id: v.video_id, subject });
+      const subject = [...stems(c.subject)];
+      const earlier = stems(`${v.subject ?? ''} ${v.title ?? ''}`);
+      if (subject.length && subject.every((w) => earlier.has(w))) reasons.push({ rule: 'not_repeat', detail: 'subject', video_id: v.video_id, subject: normalise(c.subject) });
     }
   }
   const score = clamp01(1 - Math.max(topicSimilarity, settingShare));
@@ -263,22 +264,39 @@ function ruleFactSafety(c, o) {
 }
 
 // codex · gpt-6.1-sol · 2026-11-14: deterministic premise floor; semantic fields are explicit evidence, not model scores.
-export function rulePremise(c, avoid = []) {
+const LIST_START = /^(top\s+)?(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty)\s+\p{L}+/iu;
+const LIST_WORDS = /\b(things that|top\s+\d+|\d+\s+(things|ways|facts|reasons|places|countries))\b/i;
+const QUESTION_WORD = /^(who|what|why|how|when|where|which|can|could|do|does|did|is|are|will|would|should)\b/i;
+const PREDICATE = /\b(is|are|was|were|has|have|had|can|cannot|will|would|does|did|\p{L}{3,}(s|ed))\b/iu;
+const stems = (value) => new Set(String(value ?? '').normalize('NFKC').toLocaleLowerCase('en-US').split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(stem).map((w) => w.replace(/(e|ly)$/, '')));
+/** Every word of the phrase, by stem, is in the text: "disputed borders" also catches "border dispute"; "war" does not catch "toward". */
+function mentions(textStems, phrase) { const need = [...stems(phrase)]; return need.length > 0 && need.every((w) => textStems.has(w)); }
+
+/**
+ * The premise floor (research report 4.3). These are checks a program can make: length, one premise and not a list, a full sentence,
+ * the named subject really in the title, the fields the model must commit to, the channel's avoid list. They are a floor, not a judge of quality.
+ * The word lists are English; for another language only the language-neutral checks apply (a question mark counts as a question).
+ */
+export function rulePremise(c, avoid = [], language = 'en') {
   const title = text(c.title).trim();
   const count = title.split(/\s+/).filter(Boolean).length;
   const subject = text(c.subject).trim();
+  const english = /^en\b/i.test(language || 'en');
+  const titleStems = stems(`${title} ${text(c.topic)}`);
+  const subjectStems = [...stems(subject)];
+  const sentence = title.endsWith('?') || !english || QUESTION_WORD.test(title) || PREDICATE.test(title);
   const checks = [
-    ['title_length', count >= 6 && count <= 10, `${count} words; need 6 to 10`],
+    ['title_length', count >= 6 && count <= 10 && title.length <= 100, `${count} words, ${title.length} characters; need 6 to 10 words and at most 100 characters`],
     ['hashtag', !title.includes('#'), 'Plain title without hashtags'],
-    ['list', !/\b(things that|top\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)|\d+\s+(things|ways|facts))\b/i.test(title), 'One premise, no list'],
-    ['subject', !!subject && normalise(title + ' ' + c.topic).includes(normalise(subject)), 'One named subject present in the premise'],
-    ['stake', !!text(c.stake).trim(), text(c.stake) || 'Missing concrete stake'],
-    ['sentence', /^(who|what|why|how|when|where|which|can|could|do|does|did|is|are|will|would|should)\b/i.test(title) || /\b(is|are|was|were|has|have|can|cannot|will|causes|makes|breaks|traps|returns|reveals|stops|keeps|tears|falls|spins)\b/i.test(title), 'Full question or claim with a predicate'],
-    ['answer', !!text(c.answer).trim(), text(c.answer) || 'Missing one-sentence answer'],
-    ['payoff', !!text(c.payoff || c.loop_idea).trim(), text(c.payoff || c.loop_idea) || 'Missing visual payoff'],
+    ['list', !LIST_START.test(title) && !(english && LIST_WORDS.test(title)), 'One premise, no list'],
+    ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectStems.every((w) => titleStems.has(w)), 'One named subject, present in the title'],
+    ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
+    ['sentence', sentence, 'Full question or claim'],
+    ['answer', text(c.answer).trim().length >= 12, text(c.answer) || 'Missing one-sentence answer'],
+    ['payoff', text(c.payoff || c.loop_idea).trim().length >= 12, text(c.payoff || c.loop_idea) || 'Missing visual payoff'],
   ];
-  const haystack = normalise([c.topic, title, subject, c.stake, c.answer, c.hook, c.payoff, c.loop_idea, c.main_setting, ...(c.shots || []).flatMap(s => [s.visual, s.location]), ...(c.tags || [])].join(' '));
-  for (const phrase of avoid) checks.push([`avoid:${normalise(phrase)}`, !haystack.includes(normalise(phrase)), `Avoid phrase: ${phrase}`]);
+  const haystack = stems([c.topic, title, subject, c.stake, c.answer, c.hook, c.payoff, c.loop_idea, c.main_setting, ...(c.shots || []).flatMap(s => [s.visual, s.location]), ...(c.tags || [])].join(' '));
+  for (const phrase of avoid) checks.push([`avoid:${normalise(phrase)}`, !mentions(haystack, phrase), `Avoid phrase: ${phrase}`]);
   const reasons = checks.filter(([, pass]) => !pass).map(([key]) => ({ rule: 'premise', detail: key }));
   return { pass: reasons.length === 0, score: round3(checks.filter(([, pass]) => pass).length / checks.length), reasons, detail: checks.map(([rule, pass, reason]) => ({ rule, pass, score: pass ? 1 : 0, reason })) };
 }
@@ -302,7 +320,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
       fact_safety: ruleFactSafety(c, o),
     };
     const reasons = THEME_RULES.filter((r) => r.gate).flatMap((r) => results[r.key].reasons || []);
-    const premise = o.profile ? rulePremise(c, o.profile.avoid) : null;
+    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language) : null;
     if (premise) {
       reasons.push(...premise.reasons);
       if (o.type === 'loop' && !text(c.loop_idea).trim()) reasons.push({ rule: 'premise', detail: 'missing_loop_idea' });

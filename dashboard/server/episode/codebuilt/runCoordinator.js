@@ -218,7 +218,7 @@ export function createCodebuiltRunCoordinator({
       resolved.topic = { source: 'auto', reason: `theme pick: rank 1 of ${themePick.ranked}`, value: topic };
     }
     // The topic and the type can never disagree after this point (the candidate filter and the request check already enforce it; this is the backstop).
-    if (isWhatIfTopic(topic) !== (type === 'whatif')) throw new RunError('type_mismatch');
+    if (type !== 'loop' && isWhatIfTopic(topic) !== (type === 'whatif')) throw new RunError('type_mismatch');
     // The same validated choices go to the script prompt, the fact check and the planner prompt of this video.
     const choices = { genre: c.genre, theme: c.theme, type };
     return { topic, duration, voice, type, choices, resolved, themePick };
