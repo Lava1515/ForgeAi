@@ -214,10 +214,12 @@ export const scriptShotRange = (duration) => {
 };
 // How fast each built-in voice really speaks, in words per second of narration (voice.json duration, pauses included). The script length
 // has to follow the voice: the first video of 2026-11-14 used eric, who took 75 s for a 130-word script written for a 45 s video
-// (job mwg1o6h5-6f5a74, stopped as too_long). Measured on real jobs: aiden 2.78 (146 words in 52.5 s), ryan 2.57, dylan 2.61, eric 1.73.
+// (job mwg1o6h5-6f5a74, stopped as too_long). Measured on real jobs: aiden 2.78 (146 words in 52.5 s), ryan 2.57, dylan 2.61, eric 2.27.
+// eric was first entered as 1.73 from that 75 s recording, but the recording held long silences from badly voiced sentences; with the
+// pace gate on, the same voice read 77 words in 34.0 s (job mwg5e6hs-e826b9).
 // The others are estimated from the same-script samples of 2026-11-14 (output/temp/voice-samples) scaled to aiden, and are marked so.
 export const VOICE_WORDS_PER_SECOND = Object.freeze({
-  aiden: 2.78, ryan: 2.57, dylan: 2.61, eric: 1.73,
+  aiden: 2.78, ryan: 2.57, dylan: 2.61, eric: 2.27,
   serena: 2.56, vivian: 2.26, uncle_fu: 2.39, sohee: 2.56, ono_anna: 2.86, // estimated
 });
 export const DEFAULT_VOICE_WORDS_PER_SECOND = 2.6;

@@ -108,12 +108,100 @@ def drift_report(aligned, estimated):
     }
 
 
+SENTENCE_PAD_S = 0.04   # audio kept around a sentence window when it is cut out for alignment
+
+
+def _windows_usable(wav_path, text, sentence_texts, spans):
+    """True when the TTS stage's measured sentence windows can carry the alignment: one window per sentence, in order, inside the
+    audio, and the sentences are exactly the script."""
+    if (not sentence_texts or not spans or len(sentence_texts) != len(spans)
+            or any(not isinstance(t, str) or not t.strip() for t in sentence_texts)
+            or ' '.join(sentence_texts).split() != text.split()):
+        return False
+    with wave.open(str(wav_path), 'rb') as src:
+        duration = src.getnframes() / src.getframerate()
+    prev = 0.0
+    for span in spans:
+        try:
+            start, end = float(span[0]), float(span[1])
+        except (TypeError, ValueError, IndexError):
+            return False
+        if not (math.isfinite(start) and math.isfinite(end)) or start < prev - .001 or end <= start or end > duration + .001:
+            return False
+        prev = end
+    return True
+
+
+def _spread_words(tokens, start, end):
+    """Word spans across one sentence window in proportion to word length: the fallback for a sentence the aligner cannot place.
+    The error is bounded by the window, which the TTS stage measured."""
+    weights = [max(1, len(_normalize_token(t))) for t in tokens]
+    total, t, out = float(sum(weights)), start, []
+    for token, w in zip(tokens, weights):
+        nxt = t + (end - start) * w / total
+        out.append({'text': token, 'start': round(t, 3), 'end': round(min(nxt, end), 3)})
+        t = nxt
+    return out
+
+
+def align_by_sentence(wav_path, sentence_texts, spans):
+    """Align every sentence inside its own measured window (2026-11-14).
+
+    The TTS stage voices each sentence separately and records where it sits in the file, so each sentence can be cut out and
+    aligned alone. Aligning the whole narration in one pass let one hard spot (a long pause, a re-voiced sentence) push every later
+    word off and then failed the whole job ("terminal alignment overlaps preceding words", job mwg5e6hs-e826b9). Here a problem stays
+    inside its sentence: a sentence the aligner cannot place gets word spans spread across its window by word length.
+    Returns (words, spread) where spread is the number of sentences that used the fallback."""
+    words, spread = [], 0
+    with wave.open(str(wav_path), 'rb') as src:
+        rate, frames, params = src.getframerate(), src.getnframes(), src.getparams()
+        with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(wav_path))) as scratch:
+            for index, (sentence, span) in enumerate(zip(sentence_texts, spans)):
+                start, end = float(span[0]), float(span[1])
+                lo = max(0.0, start - SENTENCE_PAD_S, float(spans[index - 1][1]) if index else 0.0)
+                hi = min(frames / rate, end + SENTENCE_PAD_S, float(spans[index + 1][0]) if index + 1 < len(spans) else frames / rate)
+                first, last = int(round(lo * rate)), int(round(hi * rate))
+                tokens = sentence.split()
+                placed = None
+                if last - first > int(0.05 * rate):
+                    src.setpos(first)
+                    crop_path = os.path.join(scratch, f'sentence_{index}.wav')
+                    with wave.open(crop_path, 'wb') as crop:
+                        crop.setparams(params)
+                        crop.writeframes(src.readframes(last - first))
+                    try:
+                        aligned = align_words(crop_path, sentence)
+                        placed = [{'text': token, 'start': round(min(max(lo + w['start'], start), end), 3), 'end': round(min(max(lo + w['end'], start), end), 3)}
+                                  for token, w in zip(tokens, aligned)]
+                        # A take the aligner squeezed into a sliver (every word at one instant) is not a placement.
+                        if placed[-1]['end'] - placed[0]['start'] < min(0.25, (end - start) * 0.2):
+                            placed = None
+                    except Exception:
+                        placed = None
+                if placed is None:
+                    placed = _spread_words(tokens, start, end)
+                    spread += 1
+                words.extend(placed)
+    prev = 0.0
+    for w in words:   # monotonic and non-negative length
+        w['start'] = round(max(w['start'], prev), 3)
+        w['end'] = round(max(w['end'], w['start']), 3)
+        prev = w['end']
+    return words, spread
+
+
 def words_for_job(wav_path, text, sentence_texts, spans, enabled, strict=False):
     """Use alignment when requested; otherwise preserve the existing estimates. strict (KAN-603): a failed alignment raises instead of falling back."""
     if not text or not text.strip():
         return [], "estimated"
     if enabled:
         try:
+            if strict and _windows_usable(wav_path, text, sentence_texts, spans):
+                words, spread = align_by_sentence(wav_path, sentence_texts, spans)
+                # Most of the narration must really be aligned: more than a third of the sentences spread by length is a failed alignment.
+                if spread * 3 > len(sentence_texts):
+                    raise ValueError(f'{spread} of {len(sentence_texts)} sentences could not be aligned')
+                return words, "aligned"
             words = align_words(wav_path, text)
             if strict:
                 words = _recover_terminal(wav_path, text, sentence_texts, spans, words)
