@@ -1,7 +1,8 @@
 // Host dashboard launcher for the code-built path (KAN-931).
 // Why host, not Docker: CB6 policy uses fixed Windows C:/code paths plus host Docker and Python, which a Linux
 // dashboard container cannot compose. This starts only createApp() on 127.0.0.1; it never loads index.js, so the
-// YouTube releaseDue timer (publishing) is not armed and nothing is scheduled or created on start.
+// YouTube releaseDue timer is not armed. The only timer is the auto release loop below, which does
+// nothing unless a channel has auto release switched on AND a daily cap set (both default off); pass --no-auto-release to skip it.
 // It reads no env files, prints no secrets and copies no credentials: it only points the existing CLI homes at
 // directories that already hold the logins.
 import path from 'node:path';
@@ -12,6 +13,22 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_FACTORY_URL = 'http://127.0.0.1:5050';
+export const AUTO_RELEASE_INTERVAL_MS = 60_000;
+
+// A self-rescheduling loop: the next tick is armed only after the current one has finished, so ticks never overlap. A tick that
+// throws is logged and the loop continues. Returns stop(). Timer functions are injectable for tests.
+export function startAutoReleaseLoop({ run, intervalMs = AUTO_RELEASE_INTERVAL_MS, log = console.error, setT = setTimeout, clearT = clearTimeout } = {}) {
+  let stopped = false;
+  let handle = null;
+  const arm = () => { if (!stopped) { handle = setT(tick, intervalMs); handle?.unref?.(); } };
+  async function tick() {
+    handle = null;
+    try { await run(); } catch (err) { log(`auto release tick failed: ${err?.message || err}`); }
+    arm();
+  }
+  arm();
+  return () => { stopped = true; if (handle) clearT(handle); handle = null; };
+}
 
 const norm = (p) => path.resolve(p).replace(/\\/g, '/');
 
@@ -51,6 +68,7 @@ export function parseArgs(argv) {
     if (a === '--root') out.root = argv[++i];
     else if (a === '--port') out.port = Number(argv[++i]);
     else if (a === '--factory-url') out.factoryUrl = argv[++i];
+    else if (a === '--no-auto-release') out.autoRelease = false;
     else if (a === '--help' || a === '-h') out.help = true;
     else throw new Error(`Unknown argument: ${a}`);
   }
@@ -64,6 +82,7 @@ export async function startHostDashboard(opts = {}) {
     exists = fs.existsSync, log = console.log,
     importApp = (file) => import(pathToFileURL(file).href),
     apply = (vars) => Object.assign(process.env, vars),
+    autoRelease = true, startLoop = startAutoReleaseLoop,
   } = opts;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Bad port: ${port}`);
   const root = resolveRoot({ root: opts.root, env, scriptDir: opts.scriptDir });
@@ -76,16 +95,19 @@ export async function startHostDashboard(opts = {}) {
   apply(vars); // before the import: server modules read these at load time
   const { createApp } = await importApp(appFile);
   const app = createApp();
+  // Loaded after apply() so the YouTube module reads the production paths. Inert unless the owner enabled a channel with a cap.
+  const youtubeFile = `${root}/dashboard/server/routes/youtube.js`;
+  const stopLoop = autoRelease && exists(youtubeFile) ? startLoop({ run: async () => (await importApp(youtubeFile)).autoReleaseRun() }) : null;
   return new Promise((resolve, reject) => {
     const server = app.listen(port, DEFAULT_HOST, () => {
-      log(`Host dashboard ready on http://${DEFAULT_HOST}:${port} (root ${root}); no release timer, no scheduled creation`);
+      log(`Host dashboard ready on http://${DEFAULT_HOST}:${port} (root ${root}); auto release loop ${stopLoop ? 'armed (inert until a channel enables it and sets a cap)' : 'off'}, no scheduled creation`);
       resolve({ server, root, env: vars });
     });
-    if (server && typeof server.on === 'function') server.on('error', reject);
+    if (server && typeof server.on === 'function') { server.on('error', (err) => { stopLoop?.(); reject(err); }); server.on('close', () => stopLoop?.()); }
   });
 }
 
-const HELP = `Usage: node scripts/supervisor/start_codebuilt_dashboard.mjs [--root <repo root>] [--port 3000] [--factory-url ${DEFAULT_FACTORY_URL}]`;
+const HELP = `Usage: node scripts/supervisor/start_codebuilt_dashboard.mjs [--root <repo root>] [--port 3000] [--no-auto-release] [--factory-url ${DEFAULT_FACTORY_URL}]`;
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   try {

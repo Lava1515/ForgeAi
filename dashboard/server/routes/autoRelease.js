@@ -1,21 +1,20 @@
 // Auto release (backlog P2). claude-pro · claude-sonnet-5-5 · 2026-11-14
 // Per channel, OFF by default. The owner switches it on; an agent never does. Channel shape (stored by channelsManager):
 //   channel.auto_release = { enabled: boolean, daily_cap: positive integer }
-// There is NO default cap: with no cap set, nothing is released. A draft is uploaded unlisted with a scheduled publishAt
-// (releaseDue() in youtube.js makes it public) only when its recorded checks all passed. Every decision is logged.
+// There is NO default cap: with no cap set, nothing is released. A draft is uploaded private with a scheduled publishAt
+// (private + publishAt; YouTube makes it public itself) only when its recorded checks all passed. Every decision is logged.
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const MAX_CAP = 20;
 export const RELEASE_LEAD_MS = 30 * 60 * 1000; // earliest publishAt after the upload decision
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
-/** { enabled, cap }. enabled is true only for the literal value true; cap is null unless a whole number 1..MAX_CAP. */
+/** { enabled, cap }. enabled is true only for the literal value true; cap is null unless a whole number >= 1 (the owner picks it; there is no ceiling or default). */
 export function autoReleaseSettings(channel) {
   const s = isObj(channel?.auto_release) ? channel.auto_release : {};
   const cap = s.daily_cap;
-  return { enabled: s.enabled === true, cap: Number.isInteger(cap) && cap >= 1 && cap <= MAX_CAP ? cap : null };
+  return { enabled: s.enabled === true, cap: Number.isInteger(cap) && cap >= 1 ? cap : null };
 }
 
 /**
@@ -105,6 +104,7 @@ export async function autoReleaseTick({ channels, drafts, now = Date.now(), capC
         appendReleaseLog(logFile, { channel: channel.id, draft: draft.draftId, action: 'scheduled', publish_at: publishAt, video_id: youtube?.video_id });
         results.push({ channel: channel.id, action: 'scheduled', draft: draft.draftId, publishAt });
       } catch (err) {
+        if (err?.code === 'SKIP') { results.push({ channel: channel.id, action: 'skipped', draft: draft.draftId, reason: err.message }); continue; } // lost a race with the Publish button; nothing to mark
         // Never retried automatically: a half-finished upload could otherwise be repeated every minute.
         draft.meta.auto_release_error = { at: new Date().toISOString(), message: String(err?.message || err).slice(0, 300) };
         try { writeMeta(draft); } catch { /* the log below still records it */ }

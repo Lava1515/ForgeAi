@@ -15,7 +15,7 @@ const REPO_ROOT = process.env.FORGEAI_ROOT || path.resolve(__dirname, '../../../
 const DRAFTS_DIR = process.env.FORGEAI_DRAFTS_DIR || path.join(REPO_ROOT, 'output/drafts');
 const TOKEN_FILE = process.env.YOUTUBE_TOKEN_FILE || path.join(REPO_ROOT, 'data/youtube_token.json');
 const REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:3000/api/youtube/callback';
-// Full youtube scope: scheduled Shorts are switched from unlisted to public later with videos.update.
+// Full youtube scope: needed to schedule (status.publishAt) and to cancel a schedule or check its state with videos.update/list.
 const FULL_SCOPE = 'https://www.googleapis.com/auth/youtube';
 const canSchedule = (token) => String(token?.scope || '').split(' ').includes(FULL_SCOPE);
 const MAX_SCHEDULE_DAYS = 60;
@@ -228,8 +228,9 @@ export async function youtubeSuggestTagsHandler(req, res) {
   }
 }
 
-// publishAt: upload unlisted now and let releaseDue() make it public at that time (unlisted, not private, so
-// YouTube's copyright check runs before it goes public).
+// publishAt: YouTube's own scheduling. Per the videos resource docs (status.publishAt), it can be set only while privacyStatus is
+// 'private' and the video was never published, so a scheduled upload is sent as private + publishAt and YouTube makes it public itself.
+// (Older records scheduled as unlisted and flipped locally by releaseDue(); that path stays for them.)
 export function parsePublishAt(value, now = Date.now()) {
   if (value == null || value === '') return { at: null };
   const at = new Date(value);
@@ -240,8 +241,9 @@ export function parsePublishAt(value, now = Date.now()) {
 }
 
 // YouTube's altered/synthetic content flag (videos.insert status.containsSyntheticMedia, Oct 2024) for AI-made drafts.
-export const uploadStatus = (meta, privacy, madeForKids) => ({
+export const uploadStatus = (meta, privacy, madeForKids, publishAt = null) => ({
   privacyStatus: privacy,
+  ...(publishAt && { publishAt }),
   selfDeclaredMadeForKids: madeForKids,
   ...(meta.ai_disclosure && { containsSyntheticMedia: true }),
 });
@@ -274,7 +276,7 @@ async function uploadDraftVideo({ folder, metaPath, meta, token, tags, privacy, 
       'X-Upload-Content-Type': 'video/mp4',
       'X-Upload-Content-Length': String(video.length),
     },
-    body: JSON.stringify({ snippet: buildSnippet(meta, tags, language), status: uploadStatus(meta, privacy, madeForKids) }),
+    body: JSON.stringify({ snippet: buildSnippet(meta, tags, language), status: uploadStatus(meta, privacy, madeForKids, scheduledAt) }),
   });
   if (!init.ok) throw new Error(await googleError(init));
   const upload = await fetch(init.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: video });
@@ -286,7 +288,7 @@ async function uploadDraftVideo({ folder, metaPath, meta, token, tags, privacy, 
     privacy: uploaded.status?.privacyStatus || privacy,
     published_at: new Date().toISOString(),
     made_for_kids: madeForKids,
-    ...(scheduledAt && { publish_at: scheduledAt }),
+    ...(scheduledAt && { publish_at: scheduledAt, publish_mode: 'youtube' }),
   };
   delete meta.future_upload_at;
   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
@@ -296,7 +298,7 @@ async function uploadDraftVideo({ folder, metaPath, meta, token, tags, privacy, 
 export async function youtubePublishHandler(req, res) {
   const scheduled = parsePublishAt(req.body?.publishAt);
   if (scheduled.error) return res.status(400).json({ error: scheduled.error });
-  const privacy = scheduled.at ? 'unlisted' : PRIVACY.includes(req.body?.privacy) ? req.body.privacy : 'public';
+  const privacy = scheduled.at ? 'private' : PRIVACY.includes(req.body?.privacy) ? req.body.privacy : 'public';
   const tags = Array.isArray(req.body?.tags) ? req.body.tags.slice(0, 50) : undefined;
   const { draftId, folder, metaPath, meta } = readDraft(req.params.draftId);
   if (!meta) return res.status(404).json({ error: `Draft "${draftId}" not found` });
@@ -358,7 +360,34 @@ export const dueReleases = (drafts, now = Date.now()) =>
   drafts.filter(({ meta }) => meta.youtube?.publish_at && meta.youtube.privacy === 'unlisted' && new Date(meta.youtube.publish_at).getTime() <= now);
 
 // Runs every minute from index.js. A failure is recorded on the draft and retried next minute.
+// Native schedules (publish_mode 'youtube'): YouTube publishes by itself; once the time has passed, record what YouTube says.
+export const dueNative = (drafts, now = Date.now()) =>
+  drafts.filter(({ meta }) => meta.youtube?.publish_mode === 'youtube' && meta.youtube.privacy === 'private' && meta.youtube.video_id && new Date(meta.youtube.publish_at).getTime() + 120000 <= now);
+
+async function reconcileNative(drafts, accessTokenFor) {
+  for (const { metaPath, meta } of drafts) {
+    const token = meta.channel_id ? readToken(null, meta.channel_id) : readToken();
+    const accessToken = token?.refresh_token ? await accessTokenFor(token) : null;
+    if (!accessToken) continue;
+    const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(meta.youtube.video_id)}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!r.ok) continue;
+    const status = (await r.json())?.items?.[0]?.status;
+    if (status?.privacyStatus === 'public') {
+      meta.youtube = { ...meta.youtube, privacy: 'public', released_at: meta.youtube.publish_at };
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    }
+  }
+}
+
 export async function releaseDue(now = Date.now()) {
+  const natives = dueNative(allDrafts(), now);
+  if (natives.length) {
+    const cache = new Map();
+    await reconcileNative(natives, async (t) => {
+      if (!cache.has(t.refresh_token)) cache.set(t.refresh_token, await googleToken({ refresh_token: t.refresh_token, grant_type: 'refresh_token' }).then((x) => x.access_token, () => null));
+      return cache.get(t.refresh_token);
+    });
+  }
   const due = dueReleases(allDrafts(), now);
   if (!due.length) return;
   const legacy = readToken(); // channel-less drafts keep using the single legacy sign-in
@@ -411,12 +440,19 @@ export async function autoReleaseRun(now = Date.now()) {
   return autoReleaseTick({
     channels, drafts: allDrafts(), now, capCheck, logFile: RELEASE_LOG,
     writeMeta: ({ metaPath, meta }) => fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2)),
-    upload: async (draft, publishAt) => {
+    upload: async (listed, publishAt) => {
+      // Same lock as the Publish button, and a fresh read from disk: a manual upload made since the snapshot wins.
+      if (publishing.has(listed.draftId)) throw Object.assign(new Error('This video is already uploading.'), { code: 'SKIP' });
+      publishing.add(listed.draftId);
+      try {
+      const draft = readDraft(listed.draftId);
+      if (!draft.meta || draft.meta.youtube?.video_id) throw Object.assign(new Error('Already uploaded; nothing to release.'), { code: 'SKIP' });
       const token = readToken(null, draft.meta.channel_id || null);
       if (!token?.refresh_token) throw new Error('No YouTube connection for this channel.');
       if (!canSchedule(token)) throw new Error('Scheduling needs more YouTube access; reconnect YouTube.');
       const language = getChannelById(draft.meta.channel_id)?.profile?.language || 'en';
-      return uploadDraftVideo({ ...draft, token, tags: undefined, privacy: 'unlisted', madeForKids: Boolean(draft.meta.made_for_kids), language, scheduledAt: publishAt });
+      return uploadDraftVideo({ ...draft, token, tags: undefined, privacy: 'private', madeForKids: Boolean(draft.meta.made_for_kids), language, scheduledAt: publishAt });
+      } finally { publishing.delete(listed.draftId); }
     },
   });
 }
@@ -424,12 +460,29 @@ export async function autoReleaseRun(now = Date.now()) {
 // GET: the release log, newest first.
 export const releaseLogHandler = (req, res) => res.json(readReleaseLog(RELEASE_LOG));
 
-// Cancel a scheduled release: the video stays unlisted on YouTube.
-export function youtubeCancelScheduleHandler(req, res) {
+// Cancel a scheduled release: the video stays private (native schedule) or unlisted (older local schedule) on YouTube.
+export async function youtubeCancelScheduleHandler(req, res) {
   const { draftId, metaPath, meta } = readDraft(req.params.draftId);
   if (!meta) return res.status(404).json({ error: `Draft "${draftId}" not found` });
-  if (!meta.youtube?.publish_at || meta.youtube.privacy !== 'unlisted') return res.status(409).json({ error: 'This video is not waiting to go public.' });
-  const { publish_at: _, release_error: __, ...rest } = meta.youtube;
+  const native = meta.youtube?.publish_mode === 'youtube' && meta.youtube.privacy === 'private';
+  if (!meta.youtube?.publish_at || (meta.youtube.privacy !== 'unlisted' && !native)) return res.status(409).json({ error: 'This video is not waiting to go public.' });
+  if (native) {
+    // Re-sending the status without publishAt clears the schedule on YouTube.
+    const token = meta.channel_id ? readToken(null, meta.channel_id) : readToken(req);
+    if (!token?.refresh_token) return res.status(401).json({ error: 'Connect YouTube first.' });
+    try {
+      const { access_token: accessToken } = await googleToken({ refresh_token: token.refresh_token, grant_type: 'refresh_token' });
+      const r = await fetch('https://www.googleapis.com/youtube/v3/videos?part=status', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: meta.youtube.video_id, status: uploadStatus(meta, 'private', Boolean(meta.youtube.made_for_kids)) }),
+      });
+      if (!r.ok) throw new Error(await googleError(r));
+    } catch (err) {
+      return sendGeneric5xx(req, res, 502, err);
+    }
+  }
+  const { publish_at: _, publish_mode: ___, release_error: __, ...rest } = meta.youtube;
   meta.youtube = rest;
   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
   res.json(meta.youtube);

@@ -35,3 +35,23 @@ test('release respects the cap per day, schedules unlisted publishAt, and logs',
   assert.deepEqual(up.map((u) => u[0]), ['a', 'b']);
   assert.notEqual(up[0][1].slice(0, 10), up[1][1].slice(0, 10)); // cap 1: second goes to another day
 });
+
+test('a cap above 20 is the owner\'s choice and is kept', () => {
+  assert.equal(autoReleaseSettings({ auto_release: { enabled: true, daily_cap: 40 } }).cap, 40);
+});
+
+test('a lost race with the Publish button is skipped, not marked as a failure', async () => {
+  const d = good('a');
+  const res = await autoReleaseTick({ channels: [{ id: 'c1', auto_release: { enabled: true, daily_cap: 3 } }], drafts: [d], now: Date.UTC(2026, 10, 15, 8), capCheck, logFile: logFile(), writeMeta() {}, upload: async () => { throw Object.assign(new Error('busy'), { code: 'SKIP' }); } });
+  assert.equal(res[0].action, 'skipped');
+  assert.equal(d.meta.auto_release_error, undefined);
+});
+
+test('evidence stores only real verdicts', async () => {
+  const { releaseEvidence } = await import('../episode/codebuilt/draftAdapter.js');
+  assert.deepEqual(releaseEvidence({ requestedDuration: null, duration: null }), {});
+  assert.equal(releaseEvidence({ factCheck: { verified: false }, requestedDuration: 60, duration: 61 }).fact_check, undefined);
+  const e = releaseEvidence({ factCheck: { verified: true, summary: { claims: 7, false_claims: 0 } }, requestedDuration: 60, duration: 100 });
+  assert.equal(e.fact_check.claims, 7);
+  assert.equal(e.length_check.within_tolerance, false); // a real miss is recorded as a miss
+});
