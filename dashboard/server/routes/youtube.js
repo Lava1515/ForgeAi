@@ -66,12 +66,12 @@ async function googleError(res) {
 
 const clean = (s = '') => String(s).replace(/[<>]/g, '').trim();
 
-// Hashtag-safe tags: no "#", no spaces or punctuation, deduped (case-insensitive), "shorts" always included.
+// YouTube tags: no "#", no spaces or punctuation, deduped (case-insensitive).
 // YouTube ignores every description hashtag past 15, and caps tags at 500 characters in total.
 export function normalizeTags(list = []) {
   const seen = new Set();
   const tags = [];
-  for (const raw of [...list, 'shorts']) {
+  for (const raw of list) {
     const tag = String(raw).replace(/[^\p{L}\p{N}_]/gu, '');
     if (!tag || seen.has(tag.toLowerCase())) continue;
     seen.add(tag.toLowerCase());
@@ -89,15 +89,35 @@ export function normalizeTags(list = []) {
 export const AI_NOTICE = '(Visual simulation and narration created with the assistance of 3D modeling and AI.)';
 export const DEFAULT_MAX_DAILY_POSTS = 2;
 
-// Title/description/tags from the draft's metadata; YouTube rejects < and > and titles over 100 chars.
+// Return a user-facing error, or null when a draft's editable listing title is suitable to upload.
+export function uploadTitleError(value, draftId) {
+  const title = clean(value);
+  if (!title) return 'Add a title before uploading this video.';
+  if (title.length > 100) return 'The title must be 100 characters or fewer.';
+  if (title === String(draftId ?? '')) return 'Replace the draft ID with a title that describes the video.';
+  // Dates are recognized in common year-first or day-first numeric forms, with any Unicode digits.
+  const datePattern = /^\p{N}{1,4}[./-]\p{N}{1,2}[./-]\p{N}{1,4}$/u;
+  if (datePattern.test(title)) return 'Use a descriptive title; a date alone cannot be uploaded.';
+  const compact = title.replace(/[\s.,/\\_-]+/gu, '');
+  if (/^\p{N}+$/u.test(compact)) return 'Use a descriptive title; a title made only of digits cannot be uploaded.';
+  return null;
+}
+
+// Title/description/tags from the draft's metadata; YouTube rejects < and > in titles.
 // tags: the user's chosen tags; defaults to the draft's own hashtags.
-export function buildSnippet(meta, tags) {
+export function buildSnippet(meta, tags, language = 'en') {
   const listing = meta.listing_copy || {};
   const chosen = normalizeTags(tags || [...(meta.social?.hashtags || []), ...(listing.tags || [])]);
-  const base = clean(listing.title || meta.product?.title || meta.social?.caption || 'New short');
-  const title = `${base.slice(0, 100 - ' #Shorts'.length)} #Shorts`;
-  const description = [clean(listing.description || meta.script), meta.ai_disclosure ? AI_NOTICE : '', chosen.map((t) => `#${t}`).join(' ')].filter(Boolean).join('\n\n').slice(0, 5000);
-  return { title, description, tags: chosen, categoryId: '24' };
+  const title = clean(listing.title || meta.product?.title || meta.social?.caption || '');
+  const firstSentence = (clean(listing.description || meta.script || title) || title).split(/(?<=[.!?])\s+/u)[0];
+  const summary = /[.!?]$/u.test(firstSentence) ? firstSentence : `${firstSentence}.`;
+  const loop = meta.production_choices?.type === 'loop' || meta.choices?.type === 'loop' || meta.generation_details?.production_choices?.type === 'loop' || meta.generation_details?.choices?.type === 'loop' || meta.episode_draft?.choices?.type === 'loop' || meta.type === 'loop';
+  const narration = loop ? '' : clean(meta.script || listing.description);
+  const hashtags = chosen.slice(0, 5).map((t) => `#${t}`).join(' ');
+  const description = [summary, narration, AI_NOTICE, hashtags].filter(Boolean).join('\n\n').slice(0, 5000);
+  const snippet = { title, description, tags: chosen, categoryId: '24', defaultLanguage: language || 'en' };
+  if (!loop) snippet.defaultAudioLanguage = language || 'en';
+  return snippet;
 }
 
 export function youtubeStatusHandler(req, res) {
@@ -238,7 +258,10 @@ export async function youtubePublishHandler(req, res) {
   const { draftId, folder, metaPath, meta } = readDraft(req.params.draftId);
   if (!meta) return res.status(404).json({ error: `Draft "${draftId}" not found` });
   if (!meta.video_file) return res.status(400).json({ error: 'This draft has no video to publish.' });
-  if (meta.youtube?.video_id) return res.status(409).json({ error: 'Already published to YouTube.', youtube: meta.youtube });
+  if (meta.youtube?.video_id && req.body?.force !== true) return res.status(409).json({ error: 'Already published to YouTube. Set force to true to upload this draft again.', youtube: meta.youtube });
+  const requestedTitle = typeof req.body?.title === 'string' ? req.body.title : meta.listing_copy?.title;
+  const titleError = uploadTitleError(requestedTitle, draftId);
+  if (titleError) return res.status(400).json({ error: titleError });
   // KAN-778: a semantic explainer needs a current server-validated review receipt for every upload (public, unlisted, private or scheduled). Nothing in the body counts.
   const semanticRefusal = isSemanticDraft({ folder, meta }) ? await semanticGate({ draftId, folder, meta }) : null;
   if (semanticRefusal) return res.status(409).json(semanticRefusal);
@@ -259,9 +282,9 @@ export async function youtubePublishHandler(req, res) {
       return res.status(409).json({ error: `This channel already has ${max} video(s) going public on ${full.day}.${full.next ? ` Next free slot: ${full.next}.` : ''}`, next_free: full.next });
     }
   }
-  if (typeof req.body?.title === 'string' && clean(req.body.title)) {
-    meta.listing_copy = { ...meta.listing_copy, title: clean(req.body.title).slice(0, 90) };
-  }
+  meta.listing_copy = { ...meta.listing_copy, title: clean(requestedTitle) };
+  const channel = getChannelById(meta.channel_id || getActiveChannel(req)?.id);
+  const language = channel?.profile?.language || 'en';
 
   publishing.add(draftId);
   try {
@@ -276,7 +299,7 @@ export async function youtubePublishHandler(req, res) {
         'X-Upload-Content-Type': 'video/mp4',
         'X-Upload-Content-Length': String(video.length),
       },
-      body: JSON.stringify({ snippet: buildSnippet(meta, tags), status: uploadStatus(meta, privacy, madeForKids) }),
+      body: JSON.stringify({ snippet: buildSnippet(meta, tags, language), status: uploadStatus(meta, privacy, madeForKids) }),
     });
     if (!init.ok) throw new Error(await googleError(init));
     const upload = await fetch(init.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: video });
