@@ -64,8 +64,11 @@ export const VOICE_RETRIES = 0;
 export const VOICE_RETRY_REASONS = Object.freeze(['audio_not_matching', 'bad_tail', 'bad_lead', 'bad_word_times', 'timing_mismatch']);
 // The finished video may be this many seconds under the requested duration before the job stops (TTS pace varies; see planner.js targetWords).
 // 60 and 90 s keep 4 s; the shorter videos scale it (about 7 percent) so a 30 s request cannot finish at 26 s.
-export const SHORT_TOLERANCE_S = 4;
-export const SHORT_TOLERANCE_BY_DURATION_S = Object.freeze({ 30: 2, 45: 3, 60: SHORT_TOLERANCE_S, 90: SHORT_TOLERANCE_S });
+// Widened on 2026-11-14 (was 2, 3, 4, 4 s): a voice's pace varies by 10 to 20 percent from script to script, so a 45 s request that
+// came out at 41 s stopped the job before anything was built. The owner's stated limit is on running OVER (5 to 10 s is fine, 20 s
+// is not); a short that is a few seconds under its length is still a finished short.
+export const SHORT_TOLERANCE_S = 8;
+export const SHORT_TOLERANCE_BY_DURATION_S = Object.freeze({ 30: 5, 45: 7, 60: SHORT_TOLERANCE_S, 90: SHORT_TOLERANCE_S });
 export const shortToleranceFor = (duration) => SHORT_TOLERANCE_BY_DURATION_S[duration] ?? SHORT_TOLERANCE_S;
 export function measuredLengthFailure(requested, measured) {
   if (!measured) return null;
