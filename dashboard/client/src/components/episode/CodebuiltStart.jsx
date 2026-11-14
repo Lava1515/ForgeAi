@@ -5,6 +5,7 @@ import Panel from '../../ui/Panel.jsx';
 import Button from '../../ui/Button.jsx';
 import Banner from '../../ui/Banner.jsx';
 import JobDetailArtifacts from './JobDetailArtifacts.jsx';
+import JobProgress from './JobProgress.jsx';
 
 function TypeChannelResearch({ disabled, duration, onCreated }) {
   const [channels, setChannels] = useState([]), [channelId, setChannelId] = useState(''), [type, setType] = useState('what-if');
@@ -220,8 +221,17 @@ export default function CodebuiltStart() {
   const active = isActiveJob(job) || isActiveRun(run) || otherActive;
   const several = count > 1;
   const problem = runFormProblem({ count, topic, type: blankOrAuto(type) ? undefined : type });
+  // The video that is running now, whoever started it (this page, another tab, a batch): the newest active row of the job list.
+  const running = jobs.find((row) => isActiveJob(row)) ?? (isActiveJob(job) ? job : null);
+  const abortRow = async (id) => {
+    setError(null);
+    try { const stopped = await api.abortCodebuiltJob(id); if (job?.id === id) setJob(stopped); } catch (err) { setError(err?.data?.error || err.message || 'Could not abort'); }
+  };
   return (
+    <>
+    {running && <JobProgress job={running} onAbort={abortRow} fetchProgress={api.getCodebuiltJobProgress} />}
     <Panel title="Code-built video" className="space-y-4" data-codebuilt-start>
+      {running && <p className="text-xs text-amber-300" data-codebuilt-busy-note>One video is made at a time. The form unlocks when the running video finishes or is aborted.</p>}
       <TypeChannelResearch disabled={active} duration={duration} onCreated={setRun} />
       <p className="text-xs text-ink-400">
         Builds the video with generated code in the isolated runner, then hands it to review as a draft. Press Start to begin; nothing runs until you do.
@@ -332,5 +342,6 @@ export default function CodebuiltStart() {
         </div>
       )}
     </Panel>
+    </>
   );
 }

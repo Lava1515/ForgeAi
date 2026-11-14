@@ -40,6 +40,7 @@ import {
 import { startCodebuiltHandler, listCodebuiltHandler, getCodebuiltHandler, abortCodebuiltHandler, resumeCodebuiltHandler } from './routes/codebuilt.js';
 import { startCodebuiltRunHandler, listCodebuiltRunsHandler, getCodebuiltRunHandler, abortCodebuiltRunHandler } from './routes/codebuiltRuns.js';
 import { mountJobArtifacts } from './routes/jobArtifacts.js';
+import { mountJobProgress } from './routes/jobProgress.js';
 import { researchCandidatesHandler } from './routes/videoResearch.js';
 
 onGeminiFallback((fallback) => {
@@ -169,6 +170,7 @@ export function createApp() {
   app.get('/api/codebuilt/runs', listCodebuiltRunsHandler);
   app.get('/api/codebuilt/runs/:runId', getCodebuiltRunHandler);
   app.post('/api/codebuilt/runs/:runId/abort', requireAdmin, abortCodebuiltRunHandler);
+  mountJobProgress(app); // before the artifact routes: read-only progress of a running job
   mountJobArtifacts(app);
 
   // Status, kill switch, and the model CLI logins

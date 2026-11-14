@@ -392,6 +392,11 @@ export async function listCodebuiltJobs() {
   return request('/api/codebuilt/jobs');
 }
 
+// Frames rendered so far and the newest preview sheets of a job; an older server answers 404.
+export async function getCodebuiltJobProgress(id) {
+  return request('/api/codebuilt/jobs/' + encodeURIComponent(id) + '/progress');
+}
+
 export async function abortCodebuiltJob(id) {
   return request('/api/codebuilt/jobs/' + encodeURIComponent(id) + '/abort', { method: 'POST' });
 }
