@@ -293,9 +293,9 @@ export function rulePremise(c, avoid = [], language = 'en') {
     ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
     ['sentence', sentence, 'Full question or claim'],
     ['answer', text(c.answer).trim().length >= 12, text(c.answer) || 'Missing one-sentence answer'],
-    ['payoff', text(c.payoff || c.loop_idea).trim().length >= 12, text(c.payoff || c.loop_idea) || 'Missing visual payoff'],
+    ['payoff', text(c.payoff).trim().length >= 12, text(c.payoff) || 'Missing visual payoff'],
   ];
-  const haystack = stems([c.topic, title, subject, c.stake, c.answer, c.hook, c.payoff, c.loop_idea, c.main_setting, ...(c.shots || []).flatMap(s => [s.visual, s.location]), ...(c.tags || [])].join(' '));
+  const haystack = stems([c.topic, title, subject, c.stake, c.answer, c.hook, c.payoff, c.main_setting, ...(c.shots || []).flatMap(s => [s.visual, s.location]), ...(c.tags || [])].join(' '));
   for (const phrase of avoid) checks.push([`avoid:${normalise(phrase)}`, !mentions(haystack, phrase), `Avoid phrase: ${phrase}`]);
   const reasons = checks.filter(([, pass]) => !pass).map(([key]) => ({ rule: 'premise', detail: key }));
   return { pass: reasons.length === 0, score: round3(checks.filter(([, pass]) => pass).length / checks.length), reasons, detail: checks.map(([rule, pass, reason]) => ({ rule, pass, score: pass ? 1 : 0, reason })) };
@@ -312,8 +312,8 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
 
   const scored = candidates.map((c, position) => {
     const results = {
-      numbers_checkable: o.profile && o.type === 'loop' ? { score: 1, pass: true, detail: { waived: 'silent loop has no fact minimum' } } : ruleNumbers(c, o),
-      shots_locations: o.profile && o.type === 'loop' ? { score: c.shots.length >= 1 && c.shots.length <= 3 ? 1 : 0, pass: c.shots.length >= 1 && c.shots.length <= 3, detail: { shots: c.shots.length, needed: '1 to 3' } } : ruleShots(c, o),
+      numbers_checkable: ruleNumbers(c, o),
+      shots_locations: ruleShots(c, o),
       hook: ruleHook(c, o),
       not_repeat: ruleRepeat(c, o, videos, index),
       set_fit: ruleSetFit(c, o, index),
@@ -323,8 +323,6 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
     const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language) : null;
     if (premise) {
       reasons.push(...premise.reasons);
-      if (o.type === 'loop' && !text(c.loop_idea).trim()) reasons.push({ rule: 'premise', detail: 'missing_loop_idea' });
-      if (o.type === 'loop' && !results.shots_locations.pass) reasons.push({ rule: 'shots_locations', detail: 'loop needs 1 to 3 shots' });
     }
     const baseTotal = THEME_RULES.reduce((sum, r) => sum + o.weights[r.key] * results[r.key].score, 0) / weightSum;
     const total = premise ? (baseTotal * weightSum + premise.score) / (weightSum + 1) : baseTotal;
@@ -333,7 +331,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
       return [r.key, { score: round3(score), pass, detail }];
     }));
     if (premise) rules.premise = premise;
-    return { ...(premise ? { title: c.title, subject: c.subject, hook: c.hook, payoff: c.payoff || c.loop_idea, answer: c.answer } : {}), id: c.id === undefined ? `c${position}` : c.id, topic: c.topic.trim(), total: round3(total), rules, reasons, position };
+    return { ...(premise ? { title: c.title, subject: c.subject, hook: c.hook, payoff: c.payoff, answer: c.answer } : {}), id: c.id === undefined ? `c${position}` : c.id, topic: c.topic.trim(), total: round3(total), rules, reasons, position };
   });
 
   const ranked = scored.filter((c) => c.reasons.length === 0)

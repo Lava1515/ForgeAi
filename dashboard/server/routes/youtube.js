@@ -117,9 +117,7 @@ export function buildSnippet(meta, tags, language = 'en') {
   const listing = meta.listing_copy || {};
   const chosen = normalizeTags(tags || [...(meta.social?.hashtags || []), ...(listing.tags || [])]);
   const title = clean(listing.title || meta.product?.title || meta.social?.caption || '');
-  // One draft field marks a silent loop: video_type (written by the loop post step) or production_choices.type.
-  const loop = meta.video_type === 'loop' || meta.production_choices?.type === 'loop';
-  const narration = loop ? '' : clean(meta.script || '');
+  const narration = clean(meta.script || '');
   // First line: one sentence saying what the video shows. Not repeated when the narration already opens with it.
   const lead = clean(listing.description || '') || narration || title;
   const firstSentence = lead.split(/(?<=[.!?])\s+/u)[0].slice(0, 150);
@@ -127,7 +125,7 @@ export function buildSnippet(meta, tags, language = 'en') {
   const hashtags = chosen.slice(0, 5).map((t) => `#${t}`).join(' ');
   const description = [summary, narration, AI_NOTICE, hashtags].filter(Boolean).join('\n\n').slice(0, 5000);
   const snippet = { title, description, tags: chosen, categoryId: '24', defaultLanguage: language || 'en' };
-  if (!loop) snippet.defaultAudioLanguage = language || 'en';
+  snippet.defaultAudioLanguage = language || 'en';
   return snippet;
 }
 

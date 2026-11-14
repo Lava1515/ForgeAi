@@ -303,8 +303,8 @@ export function validateGrowthABChannel(channelId, targetChannelId, channels = n
  * Also shows which account a channel is bound to (channel name and id from token).
  */
 // codex · gpt-6.1-sol · 2026-11-14: optional, bounded channel profile data.
-/** A profile that says nothing (no niche, narrated) is no profile: the channel keeps today's behaviour. */
-export const isActiveProfile = (profile) => !!profile && typeof profile === 'object' && (!!profile.niche || profile.format === 'loop');
+/** A profile that says nothing (no niche) is no profile: the channel keeps today's behaviour. */
+export const isActiveProfile = (profile) => !!profile && typeof profile === 'object' && !!profile.niche;
 /** -> { profile } to spread into a channel, or {} when the body clears it (null, or a profile that says nothing). */
 function profileField(value) {
   if (value === null) return {};
@@ -318,14 +318,12 @@ export function validateChannelProfile(profile) {
     return value.trim();
   };
   const niche = phrase(profile.niche ?? '', 200);
-  const format = profile.format ?? 'narrated';
-  if (!['narrated', 'loop'].includes(format)) throw new TypeError('Invalid profile format');
   const language = profile.language || 'en';
   if (typeof language !== 'string' || language.length > 35 || !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(language)) throw new TypeError('Invalid profile language');
   try { Intl.getCanonicalLocales(language); } catch { throw new TypeError('Invalid profile language'); }
   const avoid = profile.avoid ?? [];
   if (!Array.isArray(avoid) || avoid.length > 10) throw new TypeError('Invalid profile avoid list');
-  return { niche, format, language, avoid: avoid.map(v => { const text = phrase(v, 80); if (!text) throw new TypeError('Empty avoid phrase'); return text; }) };
+  return { niche, language, avoid: avoid.map(v => { const text = phrase(v, 80); if (!text) throw new TypeError('Empty avoid phrase'); return text; }) };
 }
 
 export function sanitizeChannel(channel) {

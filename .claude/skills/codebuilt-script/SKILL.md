@@ -38,7 +38,7 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 
 ## The ending
 
-- End on a pay-off: the answer to the opening question, a twist, or a last line that returns to the first picture so the video can loop.
+- End on a pay-off: the answer to the opening question, a twist, or a last line that returns to the first picture.
 - Never end on a summary, a moral, "so that is why" or a call to subscribe.
 
 ## Truth
@@ -48,4 +48,4 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 
 ## Premise at the opening and ending
 
-Open on the premise itself: the first sentence states the question or claim. End on the payoff and stop, or end where a loop can start. No call to action.
+Open on the premise itself: the first sentence states the question or claim. End on the payoff and stop. No call to action.

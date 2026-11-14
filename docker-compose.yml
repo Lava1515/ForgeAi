@@ -23,7 +23,6 @@ services:
       # Whisper (word timings) keeps its model here, so it downloads once and survives restarts.
       - XDG_CACHE_HOME=/forgeai/data/narrative_shorts/models/cache
       - TTS_TOKEN=${TTS_TOKEN}
-      - SERVICE_TOKEN=${SERVICE_TOKEN:-}
     volumes:
       - .:/forgeai:ro
       # Hide host secrets from the read-only repo view; env_file injects the factory's values.
