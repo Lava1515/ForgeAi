@@ -1,7 +1,6 @@
 import express from 'express';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { networkSecurity } from './middleware/networkSecurity.js';
-import { warnIfServiceTokenMissing } from './middleware/auth.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -144,7 +143,6 @@ export function createApp() {
   app.use(failClosed500);
   app.use(securityHeaders());
   app.use(networkSecurity());
-  warnIfServiceTokenMissing();
   app.use(express.json());
 
   // Channels
