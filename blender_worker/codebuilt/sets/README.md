@@ -1,6 +1,6 @@
 # Code-built set library (KAN-911, CB2)
 
-Eight scenery sets ported from the chat builds, one module each. Every module has
+Nine scenery sets ported from the chat builds, one module each. Every module has
 `build(origin=(0, 0, 0))`, builds the set centred on `origin` in its own collection, and returns a
 handles dict. Required keys (`common.REQUIRED_HANDLES`): `collection`, `origin`, `subject` (world
 point the set is about), `lights`. Each set adds its own handles (globe: `globe`, `axis`, ...).
@@ -16,6 +16,7 @@ Two sets can share a scene at different origins. Random scenery is seeded, so tw
 | `xray_body` | Transparent x-ray torso with a lit esophagus, stomach with acid and bubbles, and intestines. |
 | `room` | Cosy teal room: wall with wainscot, window, shelf with books, gumball machine and a potted plant. |
 | `bathroom` | Tiled bathroom with toilet and water, tank, paper roll, bin, bath mat and a potted plant. |
+| `world_map` | Flat world map of real country shapes: highlight, lift, label, true-size moves and camera flights between countries. Optional kit: `maps.py` and the skill `codebuilt-maps`; data in `mapdata/` (Natural Earth, public domain). |
 
 `registry.py` is pure Python (no Blender): `names()`, `get(name)`, `catalog()`, `picker_text()`,
 `match_themes(words)`, `load_builder(name)`, plus per-set `description`, `themes`, `subject`, three

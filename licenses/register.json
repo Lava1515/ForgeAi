@@ -289,6 +289,16 @@
       "reverify": true
     },
     {
+      "id": "naturalearth:admin_0_countries",
+      "kind": "asset",
+      "use": "country shapes (1:110m and 1:50m admin-0 countries) for the map kit, converted to blender_worker/codebuilt/mapdata",
+      "licence": "Public domain (Natural Earth terms of use; credit not required)",
+      "allowed": true,
+      "source": "https://www.naturalearthdata.com/about/terms-of-use/",
+      "checked": "2026-11-14",
+      "checked_how": "terms of use page read: all vector and raster data in the public domain, personal, educational and commercial use allowed, crediting unnecessary. Data downloaded from the project's own GitHub mirror https://github.com/nvkelso/natural-earth-vector (same files). Not GADM."
+    },
+    {
       "id": "npm:lucide-react",
       "kind": "library",
       "licence": "ISC",

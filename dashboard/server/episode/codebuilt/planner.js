@@ -484,7 +484,7 @@ function settingProblems(code, key, accept, label, { required = true } = {}) {
 }
 
 const MESH_CALL = /\bmeshes\.(?:ball|box|lathe|sweep|grid|mk|plane)\s*\(|\bfigures\.make_person\s*\(|\bprops\.(?!puffs|streaks)[a-z_]+\s*\(/g;
-const SET_BUILD = /\b(?:city_street|globe|polar_penguin|tunnel|cutaway_planet|xray_body|room|bathroom)\s*\.\s*build\s*\(/g;
+const SET_BUILD = /\b(?:city_street|globe|polar_penguin|tunnel|cutaway_planet|xray_body|room|bathroom|world_map)\s*\.\s*build\s*\(|\bmaps\.WorldMap\s*\(/g;
 const HELPER_CAP = 3; // one call of a mesh-building helper stands for at most three mesh calls, like a set build
 
 /**

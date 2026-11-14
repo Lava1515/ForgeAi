@@ -35,6 +35,11 @@
       "id": "codebuilt-look-review",
       "skill": "codebuilt-look-review",
       "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-maps",
+      "skill": "codebuilt-maps",
+      "mode": "guidance_only"
     }
   ],
   "rules": {
@@ -81,7 +86,8 @@
       "Each pipeline step loads the project-authored skill that skillsByStep assigns to it, as text in that step's prompt: codebuilt-script (script), codebuilt-direction (shot list after the voice), codebuilt-scene-generation (Blender build), codebuilt-look-review (visual check). Each restates for this pipeline what the installed skills in rules.steps teach.",
       "Only project-authored skills in this repository's .claude/skills are read. User-level skills are not loaded by the pipeline and skill text is never copied into generated code.",
       "If a skill conflicts with the brief, the direction or the playbook, those win; say so in the report.",
-      "Only codebuilt-scene-generation is mounted into the job container, read-only, at /skills/codebuilt-scene-generation, and it is limited to one SKILL.md."
+      "Only codebuilt-scene-generation is mounted into the job container, read-only, at /skills/codebuilt-scene-generation, and it is limited to one SKILL.md.",
+      "Topic skills (rules.topicSkills) are loaded only for a step they list and only when one of their keywords appears as a whole word or phrase in the topic or script; they are still guidance only and still read from this repository's .claude/skills."
     ],
     "skillsByStep": {
       "script": [
@@ -112,6 +118,32 @@
     "skillReports": {
       "status": "replaced",
       "reason": "Since 2026-11-14 the pipeline loads four project-authored step skills (skillsByStep) that restate the installed skills listed in steps; the per-skill report of the chat runs was never produced and is no longer waited for."
-    }
+    },
+    "topicSkills": [
+      {
+        "skill": "codebuilt-maps",
+        "steps": [
+          "direction",
+          "build"
+        ],
+        "keywords": [
+          "map",
+          "maps",
+          "country",
+          "countries",
+          "border",
+          "borders",
+          "continent",
+          "continents",
+          "territory",
+          "territories",
+          "geography",
+          "nation",
+          "nations",
+          "capital city",
+          "true size"
+        ]
+      }
+    ]
   }
 }
