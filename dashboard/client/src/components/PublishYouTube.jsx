@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState } from 'react';
-import { Youtube, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
+import { Youtube, ExternalLink, RefreshCw, Sparkles, AlertTriangle } from 'lucide-react';
 import * as api from '../services/api.js';
 import { formatTags } from '../utils/format.js';
 
@@ -31,19 +31,23 @@ export default function PublishYouTube({ product, onPublished }) {
   const [title, setTitle] = useState(product.title || '');
   const [tags, setTags] = useState(formatTags(product.tags));
   const [suggesting, setSuggesting] = useState(false);
+  const [overLimit, setOverLimit] = useState(null); // { max, day, message } when the channel's daily limit is reached
 
   useEffect(() => {
     api.getYoutubeStatus().then(setStatus).catch((err) => setError(err.message));
   }, []);
 
-  const publish = async () => {
+  // The channel's daily limit is a warning: the server answers code 'daily_limit' and the owner may confirm to go over it.
+  const publish = async (confirmOverLimit = false) => {
     setBusy(true);
     setError('');
+    setOverLimit(null);
     try {
-      setPublished(await api.publishToYoutube(product.folder_name || product.id, { privacy, madeForKids, tags: parseTags(tags), title: title.trim(), publishAt: when ? new Date(when).toISOString() : undefined }));
+      setPublished(await api.publishToYoutube(product.folder_name || product.id, { privacy, madeForKids, tags: parseTags(tags), title: title.trim(), publishAt: when ? new Date(when).toISOString() : undefined, overLimit: confirmOverLimit || undefined }));
       onPublished?.();
     } catch (err) {
-      setError(err.message);
+      if (err.data?.code === 'daily_limit') setOverLimit({ max: err.data.max, day: err.data.day, message: err.message });
+      else setError(err.message);
     } finally {
       setBusy(false);
     }
@@ -204,7 +208,7 @@ export default function PublishYouTube({ product, onPublished }) {
 
           <button
             type="button"
-            onClick={publish}
+            onClick={() => publish()}
             disabled={busy}
             className="btn-ember inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[36px] rounded-lg text-sm font-medium transition"
           >
@@ -215,6 +219,22 @@ export default function PublishYouTube({ product, onPublished }) {
       )}
 
       {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
+
+      {overLimit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby={`${titleId}-limit`} className="w-full max-w-sm space-y-3 rounded-xl border border-amber-500/40 bg-ink-950 p-4 shadow-xl">
+            <p id={`${titleId}-limit`} className="flex items-center gap-1.5 text-sm font-medium text-amber-300">
+              <AlertTriangle className="h-4 w-4" /> Daily limit reached
+            </p>
+            <p className="text-xs text-ink-200">{overLimit.message}</p>
+            <p className="text-xs text-ink-300">This channel's limit is {overLimit.max} a day. Do you still want to {when ? 'schedule' : 'publish'} this video?</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setOverLimit(null)} className="chip min-h-[32px] h-8 text-xs">Cancel</button>
+              <button type="button" onClick={() => publish(true)} className="btn-ember min-h-[32px] rounded-lg px-3 text-xs font-medium">Yes, {when ? 'schedule' : 'publish'} anyway</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

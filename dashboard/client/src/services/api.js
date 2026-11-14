@@ -211,8 +211,8 @@ export async function getYoutubeStatus() {
 }
 
 // publishAt (ISO): uploaded private with YouTube's own schedule (status.publishAt); YouTube makes it public at that time.
-export async function publishToYoutube(draftId, { privacy, madeForKids, tags, title, publishAt }) {
-  return request(`/api/youtube/publish/${encodeURIComponent(draftId)}`, { method: 'POST', body: JSON.stringify({ privacy, madeForKids, tags, title, publishAt }) });
+export async function publishToYoutube(draftId, { privacy, madeForKids, tags, title, publishAt, overLimit }) {
+  return request(`/api/youtube/publish/${encodeURIComponent(draftId)}`, { method: 'POST', body: JSON.stringify({ privacy, madeForKids, tags, title, publishAt, overLimit }) });
 }
 
 // Clears a schedule; the video stays private (or unlisted for older schedules) on YouTube.
