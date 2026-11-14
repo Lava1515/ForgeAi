@@ -8,7 +8,7 @@ import { capCheck } from '../routes/youtube.js';
 
 const good = (id, extra = {}) => ({ draftId: id, meta: { channel_id: 'c1', video_file: 'v.mp4', created_at: id, generation_details: { fact_check: { verified: true }, length_check: { within_tolerance: true }, visual_loop: { accepted_round: 1 } }, ...extra } });
 const logFile = () => path.join(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'rel-')), 'log.jsonl');
-const run = (channel, drafts, up = []) => autoReleaseTick({ channels: [channel], drafts, now: Date.UTC(2026, 10, 15, 8), capCheck, logFile: logFile(), writeMeta() {}, upload: async (d, at) => { up.push([d.draftId, at]); d.meta.youtube = { video_id: 'v', publish_at: at, privacy: 'unlisted' }; return d.meta.youtube; } });
+const run = (channel, drafts, up = []) => autoReleaseTick({ channels: [channel], drafts, now: Date.UTC(2026, 10, 15, 8), capCheck, logFile: logFile(), writeMeta() {}, upload: async (d, at) => { up.push([d.draftId, at]); d.meta.youtube = { video_id: 'v', publish_at: at, privacy: 'private', publish_mode: 'youtube' }; return d.meta.youtube; } });
 
 test('auto release is off by default and releases nothing without a cap', async () => {
   const up = [];
@@ -26,7 +26,7 @@ test('the quality bar needs explicit passes; missing evidence blocks', () => {
   assert.equal(releaseQuality(good('a', { generation_details: { fact_check: { verified: true }, length_check: { within_tolerance: true }, visual_loop: { accepted_round: 1 }, visual_check: { approved: false } } }).meta).ok, false);
 });
 
-test('release respects the cap per day, schedules unlisted publishAt, and logs', async () => {
+test('release respects the cap per day, schedules private publishAt, and logs', async () => {
   const up = [];
   const ch = { id: 'c1', auto_release: { enabled: true, daily_cap: 1 } };
   const drafts = [good('a'), good('b'), good('bad', { generation_details: {} })];
