@@ -54,11 +54,12 @@ export function createHostOutputProducer({
     try { const st = fs.lstatSync(frames); hasFrames = st.isDirectory() && !st.isSymbolicLink() && fs.readdirSync(frames).some((n) => /\.png$/i.test(n)); } catch { /* none */ }
     if (!hasFrames) throw new CodebuiltError('MISSING_OUTPUT', 'the executor left no frames/*.png', { missing: ['frames'] });
 
-    stage(path.join(job, 'inputs', 'words.json'), path.join(job, 'words.json'), 'words.json');
+    const looping = JSON.parse(fs.readFileSync(path.join(job, 'inputs', 'pathpack.json'), 'utf8')).videoType === 'loop';
+    if (!looping) stage(path.join(job, 'inputs', 'words.json'), path.join(job, 'words.json'), 'words.json');
     // Always the trusted voice. stage() copies it, or accepts an existing mix.wav only when it is byte-identical to the voice
     // (a rerun of this stage); anything else already in that place was written by the executor and is refused.
-    const audio = 'voice-only';
-    stage(path.join(job, 'inputs', 'vo.wav'), path.join(job, 'mix.wav'), 'mix.wav');
+    const audio = looping ? 'synthesized-loop' : 'voice-only';
+    if (!looping) stage(path.join(job, 'inputs', 'vo.wav'), path.join(job, 'mix.wav'), 'mix.wav');
 
     const stdout = await new Promise((resolve, reject) => {
       const child = execFileFn(python, ['-I', script, job], { timeout: timeoutMs, windowsHide: true, shell: false, env: safeEnv(env), maxBuffer: 1024 * 1024, signal }, (error, out, err) => {

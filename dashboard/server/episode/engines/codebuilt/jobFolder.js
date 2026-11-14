@@ -100,14 +100,15 @@ function toBuffer(value, label, inputRoots) {
 
 /** Copies the inputs in once and marks them read-only. Returns {name: sha256}. An identical existing copy is kept. */
 export function writeInputs(paths, { script, voWav, words, pathPack, brief }, inputRoots = []) {
-  if (typeof script !== 'string' || !script.trim()) throw new CodebuiltError('BAD_JOB', 'script text is required');
+  const looping = pathPack?.videoType === 'loop';
+  if (!looping && (typeof script !== 'string' || !script.trim())) throw new CodebuiltError('BAD_JOB', 'script text is required');
   if (typeof brief !== 'string' || !brief.trim()) throw new CodebuiltError('BAD_JOB', 'brief text is required');
   const data = {
-    'script.txt': Buffer.from(script), 'vo.wav': readInputFile(voWav, inputRoots, 'vo.wav'), 'words.json': toBuffer(words, 'words.json', inputRoots),
+    ...(looping ? {} : { 'script.txt': Buffer.from(script), 'vo.wav': readInputFile(voWav, inputRoots, 'vo.wav'), 'words.json': toBuffer(words, 'words.json', inputRoots) }),
     'pathpack.json': toBuffer(pathPack, 'path pack', inputRoots), 'brief.md': Buffer.from(brief),
   };
   const hashes = {};
-  for (const name of INPUT_FILES) {
+  for (const name of Object.keys(data)) {
     const target = path.join(paths.inputs, name);
     hashes[name] = crypto.createHash('sha256').update(data[name]).digest('hex');
     if (fs.lstatSync(target, { throwIfNoEntry: false })) {
@@ -156,7 +157,11 @@ export function verifyBuildScript(paths, hash) {
 
 /** Throws INPUT_CHANGED when any input copy was modified, replaced, linked or removed. */
 export function verifyInputs(paths, hashes) {
-  for (const name of INPUT_FILES) {
+  if (hashRegularFile(path.join(paths.inputs, 'pathpack.json')) !== hashes?.['pathpack.json']) throw new CodebuiltError('INPUT_CHANGED', 'input pathpack.json was changed during the run');
+  let looping;
+  try { looping = JSON.parse(fs.readFileSync(path.join(paths.inputs, 'pathpack.json'), 'utf8')).videoType === 'loop'; }
+  catch { throw new CodebuiltError('INPUT_CHANGED', 'input pathpack.json is not a valid path pack'); }
+  for (const name of looping ? ['pathpack.json', 'brief.md'] : INPUT_FILES) {
     if (hashRegularFile(path.join(paths.inputs, name)) !== (hashes?.[name] ?? undefined)) {
       throw new CodebuiltError('INPUT_CHANGED', `input ${name} was changed during the run`, { name });
     }
@@ -300,8 +305,12 @@ export function clearOutputs(paths) {
 /** Absolute, confined, non-empty, unlinked output files: {files, hashes, report}. Throws otherwise. */
 export function collectOutputs(paths) {
   const realOut = confinedOut(paths);
+  // codex · gpt-6.1-sol · 2026-11-14: use the immutable host input contract, never an output's claim, to omit subtitles.
+  let looping = false;
+  try { looping = JSON.parse(fs.readFileSync(path.join(paths.inputs, 'pathpack.json'), 'utf8')).videoType === 'loop'; } catch { /* narrated contract */ }
   const files = {}; const hashes = {}; const missing = [];
   for (const [key, name] of Object.entries(OUTPUT_FILES)) {
+    if (looping && key === 'subtitles') continue;
     const target = path.join(paths.out, name);
     let ok = false;
     try {
@@ -315,6 +324,7 @@ export function collectOutputs(paths) {
   let report = null;
   try { report = JSON.parse(fs.readFileSync(files.report, 'utf8')); } catch { /* handled below */ }
   if (!report || typeof report !== 'object' || Array.isArray(report)) throw new CodebuiltError('MISSING_OUTPUT', 'report.json is not a JSON object', { missing: [OUTPUT_FILES.report] });
+  if (looping && (report.video_type !== 'loop' || report.seam?.passed !== true || report.length_check?.within_tolerance !== true)) throw new CodebuiltError('MISSING_OUTPUT', 'loop seam and length checks are required');
   return { files, hashes, report };
 }
 

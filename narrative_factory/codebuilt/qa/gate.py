@@ -52,7 +52,6 @@ def gate(video, *, srt=None, stems=None, subject_report=None, expected=None, rep
          sample_fps=framing_frames.DEFAULT_SAMPLE_FPS, require_stems=False, ffmpeg=None):
     """Run every check that has its input and return the verdict. `expected` overrides width, height, fps and duration."""
     findings, checked, skipped, details = [], [], [], {}
-
     try:
         info = media.probe(media.input_file(video), ffmpeg=ffmpeg)
     except (media.MediaError, OSError) as err:

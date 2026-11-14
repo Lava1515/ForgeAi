@@ -40,6 +40,11 @@
       "id": "codebuilt-maps",
       "skill": "codebuilt-maps",
       "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-loops",
+      "skill": "codebuilt-loops",
+      "mode": "guidance_only"
     }
   ],
   "rules": {
@@ -101,6 +106,9 @@
       ],
       "look": [
         "codebuilt-look-review"
+      ],
+      "loop": [
+        "codebuilt-loops"
       ]
     },
     "playbook": [
