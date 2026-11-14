@@ -21,6 +21,7 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 - The first sentence is the question or the most surprising fact, 12 words or fewer, and it must be picturable in one image.
 - Good forms: a "what if" question, "POV: you ...", a number said cold, a claim people believe. Do not open with "Did you know", "Have you ever wondered", "In this video" or a greeting.
 - The second sentence starts the story. No throat-clearing.
+- Within the first two seconds the viewer must know what the video is about: name the subject and one concrete stake (a place, an object, a person or a number). Say it in the words, not only in the picture.
 
 ## Sentences
 
