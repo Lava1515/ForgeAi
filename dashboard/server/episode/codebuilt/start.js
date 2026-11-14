@@ -20,7 +20,7 @@ import { jobsRoot, codebuiltToDraft, draftIdForJob } from './draftAdapter.js';
 import { runCodebuiltVoice, checkVoiceFiles, LEAD_S, TAIL_S, REASONS as VOICE_ERROR_REASONS } from './voice.js';
 import { normaliseScript } from '../voice.js';
 import { normalizeJobCalls } from '../../perf/creationCost.js';
-import { lengthCheck } from './lengthCheck.js';
+import { lengthCheck, LENGTH_TOLERANCE_S } from './lengthCheck.js';
 import { GENERATED_GPU_EXECUTOR_ID } from '../engines/codebuilt/launch.js';
 import { produceLightMetadata, validateTitle, validateTags } from './lightMetadata.js';
 import { askRole } from '../../routes/askRole.js';
@@ -61,6 +61,12 @@ export const STAGE_DIR = '.start';
 export const SHORT_TOLERANCE_S = 4;
 export const SHORT_TOLERANCE_BY_DURATION_S = Object.freeze({ 30: 2, 45: 3, 60: SHORT_TOLERANCE_S, 90: SHORT_TOLERANCE_S });
 export const shortToleranceFor = (duration) => SHORT_TOLERANCE_BY_DURATION_S[duration] ?? SHORT_TOLERANCE_S;
+export function measuredLengthFailure(requested, measured) {
+  if (!measured) return null;
+  if (requested - measured.seconds > shortToleranceFor(requested)) return 'too_short';
+  if (measured.seconds - requested > LENGTH_TOLERANCE_S) return 'too_long';
+  return null;
+}
 const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
 // The isolated Blender build renders on 4 CPUs at about 4 s a frame (measured 2026-11-13: 15 frames a minute), about 1930 frames for 60 s and 2900 for 90 s.
 // The first limits (90 and 120 minutes) killed a healthy run; these are about 1.5 times the measured need and stay under the runner's 6 hour ceiling.
@@ -71,7 +77,7 @@ const MESSAGES = Object.freeze({
   launch_not_approved: 'The code-built launch is not approved yet (waiting for the security activation); nothing was started',
   planner_unavailable: 'The code-built planner is not available', script_unavailable: 'The code-built script writer is not available',
   runner_unavailable: 'The code-built runner is not available', script_failed: 'The script step failed', voice_failed: 'The voice step failed',
-  planner_failed: 'The planner step failed', too_short: 'The voice is too short for the requested video length', build_failed: 'The build failed', draft_failed: 'The draft could not be written', aborted: 'Aborted by the owner', interrupted: 'The server restarted while the job ran', internal: 'The job failed', build_model_unavailable: 'The requested build model is not available',
+  planner_failed: 'The planner step failed', too_short: 'The voice is too short for the requested video length', too_long: 'The voice is too long for the requested video length', build_failed: 'The build failed', draft_failed: 'The draft could not be written', aborted: 'Aborted by the owner', interrupted: 'The server restarted while the job ran', internal: 'The job failed', build_model_unavailable: 'The requested build model is not available',
   fact_check_blocked: 'The fact check did not verify the script', fact_check_failed: 'The fact check step failed', fact_check_unavailable: 'The fact check is not available',
   retrieval_unavailable: 'The fact check could not retrieve and validate independent sources; no voice or build was started',
   look_unavailable: 'The visual check could not run (the Claude CLI could not look at pictures, is not logged in, or hit its usage limit); nothing was rendered',
@@ -337,6 +343,15 @@ export function createCodebuiltStarter({
 `);
     } catch { /* Private diagnostics are best effort and never change the job result. */ }
   }
+  function writeTooLongDiagnostic(id, requested, measured, source) {
+    try {
+      fs.mkdirSync(path.join(stateRoot(), id), { recursive: true });
+      fs.writeFileSync(path.join(stateRoot(), id, 'too-long.json'), `${JSON.stringify({
+        stage: 'voicing', code: 'too_long', reason: 'The measured video length is more than the allowed seconds over the requested duration.',
+        requested_seconds: requested, video_seconds: measured, over_by_seconds: Math.round((measured - requested) * 1000) / 1000, allowed_over_seconds: LENGTH_TOLERANCE_S, source,
+      }, null, 1)}\n`);
+    } catch { /* Private diagnostics are best effort and never change the job result. */ }
+  }
   // Counts and fixed text only, like too-short.json. Never claim text, source text or model output.
   function writeFactDiagnostic(id, summary) {
     const n = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
@@ -512,9 +527,14 @@ export function createCodebuiltStarter({
     const words = JSON.parse(fs.readFileSync(voice.wordsPath, 'utf8'));
     // The requested length is a promise: a voice that leaves the finished video well under it stops the job before the planner and the build spend anything.
     const measured = measuredVideoSeconds(voice, words);
-    if (measured && rec.duration - measured.seconds > shortToleranceFor(rec.duration)) {
+    const lengthFailure = measuredLengthFailure(rec.duration, measured);
+    if (lengthFailure === 'too_short') {
       writeTooShortDiagnostic(rec.id, rec.duration, Math.round(measured.seconds * 1000) / 1000, measured.source);
       throw new StartError('too_short', 422);
+    }
+    if (lengthFailure === 'too_long') {
+      writeTooLongDiagnostic(rec.id, rec.duration, Math.round(measured.seconds * 1000) / 1000, measured.source);
+      throw new StartError('too_long', 422);
     }
     const pathPack = scripted.pathPack;
     let plan = resume?.build ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT } : null;
