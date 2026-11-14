@@ -5,7 +5,8 @@ desert, the Moon's surface, deep space). These builders make the common pieces o
 same toy look as the sets, so a custom place costs a dozen lines instead of a hundred.
 
 Every builder takes the collection `c` first and returns ONE object: a mesh, or an empty that parents the pieces. Move,
-rotate, scale or hide that object per frame. Sizes are in metres; a person from `figures` is 1.8 tall. Nothing here is
+rotate, scale or hide that object per frame. Two exceptions return a LIST of objects to place one by one: `puffs` and `streaks`.
+Custom properties hold object NAMES (strings), never objects: resolve one with bpy.data.objects[name]. Sizes are in metres; a person from `figures` is 1.8 tall. Nothing here is
 keyframed and nothing reads the clock.
 """
 import math
@@ -254,9 +255,10 @@ def _self_lit(m, glow):
 
 def planet(c, loc=(0, 0, 0), r=5.0, kind="earth", ring=False, glow=0.0):
     """A planet or moon of radius r. kind: 'earth' (ocean, land, white clouds), 'moon' (grey, cratered noise), 'mars' (rust),
-    'gas' (banded tan), 'ice' (pale blue), 'sun' (emissive, lights nothing by itself: add a point light), 'lava' (dark with glow).
+    'gas' (mottled tan), 'ice' (pale blue), 'sun' (always emissive at strength 6, glow is ignored; it lights nothing by itself: add
+    a point light), 'lava' (dark rock with orange patches, self-lit at 1.5 unless glow is higher).
     glow > 0 makes the surface shine by itself (a Moon in a night sky: glow=1.0), so it reads without a light aimed at it.
-    Returns an empty; spin it with rotation_euler.z. The surface mesh is root["surface"]."""
+    Returns an empty; spin it with rotation_euler.z. root["surface"] is the NAME of the surface mesh."""
     from .sets.common import earth_mat
     root = meshes.empty(c, "planet", loc=loc)
     if kind == "earth":
@@ -268,6 +270,8 @@ def planet(c, loc=(0, 0, 0), r=5.0, kind="earth", ring=False, glow=0.0):
                "gas": ((0.85, 0.7, 0.5), (0.6, 0.42, 0.3), 0.5, 0.2), "ice": ((0.8, 0.92, 1.0), (0.5, 0.72, 0.95), 1.0, 0.3),
                "lava": ((0.1, 0.07, 0.07), (0.9, 0.25, 0.05), 1.4, 0.6)}.get(kind, ((0.6, 0.6, 0.6), (0.4, 0.4, 0.4), 1.0, 0.4))
         m = materials.noise_mat("planet_" + kind, two[0], two[1], rough=0.9, scale=two[2] / max(r, 0.01) * 5.0, bump=two[3], sss=0.0, coat=0.0)
+    if kind == "lava":
+        glow = max(glow, 1.5)
     if glow and kind != "sun":
         _self_lit(m, glow)
     surface = meshes.ball("surface", r, m, c, nu=64, nv=32)
@@ -361,7 +365,8 @@ def streaks(c, n=24, length=3.0, color=(1, 1, 1), spread=6.0, seed=9):
 
 def creature(c, kind="penguin", loc=(0, 0, 0), s=1.0):
     """A simple animal about s metres tall, facing -Y. kind: 'penguin', 'bird', 'fish', 'dog', 'cat', 'beetle'. Returns the root
-    empty; root["head"] is the head object (nod or turn it), root["wings"] or root["legs"] a list of limbs where the animal has them."""
+    empty; root["head"] is the NAME of the head object (bpy.data.objects[root["head"]]: nod or turn it), root["wings"] or
+    root["legs"] a list of limb object names where the animal has them."""
     root = meshes.empty(c, "creature", loc=loc)
     col = materials.col
     black, white, orange = col((0.03, 0.03, 0.04), 0.5), col((0.96, 0.96, 0.96), 0.6), col((1.0, 0.55, 0.1), 0.5)

@@ -1,6 +1,6 @@
 """Set: cutaway planet (KAN-911). Ported from the chat Earth cutaway; runs inside Blender.
 
-An Earth of radius 5 with a 270 degree wedge removed, so the cut faces show crust, mantle,
+An Earth of radius 5 with a 90 degree wedge removed (270 degrees remain), so the cut faces show crust, mantle,
 outer core and a bright inner core. A thin shaft line runs pole to pole; a marker, halo and
 trail ride it. Handles: earth, atmosphere, core, marker, halo, trail, shaft_line, clock, label,
 radii (crust_outer, crust_inner, core_outer, core_inner), stars.

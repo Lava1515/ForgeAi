@@ -58,3 +58,25 @@ test('a directed build must register every place; the per-shot collection rule n
   const ok = validateBuildScript(src, { nframes: 90, shotStarts: [0, 1, 2], places: ['street', 'space'] });
   assert.ok(!ok.some((r) => r.includes('place collection')));
 });
+
+// Review of 2026-11-14 (codex · gpt-6.1-sol): three findings that would have stopped real jobs.
+import { directedShotRange, MAX_DIRECTED_SHOTS } from '../episode/codebuilt/direction.js';
+import { pickPreviewFrames } from '../episode/codebuilt/previewFrames.js';
+
+test('a direction can never have more shots than the visual check can preview', () => {
+  for (const seconds of [30, 47, 62, 92, 100]) assert.ok(directedShotRange(seconds).max <= MAX_DIRECTED_SHOTS);
+  const n = MAX_DIRECTED_SHOTS; const nframes = Math.round(n * 2.2 * 30);
+  const frames = pickPreviewFrames({ nframes, shotStarts: Array.from({ length: n }, (_, i) => Math.round(i * 2.2 * 1000) / 1000) });
+  assert.ok(frames.length <= 24);
+});
+
+test('twelve shots sharing three ready sets are not refused as too little scene', () => {
+  const src = "a = city_street.build((0, 0, 0))\nb = globe.build((600, 0, 0))\nc = tunnel.build((1200, 0, 0))\ncolls = {'place-street': a, 'place-space': b, 'place-hole': c}\n";
+  const why = validateBuildScript(src, { nframes: 1500, shotStarts: Array.from({ length: 12 }, (_, i) => i * 4), places: ['street', 'space', 'hole'] });
+  assert.ok(!why.some((r) => r.startsWith('too little scene')), why.join('; '));
+});
+
+test('a long phrase of three words is split', () => {
+  const w = { dur: 9, words: [{ w: 'a', s: 0, e: 3 }, { w: 'b', s: 3, e: 6 }, { w: 'c', s: 6, e: 9, punct: '.' }] };
+  assert.ok(phrasesOf(w, 0.35).length >= 2);
+});

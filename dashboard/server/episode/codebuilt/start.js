@@ -229,8 +229,9 @@ export function createCodebuiltStarter({
         // what each shot should show. Without a usable plan file the arithmetic cuts of the older builds apply.
         let saved = null;
         try { saved = JSON.parse(readSafe(path.join(stage, 'planner-plan.json'), 'utf8', 512 * 1024) || 'null'); } catch { saved = null; }
-        const savedOk = saved && saved.nframes === nframes && Array.isArray(saved.shotStarts) && saved.shotStarts.length > 0 && saved.shotStarts.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0)
-          && Array.isArray(saved.places) && saved.places.length > 0 && saved.places.every((x) => typeof x === 'string' && /^[a-z][a-z0-9]{1,15}$/.test(x));
+        const savedOk = saved && saved.nframes === nframes && Array.isArray(saved.shotStarts) && saved.shotStarts.length > 0 && saved.shotStarts.length <= 24 && saved.shotStarts[0] === 0
+          && saved.shotStarts.every((x, i, all) => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x < nframes / 30 - 1 && (i === 0 || x > all[i - 1]))
+          && Array.isArray(saved.places) && saved.places.length > 0 && saved.places.length <= 5 && saved.places.every((x) => typeof x === 'string' && /^[a-z][a-z0-9]{1,15}$/.test(x));
         const shotStarts = savedOk ? saved.shotStarts : shotStartsFor(planWords);
         const places = savedOk ? saved.places : undefined;
         const lookShots = savedOk && Array.isArray(saved.lookShots) && saved.lookShots.length === shotStarts.length && saved.lookShots.every((x) => x && typeof x.subject === 'string' && typeof x.narration === 'string') ? saved.lookShots : null;

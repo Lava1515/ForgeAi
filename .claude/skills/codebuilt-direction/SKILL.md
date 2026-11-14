@@ -46,7 +46,7 @@ Name the framing (close, medium, wide) and one move per beat:
 - whip: a fast turn or travel that ends a beat; use it once or twice in a video.
 - hold: a locked camera, right when the action itself is violent or fast.
 
-A subject that moves or explodes needs a wider framing than one that stands still. Keep the camera outside walls, floors and domes for the whole move, not only at its ends. Moves ease in and out; only a whip or an impact is abrupt.
+A subject that moves or explodes needs a wider framing than one that stands still. Keep the camera outside solid things (walls, floors, buildings, planets) and inside the place's sky for the whole move, not only at its ends. Moves ease in and out; only a whip or an impact is abrupt.
 
 ## Readouts
 

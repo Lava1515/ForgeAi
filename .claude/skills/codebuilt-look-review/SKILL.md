@@ -24,7 +24,7 @@ Project-authored guidance for the visual check. It restates, for this pipeline, 
 
 Always find the cause in the script before writing an edit. Read the place's origin, the subject's position and size, and the `cam.set` pose of the shot.
 
-- One flat colour: the camera is inside or facing a large surface. Compare the camera position with the ground height, the sky dome radius and centre, the walls, and any backdrop card of a ready set (the space sets have one 45 m behind the subject; cameras must stay on the -Y side). Move the camera to a tested pose of the set or recompute it from the subject.
+- One flat colour: the camera is inside or facing a large surface. Compare the camera position with the ground height, the sky dome radius and centre, the walls, and any backdrop card of a ready set (the space sets have one about 45 m behind the subject; cameras must stay on the -Y side). A camera beyond the radius of a sky dome sees the dome's outside, also one flat colour. Move the camera to a tested pose of the set or recompute it from the subject.
 - Black or very dark: the place has no light of its own, the light is in another place's collection, the light is hundreds of metres away, or the camera looks away from everything. Add or move lights into this place's collection; for an area light, quadruple the watts for double the distance.
 - White blob: an emissive surface over strength 3 near the camera, or an area light of tens of kilowatts a few metres from the subject. Lower the strength or move the light back.
 - Subject tiny: recompute the distance from `d = h * L / (36 * k)` with k = 0.5, or raise the lens. Check that the target is the subject and not the place origin.

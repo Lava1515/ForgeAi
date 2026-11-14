@@ -39,7 +39,7 @@ Write small helpers once and reuse them: `ease(u)` (smoothstep), `lerp3(a, b, u)
 - To make a subject of height h fill a fraction k of the frame height: `d = h * L / (36 * k)`. A 1.8 m person at half the frame height with a 35 mm lens: d = 3.5 m. A planet of radius 5 (height 10) at half the frame with a 50 mm lens: d = 27.8 m.
 - Aim the target at the subject's centre, slightly above it so the subject sits just above the middle of the frame and clear of the caption band low in the frame.
 - Lenses: 24 to 28 mm for a wide establishing view, 35 mm for most shots, 50 mm for a close view or a planet, 70 to 85 mm for a detail. Wide lenses close to a subject distort it.
-- A camera move is two poses blended with an eased `u`: `pos = lerp3(pos_a, pos_b, ease(u))`, `target = lerp3(tgt_a, tgt_b, ease(u))`. An orbit is `pos = centre + (r * sin(a), -r * cos(a), height)` with `a` going from a0 to a1 (30 to 90 degrees of arc). Check both ends and the middle of every move against the place: above the ground, inside the sky dome, outside every mesh.
+- A camera move is two poses blended with an eased `u`: `pos = lerp3(pos_a, pos_b, ease(u))`, `target = lerp3(tgt_a, tgt_b, ease(u))`. An orbit is `pos = centre + (r * sin(a), -r * cos(a), height)` with `a` going from a0 to a1 (30 to 90 degrees of arc). Check both ends and the middle of every move against the place: above the ground, inside the sky dome (the dome encloses the place), outside every solid object.
 
 ## People and creatures
 
@@ -95,7 +95,7 @@ Write small helpers once and reuse them: `ease(u)` (smoothstep), `lerp3(a, b, u)
 
 ## Before you finish, check your own script
 
-- Every shot function calls `cam.set` and the camera is outside every surface for the whole shot.
+- Every shot function calls `cam.set`, and for the whole shot the camera is above the ground, inside the sky dome and outside every solid object.
 - The subject of every shot is at the size the framing arithmetic gives, in the upper middle of the frame.
 - Every place has lights in its own collection, and no place is closer than 600 m to another.
 - Every place registered in `colls` is named exactly as the direction's place id requires.

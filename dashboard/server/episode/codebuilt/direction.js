@@ -21,6 +21,9 @@ export const MAX_PHRASE_S = 3.6;
 export const PAUSE_BREAK_S = 0.3;
 export const MIN_PLACES = 2;
 export const MAX_PLACES = 5;
+// The visual check previews at most 24 frames and every shot needs its own, plus one for the opening and one for the ending
+// (previewFrames.js): more than 22 shots could never be looked at, so a direction may not have more.
+export const MAX_DIRECTED_SHOTS = 22;
 const PLACE_ID = /^[a-z][a-z0-9]{1,15}$/;
 const FPS = 30;
 
@@ -47,9 +50,9 @@ export function phrasesOf(words, lead = 0.35) {
   if (current.length) runs.push(current);
   const split = (run) => {
     const dur = list[run.at(-1)].e - list[run[0]].s;
-    if (dur <= MAX_PHRASE_S || run.length < 4) return [run];
-    let at = Math.floor(run.length / 2); let best = -1;
-    for (let j = 2; j < run.length - 1; j += 1) {
+    if (dur <= MAX_PHRASE_S || run.length < 2) return [run];
+    let at = Math.max(1, Math.floor(run.length / 2)); let best = -1;
+    for (let j = 1; j < run.length; j += 1) {
       const gap = list[run[j]].s - list[run[j - 1]].e;
       const balance = 1 - Math.abs(j / run.length - 0.5);
       const score = gap * 4 + balance;
@@ -70,7 +73,7 @@ export function phrasesOf(words, lead = 0.35) {
 export function directedShotRange(seconds) {
   const s = Number(seconds);
   const min = Math.max(1, Math.ceil(s / MAX_DIRECTED_SHOT_S - 1e-9));
-  const max = Math.max(min, Math.floor(s / MIN_DIRECTED_SHOT_S + 1e-9));
+  const max = Math.max(min, Math.min(MAX_DIRECTED_SHOTS, Math.floor(s / MIN_DIRECTED_SHOT_S + 1e-9)));
   return { min, max, target: Math.max(min, Math.min(max, Math.round(s / TARGET_DIRECTED_SHOT_S))) };
 }
 

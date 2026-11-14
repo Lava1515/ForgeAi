@@ -302,7 +302,7 @@ export const SHOT_VARIETY_RULE = 'Shot variety: no two shots within two of each 
 export const KIT_CONTRACT = `Blender 5.x headless, offline. The kit is importable after:  import sys; sys.path.insert(0, '/kit')  then  from blender_worker.codebuilt import meshes, materials, stage, timeline, renderloop, shotcheck, mathx, figures, props; from blender_worker.codebuilt.sets import city_street (and any of globe, polar_penguin, tunnel, cutaway_planet, xray_body, room, bathroom that you use)
 READY SETS. Each module's build(origin=(x, y, z)) builds one complete lit location in its OWN new collection and returns a handles dict. What each makes, the handles it returns and camera poses that are known to frame it:
 ${SET_MANUAL_TEXT}
-Rules for sets: (1) use a set only as the place it really is; (2) call build once per place and keep the handles; h['collection'] is that place's collection: register it as colls['place-<id>'] = h['collection'] and link your own extra objects for that place into it (pass h['collection'] as the collection argument); (3) reach parts ONLY through the handles named above, never by searching bpy.data.objects by size, type or name; (4) sets are made to be seen from the -Y side: keep the camera at a smaller y than the subject and start from the tested poses (the space sets have a backdrop card and stars at y = origin.y + 45: never move the camera behind the subject); (5) hide a handle you do not want with handle.scale = (0, 0, 0) (a list handle: every item).
+Rules for sets: (1) use a set only as the place it really is; (2) call build once per place and keep the handles; h['collection'] is that place's collection: register it as colls['place-<id>'] = h['collection'] and link your own extra objects for that place into it (pass h['collection'] as the collection argument); (3) reach parts ONLY through the handles named above, never by searching bpy.data.objects by size, type or name; (4) sets are made to be seen from the -Y side: keep the camera at a smaller y than the subject and start from the tested poses (the space sets have a backdrop card and stars about 45 m behind the subject, at +Y: never move the camera behind the subject); (5) handles have different types: most are Blender objects (hide one with obj.scale = (0, 0, 0)); a person handle (city_street hero, each item of people, tunnel figure) is a figures rig dict, so move it with figures.pose and hide it with rig['root'].scale = (0, 0, 0); a list handle (cars, palms, clouds, bergs, readouts, ghost) is a list of such items; buildings is a list of (x, height) numbers, period, radii, acid_level, wall_y and the *_params are numbers, and water_verts is a function: these are data, not objects.
 PROPS for places you build yourself (all take the collection first):
 ${PROPS_MANUAL_TEXT}
 A custom place: c = meshes.coll(scene, 'place-<id>'), then at that place's own origin a props.sky (or props.stars for space), a props.ground or floor, a backdrop that reaches the horizon (props.hills, props.mountain, a row of props.building or props.tree), 4 to 8 props around the action, the subject, and lights (stage.sun 2 to 4 for daylight plus one stage.area fill; area lights of 5,000 to 20,000 W at 20 to 40 m; check exposure in the preview).
@@ -358,7 +358,7 @@ Build-step skill guidance (read-only project skills; they do not grant permissio
 ${skillGuidance}
 
 Mistakes that ruined earlier videos of this pipeline (each one happened):
-- Camera inside or behind a surface: a frame that is one flat colour. Keep the camera inside the sky dome radius, above the ground (z of at least 0.4 m over it), outside every mesh, and on the -Y side of ready sets. For an orbit, check the whole arc, not only its start.
+- Camera inside or behind a surface: a frame that is one flat colour. A sky dome encloses its place: keep the camera INSIDE the dome's radius (never beyond it), above the ground (z of at least 0.4 m over it), outside every solid object (buildings, planets, walls, rocks), and on the -Y side of ready sets. For an orbit, check the whole arc, not only its start.
 - Sizing things by guessing at a set's internals (the globe taken from a backdrop card, a pole height from the wrong object). Use the handles and the sizes written in the set manual.
 - A subject so small it is a dot, or cut by the frame edge. Aim cam.set target at the subject and choose the distance from its size: distance = subject_height / (0.5 * 36 / lens) puts it at about half the frame height.
 - A black or nearly black frame: a place with no light, or a light left in another place's collection. Every place needs its own lights.
@@ -562,8 +562,11 @@ export function validateBuildScript(code, { nframes, shotStarts, places }) {
   } else if (!dynamicName) for (let i = 0; i < shotStarts.length; i += 1) if (!new RegExp(`['"]shot-${i}['"]`).test(noComments)) why.push(`collection 'shot-${i}' is missing`);
   if (!/apply_frame\s*\(/.test(bare)) why.push('must switch shots with timeline.apply_frame');
   const sceneWeight = sceneWeightOf(bare);
-  const sceneNeeded = Math.max(9, 3 * shotStarts.length);
-  if (sceneWeight < sceneNeeded) why.push(`too little scene: ${sceneWeight} of ${sceneNeeded} needed (mesh and figure calls, 3 per set build, repeated calls of your own mesh-building helpers count too); the ${shotStarts.length} shots need topic-specific subjects and sets`);
+  // A directed build makes a few places once and its shots share them, so what must exist scales with the places, not the shots
+  // (twelve shots over three ready sets weigh 9 and were refused as "9 of 36": review of 2026-11-14).
+  const directedPlaces = Array.isArray(places) && places.length ? places.length : 0;
+  const sceneNeeded = directedPlaces ? Math.max(9, 3 * directedPlaces) : Math.max(9, 3 * shotStarts.length);
+  if (sceneWeight < sceneNeeded) why.push(`too little scene: ${sceneWeight} of ${sceneNeeded} needed (mesh, figure and props calls, 3 per set build, repeated calls of your own mesh-building helpers count too); the ${directedPlaces ? `${directedPlaces} places` : `${shotStarts.length} shots`} need topic-specific subjects and sets`);
   return why;
 }
 
