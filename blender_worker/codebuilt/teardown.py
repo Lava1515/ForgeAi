@@ -6,7 +6,7 @@ asset downloads or third-party 3D models).
 
 DISCLAIMER:
 Illustrative schematic reconstruction for educational explanation; not a maintenance,
-dimensionally exact, or operational CAD blueprint. Grounded strictly in public-source facts:
+dimensionally exact, or operational CAD blueprint. Generic illustrative mechanisms; references below are research leads, not verification:
   - USAF National Museum, Lockheed F-117A Nighthawk Fact Sheet:
     https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/
   - Lockheed Martin, F-117 Nighthawk History & Skunk Works:
@@ -26,8 +26,6 @@ Features:
 """
 from dataclasses import dataclass
 import math
-import os
-import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -55,74 +53,74 @@ URL_FAA_PHAK = "https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf"
 
 
 # ==============================================================================
-# SOURCED FACTS & TECHNICAL PRINCIPLES (Verified at Primary URLs)
+# ILLUSTRATIVE MECHANISMS (NOT VERIFIED AIRCRAFT SPECIFICATIONS)
 # ==============================================================================
 
 FACTS: Dict[str, Dict[str, str]] = {
     "radar_deflection": {
         "title": "Faceted Airframe Radar Wave Deflection",
-        "fact": "Airframe panels are built as flat planar facets angled to deflect incident radar energy away from the transmitting radar station rather than reflecting it back.",
-        "source": "USAF National Museum F-117A Fact Sheet; Lockheed Martin F-117 History",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Airframe panels are built as flat planar facets angled to deflect incident radar energy away from the transmitting radar station rather than reflecting it back.",
+        "source": "Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; Lockheed Martin F-117 History",
         "url": URL_USAF_MUSEUM,
     },
     "ram_coating": {
         "title": "Radar-Absorbent Material (RAM)",
-        "fact": "Exterior surface coating designed to absorb residual electromagnetic radar wave energy and reduce radar cross-section across operational threat bands.",
-        "source": "USAF National Museum F-117A Fact Sheet",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Exterior surface coating designed to absorb residual electromagnetic radar wave energy and reduce radar cross-section across operational threat bands.",
+        "source": "Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         "url": URL_USAF_MUSEUM,
     },
     "s_duct_intakes": {
         "title": "Serpentine S-Duct Engine Intakes",
-        "fact": "Curved serpentine duct geometry prevents direct line-of-sight view to rotating engine compressor blades, fronted by fine conductive radar grid screens.",
-        "source": "USAF National Museum F-117A Fact Sheet",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Curved serpentine duct geometry prevents direct line-of-sight view to rotating engine compressor blades, fronted by fine conductive radar grid screens.",
+        "source": "Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         "url": URL_USAF_MUSEUM,
     },
     "turbofan_engines": {
         "title": "Twin Non-Afterburning Turbofans",
-        "fact": "Powered by two General Electric F404-GE-F1D2 turbofans without afterburners, preventing afterburner infrared heat bloom and sonic shockwaves.",
-        "source": "USAF National Museum F-117A Fact Sheet",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Powered by two General Electric F404-GE-F1D2 turbofans without afterburners, shown here without an afterburner; no performance claim is implied.",
+        "source": "Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         "url": URL_USAF_MUSEUM,
     },
     "platypus_exhaust": {
         "title": "2D Platypus Heat-Shield Exhaust Nozzle",
-        "fact": "Wide, flat horizontal slit exhaust nozzle lined with heat-shield tiles; mixes cool ambient air over hot exhaust gases to reduce infrared heat signature.",
-        "source": "Lockheed Martin F-117 History",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Wide, flat horizontal slit exhaust nozzle lined with heat-shield tiles; mixes cool ambient air over hot exhaust gases to reduce infrared heat signature.",
+        "source": "Unverified research lead only; does not substantiate this model detail: Lockheed Martin F-117 History",
         "url": URL_LOCKHEED_HISTORY,
     },
     "internal_weapons": {
         "title": "Internal Weapons Bay & Trapeze Mechanism",
-        "fact": "Weapons are carried internally within enclosed bays to preserve low radar cross-section; hydraulic trapezes extend munitions into the airstream before release.",
-        "source": "USAF National Museum F-117A Fact Sheet",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Weapons are carried internally within enclosed bays to preserve low radar cross-section; hydraulic trapezes extend munitions into the airstream before release.",
+        "source": "Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         "url": URL_USAF_MUSEUM,
     },
     "fly_by_wire": {
         "title": "Digital Fly-By-Wire Flight Control System",
-        "fact": "Digital flight control computers provide continuous artificial stabilization corrections to control an inherently aerodynamically unstable faceted airframe.",
-        "source": "Lockheed Martin F-117 History",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Digital flight control computers provide continuous artificial stabilization corrections to control an inherently aerodynamically unstable faceted airframe.",
+        "source": "Unverified research lead only; does not substantiate this model detail: Lockheed Martin F-117 History",
         "url": URL_LOCKHEED_HISTORY,
     },
     "canted_vtail": {
         "title": "Canted All-Moving V-Tail Ruddervators",
-        "fact": "Twin vertical stabilizers canted outward avoid 90-degree corner reflectors that would create strong radar returns, while providing combined pitch and yaw control.",
-        "source": "USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Twin vertical stabilizers canted outward avoid 90-degree corner reflectors that would create strong radar returns, while providing combined pitch and yaw control.",
+        "source": "Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
         "url": URL_USAF_MUSEUM,
     },
     "canopy_coating": {
         "title": "Conductive Coated Cockpit Canopy",
-        "fact": "Transparent conductive coating on the canopy glass prevents radar waves from penetrating into the cockpit cavity and reflecting off interior equipment.",
-        "source": "USAF National Museum F-117A Fact Sheet",
+        "fact": "Illustrative mechanism, not a verified F-117 specification: Transparent conductive coating on the canopy glass prevents radar waves from penetrating into the cockpit cavity and reflecting off interior equipment.",
+        "source": "Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         "url": URL_USAF_MUSEUM,
     },
 }
 
 
 # ==============================================================================
-# PART SPECIFICATIONS & PRIMARY SOURCING
+# ILLUSTRATIVE PART SPECIFICATIONS & RESEARCH LEADS
 # ==============================================================================
 
 @dataclass(frozen=True)
 class PartSpec:
-    """Specification and primary-source verified metadata for a teardown component."""
+    """Illustrative specification and unverified reference metadata for a teardown component."""
     id: str
     name: str
     subsystem: str
@@ -144,8 +142,8 @@ PARTS: Dict[str, PartSpec] = {
         id="fuselage_upper",
         name="Faceted Upper Airframe Shell",
         subsystem="airframe",
-        function="Sloped planar composite facets reflecting radar beams away from transmitting radars.",
-        source="USAF National Museum F-117A Fact Sheet; Lockheed Martin F-117 History",
+        function="Illustrative model function, not a verified F-117 specification: Sloped planar composite facets reflecting radar beams away from transmitting radars.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; Lockheed Martin F-117 History",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, 3.2),
         base_loc=(0.0, 0.0, 0.0),
@@ -157,8 +155,8 @@ PARTS: Dict[str, PartSpec] = {
         id="fuselage_lower",
         name="Faceted Lower Hull & Belly",
         subsystem="airframe",
-        function="Ventral faceted hull enclosing the payload bay and maintaining low observable lines against ground radar.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Ventral faceted hull enclosing the payload bay and maintaining low observable lines against ground radar.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, -2.6),
         base_loc=(0.0, 0.0, 0.0),
@@ -170,8 +168,8 @@ PARTS: Dict[str, PartSpec] = {
         id="ram_coating",
         name="Radar-Absorbent Material (RAM) Coating",
         subsystem="stealth",
-        function="Surface coating attenuating residual electromagnetic radar wave reflections.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Surface coating attenuating residual electromagnetic radar wave reflections.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.5, 4.2),
         base_loc=(0.0, 0.0, 0.05),
@@ -183,8 +181,8 @@ PARTS: Dict[str, PartSpec] = {
         id="canopy",
         name="Conductive-Coated Faceted Canopy",
         subsystem="cockpit",
-        function="Faceted canopy with conductive film preventing radar energy from entering the cockpit cavity.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Faceted canopy with conductive film preventing radar energy from entering the cockpit cavity.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 1.6, 2.5),
         base_loc=(0.0, 1.85, 0.85),
@@ -198,8 +196,8 @@ PARTS: Dict[str, PartSpec] = {
         id="cockpit_interior",
         name="Cockpit Station & ACES II Ejection Seat",
         subsystem="cockpit",
-        function="Single-crew cockpit station with ACES II zero-zero rocket ejection seat and primary flight instruments.",
-        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        function="Illustrative model function, not a verified F-117 specification: Single-crew cockpit station with ACES II zero-zero rocket ejection seat and primary flight instruments.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.5, 1.5),
         base_loc=(0.0, 1.7, 0.4),
@@ -211,8 +209,8 @@ PARTS: Dict[str, PartSpec] = {
         id="avionics_bay",
         name="Fly-By-Wire Flight Control Computers",
         subsystem="avionics",
-        function="Redundant digital flight control computers providing artificial stabilization corrections.",
-        source="Lockheed Martin F-117 History",
+        function="Illustrative model function, not a verified F-117 specification: Redundant digital flight control computers providing artificial stabilization corrections.",
+        source="Unverified research lead only; does not substantiate this model detail: Lockheed Martin F-117 History",
         source_url=URL_LOCKHEED_HISTORY,
         explode_vec=(0.0, 2.8, 1.1),
         base_loc=(0.0, 3.2, 0.15),
@@ -225,8 +223,8 @@ PARTS: Dict[str, PartSpec] = {
         id="sensor_flir",
         name="Optical Target Sensor (FLIR Turret)",
         subsystem="avionics",
-        function="Passive infrared thermal imaging and laser target designation sensor recessed behind a fine screen.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Passive infrared thermal imaging and laser target designation sensor recessed behind a fine screen.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 3.6, -0.4),
         base_loc=(0.0, 4.0, 0.0),
@@ -239,8 +237,8 @@ PARTS: Dict[str, PartSpec] = {
         id="engine_left",
         name="Port Turbofan Engine (F404-GE-F1D2 Derivative)",
         subsystem="propulsion",
-        function="Low-bypass non-afterburning turbofan engine delivering subsonic thrust without afterburner heat bloom.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Low-bypass non-afterburning turbofan engine delivering subsonic thrust without afterburner heat bloom.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-2.4, -1.8, 0.3),
         base_loc=(-0.9, -1.2, 0.1),
@@ -253,8 +251,8 @@ PARTS: Dict[str, PartSpec] = {
         id="engine_right",
         name="Starboard Turbofan Engine (F404-GE-F1D2 Derivative)",
         subsystem="propulsion",
-        function="Low-bypass non-afterburning turbofan engine delivering subsonic thrust without afterburner heat bloom.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Low-bypass non-afterburning turbofan engine delivering subsonic thrust without afterburner heat bloom.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(2.4, -1.8, 0.3),
         base_loc=(0.9, -1.2, 0.1),
@@ -267,8 +265,8 @@ PARTS: Dict[str, PartSpec] = {
         id="intake_left",
         name="Port S-Duct Intake & Radar Grid Screen",
         subsystem="propulsion",
-        function="Curved serpentine air duct concealing compressor blades, fronted by a conductive radar-absorbent grid screen.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Curved serpentine air duct concealing compressor blades, fronted by a conductive radar-absorbent grid screen.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-2.0, 1.2, 0.7),
         base_loc=(-1.1, 0.6, 0.25),
@@ -280,8 +278,8 @@ PARTS: Dict[str, PartSpec] = {
         id="intake_right",
         name="Starboard S-Duct Intake & Radar Grid Screen",
         subsystem="propulsion",
-        function="Curved serpentine air duct concealing compressor blades, fronted by a conductive radar-absorbent grid screen.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Curved serpentine air duct concealing compressor blades, fronted by a conductive radar-absorbent grid screen.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(2.0, 1.2, 0.7),
         base_loc=(1.1, 0.6, 0.25),
@@ -293,8 +291,8 @@ PARTS: Dict[str, PartSpec] = {
         id="exhaust_nozzle",
         name="2D Platypus Exhaust Nozzle & Heat Shield",
         subsystem="propulsion",
-        function="Flat horizontal slit exhaust nozzle lined with heat-shield tiles; mixes bypass air to suppress infrared signature.",
-        source="Lockheed Martin F-117 History",
+        function="Illustrative model function, not a verified F-117 specification: Flat horizontal slit exhaust nozzle lined with heat-shield tiles; mixes bypass air to suppress infrared signature.",
+        source="Unverified research lead only; does not substantiate this model detail: Lockheed Martin F-117 History",
         source_url=URL_LOCKHEED_HISTORY,
         explode_vec=(0.0, -4.2, 0.0),
         base_loc=(0.0, -3.8, 0.2),
@@ -306,8 +304,8 @@ PARTS: Dict[str, PartSpec] = {
         id="weapons_bay",
         name="Internal Dual Weapons Bay",
         subsystem="payload",
-        function="Divided central internal weapons cavity keeping munitions enclosed within the airframe.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Divided central internal weapons cavity keeping munitions enclosed within the airframe.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, -1.2),
         base_loc=(0.0, -0.4, -0.2),
@@ -319,8 +317,8 @@ PARTS: Dict[str, PartSpec] = {
         id="bay_door_left",
         name="Port Serrated Weapons Bay Door",
         subsystem="payload",
-        function="Structural door with sawtooth edge serrations channeling diffracted radar reflections away from threat sectors.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Structural door with sawtooth edge serrations channeling diffracted radar reflections away from threat sectors.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-1.8, -0.2, -1.8),
         base_loc=(-0.65, -0.4, -0.45),
@@ -332,8 +330,8 @@ PARTS: Dict[str, PartSpec] = {
         id="bay_door_right",
         name="Starboard Serrated Weapons Bay Door",
         subsystem="payload",
-        function="Structural door with sawtooth edge serrations channeling diffracted radar reflections away from threat sectors.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Structural door with sawtooth edge serrations channeling diffracted radar reflections away from threat sectors.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(1.8, -0.2, -1.8),
         base_loc=(0.65, -0.4, -0.45),
@@ -345,8 +343,8 @@ PARTS: Dict[str, PartSpec] = {
         id="weapon_rack_left",
         name="Port Trapeze Weapon Rack",
         subsystem="payload",
-        function="Articulating hydraulic trapeze extending the bomb into the free airstream before release.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Articulating hydraulic trapeze extending the bomb into the free airstream before release.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-0.8, -0.2, -2.5),
         base_loc=(-0.55, -0.4, -0.2),
@@ -359,8 +357,8 @@ PARTS: Dict[str, PartSpec] = {
         id="weapon_rack_right",
         name="Starboard Trapeze Weapon Rack",
         subsystem="payload",
-        function="Articulating hydraulic trapeze extending the bomb into the free airstream before release.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Articulating hydraulic trapeze extending the bomb into the free airstream before release.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.8, -0.2, -2.5),
         base_loc=(0.55, -0.4, -0.2),
@@ -373,8 +371,8 @@ PARTS: Dict[str, PartSpec] = {
         id="ordnance_left",
         name="Port Guided Bomb (GBU-27 Derivative)",
         subsystem="payload",
-        function="Precision-guided penetrator bomb with laser seeker nose and airfoil guidance fins.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Precision-guided penetrator bomb with laser seeker nose and airfoil guidance fins.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-0.8, -0.2, -3.4),
         base_loc=(-0.55, -0.4, -0.55),
@@ -386,8 +384,8 @@ PARTS: Dict[str, PartSpec] = {
         id="ordnance_right",
         name="Starboard Guided Bomb (GBU-27 Derivative)",
         subsystem="payload",
-        function="Precision-guided penetrator bomb with laser seeker nose and airfoil guidance fins.",
-        source="USAF National Museum F-117A Fact Sheet",
+        function="Illustrative model function, not a verified F-117 specification: Precision-guided penetrator bomb with laser seeker nose and airfoil guidance fins.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.8, -0.2, -3.4),
         base_loc=(0.55, -0.4, -0.55),
@@ -399,8 +397,8 @@ PARTS: Dict[str, PartSpec] = {
         id="wing_left",
         name="Port Swept Faceted Wing & Elevons",
         subsystem="aerodynamics",
-        function="Highly swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
-        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        function="Illustrative model function, not a verified F-117 specification: Highly swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-4.2, -1.0, 0.3),
         base_loc=(-2.2, -1.1, 0.1),
@@ -412,8 +410,8 @@ PARTS: Dict[str, PartSpec] = {
         id="wing_right",
         name="Starboard Swept Faceted Wing & Elevons",
         subsystem="aerodynamics",
-        function="Highly swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
-        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        function="Illustrative model function, not a verified F-117 specification: Highly swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(4.2, -1.0, 0.3),
         base_loc=(2.2, -1.1, 0.1),
@@ -425,8 +423,8 @@ PARTS: Dict[str, PartSpec] = {
         id="vtail_left",
         name="Port Canted All-Moving V-Tail Ruddervator",
         subsystem="aerodynamics",
-        function="All-moving vertical stabilizer canted outward; prevents 90-degree corner radar reflection traps.",
-        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        function="Illustrative model function, not a verified F-117 specification: All-moving vertical stabilizer canted outward; prevents 90-degree corner radar reflection traps.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-2.2, -3.6, 2.2),
         base_loc=(-1.1, -3.6, 0.5),
@@ -438,8 +436,8 @@ PARTS: Dict[str, PartSpec] = {
         id="vtail_right",
         name="Starboard Canted All-Moving V-Tail Ruddervator",
         subsystem="aerodynamics",
-        function="All-moving vertical stabilizer canted outward; prevents 90-degree corner radar reflection traps.",
-        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        function="Illustrative model function, not a verified F-117 specification: All-moving vertical stabilizer canted outward; prevents 90-degree corner radar reflection traps.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(2.2, -3.6, 2.2),
         base_loc=(1.1, -3.6, 0.5),
@@ -451,8 +449,8 @@ PARTS: Dict[str, PartSpec] = {
         id="landing_gear",
         name="Retractable Tricycle Landing Gear",
         subsystem="airframe",
-        function="Oleo-pneumatic shock struts and wheels retracting flush into fuselage wells behind doors during flight.",
-        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        function="Illustrative model function, not a verified F-117 specification: Oleo-pneumatic shock struts and wheels retracting flush into fuselage wells behind doors during flight.",
+        source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, -3.2),
         base_loc=(0.0, 0.2, -0.6),
@@ -1230,8 +1228,8 @@ CAMERA_POSES: Dict[str, Dict[str, Any]] = {
         "description": "Rear 3/4 view focusing on twin turbofans and 2D platypus heat-shield nozzle.",
     },
     "weapons_bay_low": {
-        "pos": (3.0, -4.5, -4.5),
-        "target": (0.0, -0.5, -1.0),
+        "pos": (3.0, -4.5, 1.5),
+        "target": (0.0, -0.5, 0.5),
         "lens": 40,
         "description": "Low dramatic angle looking up into the open serrated bay and lowered trapeze bomb racks.",
     },
@@ -1249,7 +1247,7 @@ CAMERA_POSES: Dict[str, Dict[str, Any]] = {
 # ==============================================================================
 
 def catalog() -> List[Dict[str, Any]]:
-    """Returns a list of all part records with their sourced technical metadata and primary URLs."""
+    """Returns illustrative part metadata with unverified research leads."""
     return [
         {
             "id": p.id,
@@ -1270,7 +1268,7 @@ def subsystems() -> List[str]:
 
 
 def facts(key: Optional[str] = None) -> Any:
-    """Returns primary-sourced facts for script writing and fact-checking."""
+    """Returns illustrative mechanism notes; independently verify every narration claim."""
     if key:
         return FACTS.get(key)
     return FACTS
@@ -1342,4 +1340,4 @@ if __name__ == "__main__":
     print(f"Self-checks passed: {passed}")
     print(f"Total parts: {len(PARTS)}")
     print(f"Total vertices: {total_v}, Total faces: {total_f}")
-    print(f"Primary sources checked: USAF Museum, Lockheed Martin, FAA PHAK")
+    print("Geometry checks only; aircraft-specific source claims remain unverified.")

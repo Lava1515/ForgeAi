@@ -766,6 +766,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       // The batch's validated genre/theme/type travel with the job to the script, the fact check and the planner. A malformed value is refused, never dropped.
       let choices = null;
       if (batch && internal.choices !== undefined) { try { choices = normalizeProductionChoices(internal.choices); } catch { throw new StartError('bad_request'); } }
+      const type = typeof input?.type === 'string' ? input.type.trim().toLowerCase() : choices?.type;
       const id = newId();
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),

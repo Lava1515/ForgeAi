@@ -1,16 +1,16 @@
 ---
 name: codebuilt-teardown
-description: How to use the teardown kit (stylized stealth jet how-it-works, procedural disassembly, sourced part names, exploded views, X-ray cutaway, subsystem highlights, and camera framing) in a code-built explainer short. Loaded by topic at the direction and build steps.
+description: How to use the teardown kit (stylized stealth jet how-it-works, procedural disassembly, illustrative part names, exploded views, X-ray cutaway, subsystem highlights, and camera framing) in a code-built explainer short. Loaded by topic at the direction and build steps.
 ---
 
 # Code-built teardown: stylized stealth jet
 
-Topic kit for "how it works" engineering explainer shorts. Features a stylized stealth jet built entirely from procedural shapes (no downloaded models or external assets). Every part name, subsystem role, and physical principle is sourced from verified primary public aerospace archives.
+Topic kit for "how it works" engineering explainer shorts. Features a stylized stealth jet built entirely from procedural shapes (no downloaded models or external assets). The parts are illustrative design choices, not verified F-117 specifications. Do not narrate their names or mechanisms as facts about a real aircraft without independent source verification.
 
 > **Illustrative reconstruction disclaimer:**
 > Illustrative schematic reconstruction for educational and how-it-works explanation; not dimensionally exact, operational, or maintenance CAD geometry. Do not copy protected diagrams, marks, or proprietary geometry.
 
-Primary source references verified at the source:
+Research leads only. The USAF page was inaccessible during review; the Lockheed page supports faceted panels and radar-absorbent coating only. The FAA handbook describes generic aircraft systems. These links do not verify this model’s detailed mechanisms:
 - USAF National Museum, *Lockheed F-117A Nighthawk Fact Sheet*:
   <https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/>
 - Lockheed Martin, *F-117 Nighthawk History & Skunk Works*:
@@ -37,11 +37,11 @@ jet = teardown.build(c, origin=(x, y, z), scale=1.0)
 
 `teardown.build` returns a `StealthJet` instance controlling 17+ distinct subsystems organized as child objects under a root empty. All parts are centered around the aircraft datum (length ~14 m, wingspan ~10 m, height ~3 m).
 
-## Sourced parts & technical facts
+## Illustrative parts and mechanism notes
 
-Every part in the model corresponds to an official aerospace subsystem verified against primary public documentation:
+Every row below describes this illustrative model, not a verified real aircraft. Specific engine, seat, weapon, duct, tail, canopy, nozzle and control-system details remain unverified. Source links are research leads only and must not be presented as supporting those details:
 
-| Part ID | Sourced part name | Subsystem | Engineering function & physical principle | Primary source URL |
+| Part ID | Illustrative part name | Subsystem | Engineering function & physical principle | Unverified research lead |
 |---|---|---|---|---|
 | `fuselage_upper` | Faceted Upper Airframe Shell | `airframe` | Sloped planar composite facets reflecting radar beams away from transmitting radars. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
 | `fuselage_lower` | Faceted Lower Hull & Belly | `airframe` | Ventral faceted hull enclosing the payload bay and maintaining low observable lines against ground radar. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
@@ -61,7 +61,7 @@ Every part in the model corresponds to an official aerospace subsystem verified 
 | `vtail_left` / `vtail_right` | Canted All-Moving V-Tail Ruddervators | `aerodynamics` | All-moving vertical stabilizers canted outward; prevents 90-degree corner radar reflection traps. | [FAA PHAK Ch. 7](https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf) |
 | `landing_gear` | Retractable Tricycle Landing Gear | `airframe` | Oleo-pneumatic shock struts and wheels retracting flush into fuselage wells behind doors during flight. | [FAA PHAK Ch. 7](https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf) |
 
-For narration scripts, query verified facts directly:
+For model design, query illustrative notes. Never treat this return value as verified narration evidence:
 ```python
 fact_dict = teardown.facts("radar_deflection")  # or facts("turbofan_engines")
 ```
@@ -75,7 +75,7 @@ Disassembly is posed as a pure function of time `t` (0.0 = fully assembled, 1.0 
 jet.pose(t, mode="exploded", stagger=True)
 ```
 
-With `stagger=True` (default), the teardown follows a realistic 3-phase engineering disassembly:
+With `stagger=True` (default), the teardown follows a illustrative 3-phase separation:
 1. **Phase 1 (t = 0.0 to 0.45):** Outer airframe shell lifts up, lower hull drops down, canopy opens upward, and bay doors swing open 55 degrees.
 2. **Phase 2 (t = 0.25 to 0.75):** Internal subsystems separate laterally—turbofan engines slide out, S-duct intakes pull outward, platypus nozzle slides aft, and fly-by-wire avionics rack glides forward.
 3. **Phase 3 (t = 0.45 to 1.0):** Hydraulic trapeze racks extend downward out of the weapons bay, guided bombs lower, and landing gear deploys.
@@ -119,9 +119,9 @@ jet.callout("platypus_exhaust", "PLATYPUS 2D NOZZLE: IR SUPPRESSION")
 
 Place callouts only during the shot in which the narration names that part. Show at most one callout banner at a time; remove or hide it when transitioning to the next beat.
 
-## Tested camera poses for vertical 1080x1920
+## Suggested camera poses for vertical 1080x1920
 
-Vertical 1080x1920 frame requires steep perspective and generous vertical clearance so exploded pieces do not clip off-screen. Tested poses:
+Vertical 1080x1920 frame requires steep perspective and generous vertical clearance so exploded pieces do not clip off-screen. Suggested poses; verify visibility and framing in preview:
 
 ```python
 from blender_worker.codebuilt.teardown import CAMERA_POSES
@@ -136,7 +136,7 @@ cam.set(pos=(2.2, 5.5, 4.0), target=(0.0, 2.0, 1.5), lens=50)
 cam.set(pos=(-3.5, -10.0, 3.5), target=(0.0, -2.5, 0.5), lens=45)
 
 # 4. Low dramatic angle looking up into the serrated weapons bay and lowered bombs:
-cam.set(pos=(3.0, -4.5, -4.5), target=(0.0, -0.5, -1.0), lens=40)
+cam.set(pos=(3.0, -4.5, 1.5), target=(0.0, -0.5, 0.5), lens=40)
 
 # 5. Direct head-on view of the radar-deflecting faceted nose angles:
 cam.set(pos=(0.0, 12.0, 2.5), target=(0.0, 2.0, 0.5), lens=45)
@@ -151,10 +151,12 @@ A strong 30–45 second teardown explainer short follows this structure:
 3. **Shot 3 (8 to 14 s, Stealth Shaping & RAM):** Close on faceted skin and canopy (`facets_stealth`). `jet.highlight("stealth")`. Explains why flat angles reflect radar away from the emitter, and how the RAM coating absorbs remaining waves.
 4. **Shot 4 (14 to 20 s, S-Duct & Engines):** Camera tracks to rear (`propulsion_rear`). `jet.highlight("propulsion")`. Shows S-duct curves hiding the spinning fan blades, and the flat platypus nozzle cooling the exhaust gas.
 5. **Shot 5 (20 to 26 s, Internal Weapons Bay):** Low upward camera (`weapons_bay_low`). Bay doors open, trapezes lower the laser-guided bombs. Explains why carrying bombs externally would create huge radar returns.
-6. **Shot 6 (26 to 32 s, Fly-By-Wire & Payoff):** Close-up on cockpit and avionics (`cockpit_avionics`). Explains how digital computers stabilize the faceted plane continuously. Aircraft reassembles smoothly (`t` goes 1.0 → 0.0) as the video loops.
+6. **Shot 6 (26 to 32 s, Fly-By-Wire & Payoff):** Close-up on cockpit and avionics (`cockpit_avionics`). Explains how digital computers stabilize the faceted plane continuously. Aircraft reassembles smoothly (`t` goes 1.0 → 0.0) for the closing payoff.
 
 ## Rules & constraints
 
 - **No external downloads:** Built 100% from procedural NumPy/Blender meshes.
 - **Keep subject above captions:** Keep the main action in the upper 60% of the frame; captions sit low in the bottom 25%.
-- **Render cost:** The complete model has 24 parts, 937 vertices, and 1,134 faces—extremely fast to render in Blender EEVEE and Cycles (under 1 second per frame).
+- **Render cost:** The complete model has 24 parts, 937 vertices, and 1,134 faces—extremely fast to render in Blender EEVEE and Cycles (render time depends on the scene and hardware).
+
+Narration constraint: the example shot beats above illustrate generic mechanisms only. Never infer a real F-117 configuration from this geometry. Fact-check every specific assertion independently; omit unsupported details.
