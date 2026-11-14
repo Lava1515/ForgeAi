@@ -80,13 +80,15 @@ FLAT_STD = 0.025      # luma standard deviation below this AND
 FLAT_RANGE = 0.12     # brightest minus darkest pixel below this: one flat colour (camera inside a wall, sky dome or plate; or nothing lit).
                       # The range is what tells a flat surface from a sparse star field, whose spread is just as low (review of 2026-11-14:
                       # frame 1756 of job mwfoupp9-07ab7d-pv5, stars on black, spread 0.006).
+PLAIN_STD = 0.045     # spread below this without being flat: nearly one colour, worth a second look
 DARK_MEAN = 0.05      # mean luma below this: almost black
 BLOWN_SHARE = 0.25    # more than this share of pixels at luma 0.97 or above: blown out
 
 
 def frame_stats(im):
     """Measured facts about one preview frame, for the look prompt: mean luma and its spread (0..1), the share of blown pixels and
-    a flag: 'flat' (a single flat colour, the mark of a camera inside or against a surface), 'dark', 'blown' or None."""
+    a flag: 'flat' (a single flat colour, the mark of a camera inside or against a surface), 'dark', 'blown', 'plain' (nearly one
+    colour, advisory) or None."""
     grey = im.convert("L")
     px = list(grey.getdata())            # at tile size, not downsampled: small stars and thin lines must survive
     n = len(px)
@@ -96,7 +98,10 @@ def frame_stats(im):
     ordered = sorted(px)
     k = max(1, n // 20000)               # ignore the 0.005 percent most extreme pixels at each end (a hot pixel or two), no more: stars are few
     spread_range = (ordered[-k] - ordered[k - 1]) / 255.0
-    flag = "flat" if std < FLAT_STD and spread_range < FLAT_RANGE else "dark" if mean < DARK_MEAN else "blown" if blown > BLOWN_SHARE else None
+    # 'plain' is advisory: almost one colour but with something in it (a readout on a wall, a soft gradient). The numbers cannot
+    # tell that from a legitimate quiet frame, so the reviewer is asked to look; only 'flat' blocks a pass.
+    flag = ("flat" if std < FLAT_STD and spread_range < FLAT_RANGE else "dark" if mean < DARK_MEAN
+            else "blown" if blown > BLOWN_SHARE else "plain" if std < PLAIN_STD else None)
     return {"luma": round(mean, 3), "spread": round(std, 3), "range": round(spread_range, 3), "blown": round(blown, 3), "flag": flag}
 
 
