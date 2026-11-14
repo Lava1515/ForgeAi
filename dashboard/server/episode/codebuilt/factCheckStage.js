@@ -50,8 +50,16 @@ export function createFactCheckStage({ runFacts = runFactsStage, searchFn = crea
     const falseClaims = Array.isArray(facts.false_claims) ? facts.false_claims.length : 0;
     const uncertain = Array.isArray(facts.uncertain_claims) ? facts.uncertain_claims.length : 0;
     const reasons = Array.isArray(facts.reasons) ? facts.reasons.length : 0;
+    // The topic line is sent along as a "title" claim, but the search is asked only about the script's sentences, so that claim always came back
+    // uncertain and blocked every video whose topic holds a number (2026-11-14, job mwgkw47j-14a6e1: all 8 sentences supported, video blocked).
+    // The topic is not spoken or shown; when every sentence is supported and nothing is contradicted, an unanswered title claim does not block.
+    const lineClaims = Array.isArray(facts.claims) ? facts.claims : [];
+    const titleOnly = result?.verified !== true && falseClaims === 0 && lineClaims.length > 0 && lineClaims.every((x) => x?.verdict === 'supported')
+      && Array.isArray(facts.uncertain_claims) && facts.uncertain_claims.length > 0 && facts.uncertain_claims.every((x) => x?.source === 'title')
+      && (facts.reasons ?? []).every((r) => /^title:/.test(String(r)));
+    if (titleOnly) { facts.title_unchecked = true; facts.status = 'verified'; facts.verified = true; facts.blocked = false; }
     return {
-      verified: result?.verified === true && result?.blocked !== true,
+      verified: titleOnly || (result?.verified === true && result?.blocked !== true),
       summary: { search_only_claims: (Array.isArray(facts.claims) ? facts.claims : []).filter((x) => x?.verdict === 'supported' && Array.isArray(x.sources) && x.sources.length && x.sources.every((src) => src?.validated === 'search_only')).length, false_claims: falseClaims, uncertain_claims: uncertain, other_reasons: Math.max(0, reasons - falseClaims - uncertain), claims: Array.isArray(facts.claims) ? facts.claims.length : lines.length },
       facts,
     };
