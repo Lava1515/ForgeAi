@@ -784,7 +784,11 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
         ...(batch ? { factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : internal.contentMode === 'history' ? 'history' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
-      if (type === 'history') { rec.contentMode = 'history'; rec.factCheck = true; }
+      if (type === 'history') {
+        rec.contentMode = 'history';
+        rec.factCheck = true;
+        rec.choices = { genre: choices?.genre ?? null, theme: choices?.theme ?? null, type: 'history' };
+      }
       if (type === 'loop') { rec.contentMode = 'loop'; rec.factCheck = false; rec.loop_idea = input.loop_idea ?? ''; rec.choices = { genre: choices?.genre ?? null, theme: choices?.theme ?? null, type: 'loop' }; }
       save(rec);
       live.set(id, { rec, controller: new AbortController() });
