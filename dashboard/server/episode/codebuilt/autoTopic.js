@@ -72,7 +72,7 @@ function profilePrompt({ genre, theme, type, inspiration, previousTopics, profil
     `Genre: ${JSON.stringify(genre)}; theme: ${JSON.stringify(theme)}; inspiration: ${JSON.stringify(inspiration)}`,
     `Already made or chosen, do not repeat subject or title wording: ${JSON.stringify(previousTopics.slice(-20))}`,
     'Each title must name one concrete subject with a stake, be a full question or claim in 6 to 10 words, no hashtags or lists. State a visible payoff and a one-sentence answer. Avoid every phrase in the profile avoid list. Write in the profile language.',
-    'Reply with one JSON object: {"candidates":[{"topic":"...","title":"...","subject":"one named thing","stake":"what is at stake","answer":"one sentence","hook":"...","payoff":"visible resolution","loop_idea":"...","shots":1,"facts":[{"value":1,"source":"..."}],"tags":[]}]} . For narrated types shots is [{"visual":"...","location":"..."}], not an integer.',
+    `Narrated ${type}: ${type === 'whatif' ? 'a What if question' : type === 'history' ? 'a question or claim about a real historical period with documented people, places and sourced dates, never What if' : 'a factual question or claim, never What if'}. Include at least 3 facts with numeric value (a year counts) and source, and 7 to 9 visually different shots in at least 3 locations.`,
     'Reply with one JSON object: {"candidates":[{"topic":"...","title":"...","subject":"one named thing","stake":"what is at stake","answer":"one sentence","hook":"...","payoff":"visible resolution","facts":[{"value":1,"source":"..."}],"tags":[]}]} . shots is [{"visual":"...","location":"..."}].',
   ].filter(Boolean).join('\n');
 }

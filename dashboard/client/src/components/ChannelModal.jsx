@@ -211,10 +211,7 @@ export default function ChannelModal({
       return;
     }
     const trimmedNiche = niche.trim().slice(0, 200);
-<<<<<<< HEAD
-=======
     const selectedFormat = 'narrated';
->>>>>>> 142f5ec
     const trimmedLanguage = language.trim() || 'en';
     const avoidPhrases = avoid
       .split('\n')
@@ -438,14 +435,11 @@ export default function ChannelModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-<<<<<<< HEAD
-=======
                   <label className="block text-xs font-medium text-ink-300 mb-1.5">Format</label>
                   <div className="px-3.5 py-2.5 bg-ink-950 border border-ink-800 rounded-xl text-sm text-ink-100">Narrated</div>
                 </div>
 
                 <div>
->>>>>>> 142f5ec
                   <label className="block text-xs font-medium text-ink-300 mb-1.5">Language</label>
                   <input
                     type="text"

@@ -97,13 +97,10 @@ export function runFormProblem({ count = 1, topic, type, channels, channelId = '
   if (typed && type === 'whatif' && !isWhatIfTopic(typed)) return 'The video type is What if, so the topic must be a "What if ...?" question.';
   if (typed && type === 'factual' && isWhatIfTopic(typed)) return 'The video type is Factual, but the topic is a "What if ...?" question. Set the type to What if or Auto.';
   if (typed && type === 'history' && isWhatIfTopic(typed)) return 'The video type is History, but the topic is a "What if ...?" question. Set the type to What if or Auto.';
-<<<<<<< HEAD
-=======
   if (channels !== undefined) {
     const assignment = resolveChannelForType({ channels, channelId, type });
     if (assignment.error) return assignment.error;
   }
->>>>>>> 142f5ec
   return null;
 }
 
@@ -195,7 +192,12 @@ export default function CodebuiltStart() {
   const [channelId, setChannelId] = useState('');
   const [channelsLoaded, setChannelsLoaded] = useState(false);
   const [channelLoadError, setChannelLoadError] = useState('');
-  const [voice, setVoice] = useState('Auto');
+  const [voice, setVoice] = useState(() => {
+    try {
+      const preferred = localStorage.getItem('forgeai_preferred_voice');
+      return CODEBUILT_VOICES.includes(preferred) ? preferred : 'Auto';
+    } catch { return 'Auto'; }
+  });
   const [job, setJob] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [run, setRun] = useState(null);

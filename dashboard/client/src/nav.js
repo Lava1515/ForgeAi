@@ -1,4 +1,4 @@
-import { Clapperboard, Layers, BarChart3 } from 'lucide-react';
+import { Clapperboard, Layers, BarChart3, Mic } from 'lucide-react';
 
 // Sidebar entries (hosts). Each section id is a persisted tab id (sessionStorage app.activeTab, #/<id> hash):
 // never rename an id, only labels.
@@ -16,6 +16,7 @@ export const NAV_ITEMS = [
       { id: 'growth', label: 'Growth' },
     ],
   },
+  { id: 'voices', label: 'Voices', icon: Mic, sections: [] },
 ];
 
 export const DEFAULT_TAB = 'newvideo';
@@ -36,7 +37,15 @@ export const navSectionsOf = (hostId) => NAV_ITEMS.find((item) => item.id === ho
 
 export const resolveNavHash = (hash) => {
   const route = String(hash || '').replace(/^#\/?/, '').replace(/\/$/, '').split(/[/?#]/, 1)[0].toLowerCase();
-  const aliases = { 'new-video': 'newvideo', new: 'newvideo', channels: 'channel', library: 'products', videos: 'products' };
+  const aliases = {
+    'new-video': 'newvideo',
+    new: 'newvideo',
+    channels: 'channel',
+    library: 'products',
+    videos: 'products',
+    voice: 'voices',
+    qwen: 'voices',
+  };
   const id = aliases[route] || route;
   return isNavId(id) ? id : DEFAULT_TAB;
 };

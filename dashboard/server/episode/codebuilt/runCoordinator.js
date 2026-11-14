@@ -103,8 +103,6 @@ export function checkRunRequest(input) {
   if (buildModel === 'Codex Sol') throw new RunError('build_model_unavailable', 422);
   if (input.channelId !== undefined && (typeof input.channelId !== 'string' || !input.channelId || input.channelId.length > 80)) throw new RunError('bad_request');
   return { count, genre, theme, topic, type, voice, duration, buildModel, channelId: input.channelId };
-<<<<<<< HEAD
-=======
 }
 
 function requestedChannelTypes(type) {
@@ -128,7 +126,6 @@ function withoutLegacyLoopDefault(channel) {
   return channel?.profile?.format === 'loop'
     ? { ...channel, profile: { ...channel.profile, format: 'narrated' } }
     : channel;
->>>>>>> 142f5ec
 }
 
 const publicError = (e) => (e ? { code: e.code, message: e.message, ...(e.stage ? { stage: e.stage } : {}) } : null);
@@ -354,11 +351,7 @@ export function createCodebuiltRunCoordinator({
       if (!RUN_ID.test(id)) throw new RunError('internal', 500);
       const choices = { count: req.count, genre: req.genre ?? 'Auto', theme: req.theme ?? 'Auto', topic: req.topic ?? 'Auto', type: req.type ?? 'Auto', voice: req.voice ?? 'Auto', duration: req.duration ?? 'Auto', buildModel: req.buildModel };
       const rec = {
-<<<<<<< HEAD
-        version: RUN_VERSION, id, status: 'queued', count: req.count, choices, request: { genre: req.genre, theme: req.theme, topic: req.topic, type: req.type, voice: req.voice, duration: req.duration, buildModel: req.buildModel }, channelId: req.channelId ?? null, createdAt: clock(), updatedAt: clock(),
-=======
         version: RUN_VERSION, id, status: 'queued', count: req.count, choices, request: { genre: req.genre, theme: req.theme, topic: req.topic, type: req.type, voice: req.voice, duration: req.duration, buildModel: req.buildModel }, channelId: req.channelId, createdAt: clock(), updatedAt: clock(),
->>>>>>> 142f5ec
         videos: Array.from({ length: req.count }, (_, index) => ({ index, status: 'pending', step: null, topic: null, jobId: null, draftId: null, error: null })),
       };
       save(rec); // a run that cannot even be recorded is refused
