@@ -56,6 +56,9 @@ export const TOPIC_MAX = 200;
 export const ACTIVE = Object.freeze(['queued', 'scripting', 'factchecking', 'voicing', 'planning', 'previewing', 'looking', 'building', 'drafting']);
 export const FINAL = Object.freeze(['done', 'failed', 'aborted', 'interrupted']);
 export const STAGE_DIR = '.start';
+// Refusals of a voice recording that a second recording can cure (see the voice step in execute).
+export const VOICE_RETRIES = 1;
+export const VOICE_RETRY_REASONS = Object.freeze(['audio_not_matching', 'bad_tail', 'bad_lead', 'bad_word_times', 'timing_mismatch']);
 // The finished video may be this many seconds under the requested duration before the job stops (TTS pace varies; see planner.js targetWords).
 // 60 and 90 s keep 4 s; the shorter videos scale it (about 7 percent) so a 30 s request cannot finish at 26 s.
 export const SHORT_TOLERANCE_S = 4;
@@ -529,7 +532,19 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     fs.mkdirSync(stage, { recursive: true });
     createEpisodeDir(episodesRoot, `cb-${rec.id}`);
     try {
-      voice = await voiceStage({ script: scripted.script, voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(postFactoryFn ? { postFactoryFn } : {}) });
+      // The voice is generated with fresh random seeds every time, and now and then one sentence comes out wrong (a long ramble, a
+      // clipped start), so the recording does not line up with its own word times and is refused. Recording again usually works: the
+      // Sun video of 2026-11-14 (job mwg5e6hs-e826b9) failed on audio_not_matching after one sentence took 44 s to generate. One retry,
+      // only for refusals of the recording itself; a wrong script, a missing service or an abort is not retried.
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          voice = await voiceStage({ script: scripted.script, voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(postFactoryFn ? { postFactoryFn } : {}) });
+          break;
+        } catch (error) {
+          if (attempt >= VOICE_RETRIES || signal.aborted || !VOICE_RETRY_REASONS.includes(error?.reason)) throw error;
+          writeVoiceDiagnostic(rec.id, error);
+        }
+      }
       const manifestBytes = fs.readFileSync(voice.manifestPath); const audioBytes = fs.readFileSync(voice.voPath); const wordsBytes = fs.readFileSync(voice.wordsPath);
       fs.writeFileSync(path.join(stage, 'resume-integrity.json'), `${JSON.stringify({ script_sha256: sha(scripted.script), voice_sha256: sha(manifestBytes), audio_sha256: sha(audioBytes), words_sha256: sha(wordsBytes) })}\n`);
     } catch (error) {
