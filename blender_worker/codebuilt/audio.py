@@ -172,6 +172,34 @@ DEFAULT_PROGRESSION = (
 )
 
 
+# More beds in the same plucked style, so every video does not carry the same loop (2026-11-14). Same shape as DEFAULT_PROGRESSION.
+PROGRESSIONS = {
+    "sneaky": DEFAULT_PROGRESSION,                      # A minor: curious, a little mischievous
+    "bright": ((48, (60, 64, 67, 64, 72, 67, 64, 60)),  # C major: open, cheerful
+               (43, (55, 59, 62, 59, 67, 62, 59, 55)),
+               (45, (57, 60, 64, 60, 69, 64, 60, 57)),
+               (41, (53, 57, 60, 57, 65, 60, 57, 53))),
+    "wonder": ((38, (62, 65, 69, 65, 62, 69, 65, 74)),  # D minor: spacious, a sense of scale
+               (46, (58, 62, 65, 62, 58, 65, 62, 70)),
+               (41, (53, 57, 60, 57, 53, 60, 57, 65)),
+               (45, (57, 61, 64, 61, 57, 64, 61, 69))),
+    "tense": ((40, (52, 55, 59, 55, 52, 59, 55, 64)),   # E minor: urgent
+              (36, (48, 52, 55, 52, 48, 55, 52, 60)),
+              (38, (50, 54, 57, 54, 50, 57, 54, 62)),
+              (35, (47, 51, 54, 51, 59, 54, 51, 47))),
+}
+MUSIC_BPMS = (96, 104, 112, 120)
+
+
+def music_choice(key: str) -> dict:
+    """A bed for one video, chosen from its own text so the same video always gets the same music and different videos differ:
+    {"progression": name, "bpm": beats per minute, "seed": int}. Pure; `key` is any string (the narration)."""
+    import hashlib
+    h = hashlib.sha256(str(key).encode("utf-8")).digest()
+    names = sorted(PROGRESSIONS)
+    return {"progression": names[h[0] % len(names)], "bpm": MUSIC_BPMS[h[1] % len(MUSIC_BPMS)], "seed": 1 + h[2] % 50}
+
+
 def _add(buf: np.ndarray, sig, start: int, gain: float) -> None:
     if start < 0 or start >= buf.size:
         return

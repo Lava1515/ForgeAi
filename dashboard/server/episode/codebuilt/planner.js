@@ -55,6 +55,7 @@ export const PLANNER_DURATIONS = Object.freeze([30, 45, 60, 90]);
 // Keep the existing 4 % under-request script guard. The upper word window leaves room for the bounded last-word extension
 // while respecting the owner's 10-second measured-video overrun tolerance.
 export const SCRIPT_LENGTH_BAND = Object.freeze({ under: 0.04, over: LENGTH_TOLERANCE_S });
+export const SCRIPT_OVER_TARGET = 0.06;
 export { LENGTH_TOLERANCE_S, lengthCheck };
 const MAX_ATTEMPTS = 2;
 // Writing the whole Blender build script takes a model several minutes; the CLI default of 300 s killed the real 60 s run (2026-11-13).
@@ -214,10 +215,14 @@ export const targetWords = (duration) => Math.round((Number(duration) - FIXED_VI
 export const wordWindow = (duration) => {
   const d = Number(duration);
   const pace = wordsPerSecond(d);
+  const target = targetWords(d);
+  // The tolerance of 10 s over the request is for what the voice does with the script, not an invitation to write more: the three
+  // 45 s scripts of 2026-11-13 all came back at 146 words (target 127) and their videos ran 51.6, 54.3 and 58.6 s, because the
+  // real voices spoke 2.6 to 2.8 words per second, slower than the calibrated pace. The script may exceed its target by 6 percent.
   return {
-    target: targetWords(d),
+    target,
     min: Math.ceil((d * (1 - SCRIPT_LENGTH_BAND.under) - FIXED_VIDEO_S) * pace - 1e-9),
-    max: Math.floor((d + SCRIPT_LENGTH_BAND.over - LAST_WORD_EXTENSION_RESERVE_S - FIXED_VIDEO_S) * pace + 1e-9),
+    max: Math.min(Math.floor((d + SCRIPT_LENGTH_BAND.over - LAST_WORD_EXTENSION_RESERVE_S - FIXED_VIDEO_S) * pace + 1e-9), Math.ceil(target * (1 + SCRIPT_OVER_TARGET))),
   };
 };
 const compact = (pack) => ({ id: pack.id, skills: pack.skills.map((s) => s.skill), playbook: pack.rules.playbook, steps: pack.rules.steps });
@@ -237,7 +242,7 @@ function scriptPrompt({ topic, duration, pack, choices }) {
 Topic: ${JSON.stringify(topic)}
 ${scriptChoicesPrompt(choices)}${storyDirection(choices?.type ?? (isWhatIfTopic(topic) ? 'whatif' : 'factual'))}
 Reply with ONE JSON object and nothing else: {"script": string, "shots": [{"narration": string, "subject": string, "action": string}, ...], "brief": string}
-- script: the spoken narration, plain sentences, no stage directions, no markdown, about ${target} words (at least ${min} and at most ${max}; the voice speaks about ${wordsPerSecond(duration)} words per second; stay close to the target, a longer script makes the video too long). The first sentence is the hook: the question or the most surprising fact, in 12 words or fewer. Then one idea per sentence, short sentences (most under 14 words), concrete nouns and numbers instead of adjectives, "you" where it fits. Each sentence should name something that can be shown. Only facts you are sure of; name a simplification as one. End on a pay-off: the answer, a twist or a line that returns to the opening, never a summary or "so that is why".
+- script: the spoken narration, plain sentences, no stage directions, no markdown, about ${target} words (at least ${min} and at most ${max}; the voice speaks about ${wordsPerSecond(duration)} words per second; stay close to the target, a longer script makes the video too long). The first sentence is the hook: the question or the most surprising fact, in 12 words or fewer. Then one idea per sentence, short sentences (most under 14 words), concrete nouns and numbers instead of adjectives, "you" where it fits. Each sentence should name something that can be shown. Only facts you are sure of; name a simplification as one. A "what if" is already understood as imaginary: say so at most once, in passing, and never spend a sentence on disclaimers ("scientists do not expect this", "luckily this cannot happen") or on reassuring the viewer; follow the consequences instead, each one bigger than the last. End on a pay-off: the answer, a twist or a line that returns to the opening, never a summary or "so that is why".
 - shots: the visual beats in order, about ${count.target} (at least ${count.min}, at most ${count.max}), one idea per beat. Each: the narration it covers (quoted from script; together they cover the whole script in order), in subject the thing the viewer watches and the place it is in, and in action what visibly happens to it. Think in a few places (2 to 5 for the whole video) that the story returns to, not a new place for every sentence. A director turns these beats into the final shot list after the voice is recorded.
 - brief: 3 to 6 sentences for the director: the idea of the video, the recurring character or object, the places, the palette and mood.
 ${pacingRule(duration) ? `- ${pacingRule(duration)}
