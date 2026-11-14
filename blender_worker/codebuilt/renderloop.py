@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sys
+import time
 
 from .paths import require_abs
 
@@ -56,6 +57,8 @@ def _copy_frame(src, dst):
 # build script is unchanged: the same render_frames(...) call previews or renders in full depending on the file.
 PREVIEW_SPEC = "/job/work/preview.json"
 PREVIEW_OUT = "/job/preview"
+# codex · gpt-6.1-sol · 2026-11-14: diagnostics stay in the existing writable job mount.
+TIMING_PATH = "/job/work/render-timing.json"
 PREVIEW_MAX_FRAMES = 24
 PREVIEW_SCALE_RANGE = (25, 100)
 _PREVIEW_KEYS = {"version", "frames", "scale", "out"}
@@ -105,6 +108,31 @@ def set_preview_scale(scale):
     bpy.context.scene.render.resolution_percentage = scale
 
 
+def _save_timing(timing):
+    """Best-effort diagnostics, never an acceptance receipt or a reason to fail a render."""
+    try:
+        # Outside the executor (e.g. pure Python kit tests), do not create /job.
+        if not os.path.isdir(os.path.dirname(TIMING_PATH)):
+            return
+        with open(TIMING_PATH, "w", encoding="utf-8") as fh:
+            json.dump(timing, fh)
+    except OSError:
+        pass
+
+
+def _actual_settings():
+    """Read AFTER the first render: the GPU launcher's handlers override the build's CPU setting."""
+    try:
+        import bpy
+        scene = bpy.context.scene
+        groups = {"render": (scene.render, ("engine", "resolution_x", "resolution_y", "resolution_percentage", "use_persistent_data")),
+                  "cycles": (scene.cycles, ("device", "samples", "use_denoising", "denoiser", "denoising_use_gpu", "use_adaptive_sampling", "adaptive_threshold", "adaptive_min_samples", "max_bounces", "diffuse_bounces", "glossy_bounces", "transmission_bounces", "caustics_reflective", "caustics_refractive", "use_auto_tile", "tile_size")),
+                  "image": (scene.render.image_settings, ("file_format", "color_mode", "color_depth", "compression"))}
+        return {name: {key: getattr(obj, key, None) for key in keys} for name, (obj, keys) in groups.items()}
+    except Exception:
+        return None  # diagnostics must also work with the injected pure-Python renderer
+
+
 def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=print, hold=1, require_qa=False):
     """Pose and render each frame to out_dir/NNNN.png; returns the frames actually rendered.
 
@@ -138,6 +166,9 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
     out_dir = require_abs(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     done, held = [], 0
+    started = time.perf_counter()
+    timing = {"version": 1, "clock": "perf_counter_seconds", "apply_s": 0.0, "render_s": 0.0,
+              "note": "render_s includes engine sync, BVH, tracing, denoising and PNG write; other_s includes held copies and diagnostics"}
     for f in frames:
         fp = os.path.join(out_dir, f"{f:04d}.png")
         if skip_existing and os.path.exists(fp):
@@ -147,8 +178,23 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
             _copy_frame(src, fp)
             held += 1
             continue
+        before_apply = time.perf_counter()
         apply(f)
+        before_render = time.perf_counter()
         render_fn(fp)
+        after_render = time.perf_counter()
+        timing["apply_s"] += before_render - before_apply
+        timing["render_s"] += after_render - before_render
         done.append(f)
+        if len(done) == 1:
+            timing["first_render_s"] = after_render - before_render
+            timing["settings_after_render"] = _actual_settings()
+        if len(done) == 1 or len(done) % 30 == 0:
+            timing.update(rendered=len(done), held=held, last_frame=f, loop_s=time.perf_counter() - started)
+            timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
+            _save_timing(timing)
+    timing.update(rendered=len(done), held=held, loop_s=time.perf_counter() - started)
+    timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
+    _save_timing(timing)
     log(f"DONE {len(done)}" + (f" held {held}" if hold > 1 else ""))
     return done
