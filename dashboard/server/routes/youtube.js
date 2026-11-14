@@ -318,9 +318,11 @@ export async function youtubePublishHandler(req, res) {
   if (releaseAt) {
     const channelId = meta.channel_id || 'default';
     const max = Number(getChannelById(channelId)?.max_daily_posts) || DEFAULT_MAX_DAILY_POSTS;
-    const full = capCheck(allDrafts(), channelId, releaseAt, max);
+    // The daily limit is a warning for the Publish button: the owner may confirm and go over it (overLimit: true).
+    // Auto release never goes over its cap.
+    const full = req.body?.overLimit === true ? null : capCheck(allDrafts(), channelId, releaseAt, max);
     if (full) {
-      return res.status(409).json({ error: `This channel already has ${max} video(s) going public on ${full.day}.${full.next ? ` Next free slot: ${full.next}.` : ''}`, next_free: full.next });
+      return res.status(409).json({ code: 'daily_limit', max, day: full.day, error: `This channel already has ${max} video(s) going public on ${full.day}.${full.next ? ` Next free slot: ${full.next}.` : ''}`, next_free: full.next });
     }
   }
   meta.listing_copy = { ...meta.listing_copy, title: clean(requestedTitle) };
