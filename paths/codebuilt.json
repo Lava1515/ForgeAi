@@ -45,6 +45,11 @@
       "id": "codebuilt-loops",
       "skill": "codebuilt-loops",
       "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-teardown",
+      "skill": "codebuilt-teardown",
+      "mode": "guidance_only"
     }
   ],
   "rules": {
@@ -150,6 +155,22 @@
           "nations",
           "capital city",
           "true size"
+        ]
+      },
+      {
+        "skill": "codebuilt-teardown",
+        "steps": [
+          "direction",
+          "build"
+        ],
+        "keywords": [
+          "stealth jet",
+          "f-117",
+          "f-117a",
+          "nighthawk",
+          "stealth fighter",
+          "stealth aircraft",
+          "stealth teardown"
         ]
       }
     ]

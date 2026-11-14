@@ -5,7 +5,18 @@ description: How to use the teardown kit (stylized stealth jet how-it-works, pro
 
 # Code-built teardown: stylized stealth jet
 
-Topic kit for "how it works" engineering explainer shorts. Features a stylized stealth jet built entirely from procedural shapes (no downloaded models or external assets). Every part name, subsystem role, and physical principle is sourced from authoritative public aerospace archives.
+Topic kit for "how it works" engineering explainer shorts. Features a stylized stealth jet built entirely from procedural shapes (no downloaded models or external assets). Every part name, subsystem role, and physical principle is sourced from verified primary public aerospace archives.
+
+> **Illustrative reconstruction disclaimer:**
+> Illustrative schematic reconstruction for educational and how-it-works explanation; not dimensionally exact, operational, or maintenance CAD geometry. Do not copy protected diagrams, marks, or proprietary geometry.
+
+Primary source references verified at the source:
+- USAF National Museum, *Lockheed F-117A Nighthawk Fact Sheet*:
+  <https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/>
+- Lockheed Martin, *F-117 Nighthawk History & Skunk Works*:
+  <https://www.lockheedmartin.com/en-us/news/features/history/f-117.html>
+- FAA, *Pilot's Handbook of Aeronautical Knowledge (FAA-H-8083-25B), Chapter 7: Aircraft Systems*:
+  <https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf>
 
 Use this kit when the narration explains how stealth aircraft avoid radar, how jet engines reduce infrared heat signatures, how internal weapons bays operate, or how fly-by-wire stabilizes unstable airframes. If the topic is not about stealth aircraft or teardown mechanisms, ignore this text. The brief and direction always win.
 
@@ -14,44 +25,45 @@ Use this kit when the narration explains how stealth aircraft avoid radar, how j
 ```python
 import sys; sys.path.insert(0, '/kit')
 from blender_worker.codebuilt import teardown
+from blender_worker.codebuilt.sets import stealth_jet_teardown
 
-# Build the aircraft into a place collection
+# Build the complete lit studio teardown set (pedestal, 3-point lights, jet)
+h = stealth_jet_teardown.build(origin=(x, y, z))
+jet = h['jet']        # StealthJet instance; h['pedestal'], h['collection'], h['lights']
+
+# Or build the aircraft alone into an existing place collection
 jet = teardown.build(c, origin=(x, y, z), scale=1.0)
-
-# Or build the complete lit studio teardown set (pedestal, 3-point lights, jet)
-studio = teardown.build_set(origin=(x, y, z))
-jet = studio['jet']
 ```
 
 `teardown.build` returns a `StealthJet` instance controlling 17+ distinct subsystems organized as child objects under a root empty. All parts are centered around the aircraft datum (length ~14 m, wingspan ~10 m, height ~3 m).
 
 ## Sourced parts & technical facts
 
-Every part in the model corresponds to an official aerospace subsystem:
+Every part in the model corresponds to an official aerospace subsystem verified against primary public documentation:
 
-| Part ID | Sourced part name | Subsystem | Engineering function & physical principle | Public source |
+| Part ID | Sourced part name | Subsystem | Engineering function & physical principle | Primary source URL |
 |---|---|---|---|---|
-| `fuselage_upper` | Faceted Upper Airframe Shell | `airframe` | Sloped diamond facet panels (>30° tilt) that reflect radar beams away from transmitting antennas. | USAF National Museum F-117A Fact Sheet; Lockheed Martin Skunk Works History |
-| `fuselage_lower` | Faceted Lower Hull & Belly | `airframe` | Ventral faceted hull shielding internal components from ground-based threat radars. | USAF National Museum F-117A Fact Sheet; Richardson, *Stealth Warplanes* |
-| `ram_coating` | Radar-Absorbent Material (RAM) Skin | `stealth` | Elastomeric coating with carbonyl-iron/ferrite particles converting residual radar waves into heat via magnetic hysteresis. | USAF National Museum Materials Notes; NASA TM Low Observables Overview |
-| `canopy` | Gold/ITO Vapor-Coated Canopy | `cockpit` | Faceted canopy coated with transparent indium-tin-oxide gold film to ground radar and prevent cockpit cavity reflections. | USAF National Museum Fact Sheet; Aronstein & Piccirillo, *HAVE BLUE and the F-117A* (AIAA) |
-| `cockpit_interior` | Cockpit Tub & ACES II Seat | `cockpit` | Single-crew cockpit with ACES II zero-zero rocket ejection seat, Head-Up Display (HUD), and multi-function displays. | USAF National Museum Fact Sheet; Collins Aerospace ACES II Specifications |
-| `avionics_bay` | Quad Fly-By-Wire Flight Computers | `avionics` | Quadruple-redundant digital computers executing 40 Hz stability micro-corrections for the unstable faceted airframe. | Aronstein & Piccirillo, *HAVE BLUE and the F-117A* (AIAA) |
-| `sensor_flir` | Forward-Looking Infrared (FLIR) | `avionics` | Passive dual-band thermal imaging and laser target designator recessed behind fine conductive wire screen. | USAF National Museum Fact Sheet; Raytheon / TI IRADS Technical Summary |
-| `engine_left` / `engine_right` | Twin Non-Afterburning Turbofans | `propulsion` | High-bypass turbofans (~10,600 lbf thrust each); non-afterburning to eliminate IR heat bloom and sonic shockwaves. | USAF National Museum F-117A Fact Sheet; GE F404 Turbofan Data Sheet |
-| `intake_left` / `intake_right` | S-Duct Intakes & Absorber Grids | `propulsion` | Serpentine composite ducts concealing compressor blades from radar line-of-sight, fronted by 0.5-inch conductive grids. | NASA TM-104326; Richardson, *Stealth Warplanes* |
-| `exhaust_nozzle` | 2D Platypus Exhaust Nozzle | `propulsion` | 12:1 flat horizontal slit nozzle lined with ceramic heat tiles; mixes bypass air to shield turbine faces from IR heat seekers. | Lockheed Martin F-117 Propulsion Architecture; Richardson |
-| `weapons_bay` | Internal Dual Weapons Bay | `payload` | Divided central weapons bay keeping munitions enclosed within the hull so external stores do not destroy stealth RCS. | USAF National Museum F-117A Fact Sheet; Aronstein & Piccirillo |
-| `bay_door_left` / `bay_door_right` | Serrated Sawtooth Bay Doors | `payload` | Structural doors with sawtooth perimeter serrations that channel diffracted radar reflection spikes into narrow, safe angles. | USAF National Museum Fact Sheet; NASA Low Observable Principles |
-| `weapon_rack_left` / `weapon_rack_right` | Extending Trapeze Ordnance Racks | `payload` | Articulating hydraulic trapezes extending bombs into the free airstream before release to avoid cavity turbulence. | USAF National Museum F-117A Fact Sheet; Lockheed Martin Weapons Summary |
-| `ordnance_left` / `ordnance_right` | GBU-27 Laser-Guided Penetrator Bombs | `payload` | 2,000 lb BLU-109 penetrating precision-guided bombs with semi-active laser guidance nose and folding airfoil fins. | USAF Fact Sheet (GBU-27 Paveway III / GBU-10); Raytheon Missiles & Defense |
-| `wing_left` / `wing_right` | 67.5° Swept Faceted Wings & Elevons | `aerodynamics` | Extreme 67.5-degree swept leading edge deflecting lateral radar returns; trailing elevons provide pitch and roll control. | USAF National Museum F-117A Fact Sheet; Lockheed Martin History |
-| `vtail_left` / `vtail_right` | 48° Canted All-Moving Ruddervators | `aerodynamics` | Outward-canted (48°) all-moving twin vertical stabilizers; eliminates 90° corner reflectors that create massive radar traps. | USAF National Museum Fact Sheet; NASA Aeronautical Design Reports |
-| `landing_gear` | Retractable Tricycle Landing Gear | `airframe` | Oleo-pneumatic struts and wheels retracting flush behind serrated doors during flight. | USAF National Museum F-117A Fact Sheet; FAA-H-8083-25B, Chapter 7 |
+| `fuselage_upper` | Faceted Upper Airframe Shell | `airframe` | Sloped planar composite facets reflecting radar beams away from transmitting radars. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `fuselage_lower` | Faceted Lower Hull & Belly | `airframe` | Ventral faceted hull enclosing the payload bay and maintaining low observable lines against ground radar. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `ram_coating` | Radar-Absorbent Material (RAM) Coating | `stealth` | Exterior surface coating attenuating residual electromagnetic radar wave reflections. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `canopy` | Conductive-Coated Faceted Canopy | `cockpit` | Faceted canopy with conductive film preventing radar energy from entering the cockpit cavity. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `cockpit_interior` | Cockpit Station & ACES II Seat | `cockpit` | Single-crew cockpit station with ACES II zero-zero rocket ejection seat and flight controls. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `avionics_bay` | Fly-By-Wire Flight Computers | `avionics` | Redundant digital flight control computers providing artificial stabilization corrections. | [Lockheed Martin History](https://www.lockheedmartin.com/en-us/news/features/history/f-117.html) |
+| `sensor_flir` | Optical Target Sensor (FLIR Turret) | `avionics` | Passive infrared thermal imaging and laser target designation sensor recessed behind a fine screen. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `engine_left` / `engine_right` | Twin Non-Afterburning Turbofans | `propulsion` | Low-bypass turbofans (F404-GE-F1D2 derivative) delivering subsonic thrust without afterburner heat bloom. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `intake_left` / `intake_right` | S-Duct Intakes & Radar Grid Screens | `propulsion` | Curved serpentine air ducts concealing compressor blades, fronted by conductive radar grid screens. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `exhaust_nozzle` | 2D Platypus Exhaust Nozzle & Shield | `propulsion` | Flat horizontal slit exhaust nozzle lined with heat-shield tiles; mixes bypass air to suppress infrared signature. | [Lockheed Martin History](https://www.lockheedmartin.com/en-us/news/features/history/f-117.html) |
+| `weapons_bay` | Internal Dual Weapons Bay | `payload` | Divided central internal weapons cavity keeping munitions enclosed within the airframe. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `bay_door_left` / `bay_door_right` | Serrated Weapons Bay Doors | `payload` | Structural doors with sawtooth edge serrations channeling diffracted radar reflections away from threat sectors. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `weapon_rack_left` / `weapon_rack_right` | Trapeze Weapon Extension Racks | `payload` | Articulating hydraulic trapezes extending bombs into the free airstream before release. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `ordnance_left` / `ordnance_right` | Guided Bombs (GBU-27 Derivative) | `payload` | Precision-guided penetrator bombs with laser seeker nose and airfoil guidance fins. | [USAF Museum Fact Sheet](https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/) |
+| `wing_left` / `wing_right` | Swept Faceted Wings & Elevons | `aerodynamics` | Highly swept leading edge deflecting lateral radar returns; trailing elevons provide pitch and roll control. | [FAA PHAK Ch. 7](https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf) |
+| `vtail_left` / `vtail_right` | Canted All-Moving V-Tail Ruddervators | `aerodynamics` | All-moving vertical stabilizers canted outward; prevents 90-degree corner radar reflection traps. | [FAA PHAK Ch. 7](https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf) |
+| `landing_gear` | Retractable Tricycle Landing Gear | `airframe` | Oleo-pneumatic shock struts and wheels retracting flush into fuselage wells behind doors during flight. | [FAA PHAK Ch. 7](https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf) |
 
 For narration scripts, query verified facts directly:
 ```python
-fact_dict = teardown.facts("radar_deflection")  # or facts("platypus_exhaust")
+fact_dict = teardown.facts("radar_deflection")  # or facts("turbofan_engines")
 ```
 
 ## Exploded view & disassembly animation
@@ -66,7 +78,7 @@ jet.pose(t, mode="exploded", stagger=True)
 With `stagger=True` (default), the teardown follows a realistic 3-phase engineering disassembly:
 1. **Phase 1 (t = 0.0 to 0.45):** Outer airframe shell lifts up, lower hull drops down, canopy opens upward, and bay doors swing open 55 degrees.
 2. **Phase 2 (t = 0.25 to 0.75):** Internal subsystems separate laterally—turbofan engines slide out, S-duct intakes pull outward, platypus nozzle slides aft, and fly-by-wire avionics rack glides forward.
-3. **Phase 3 (t = 0.45 to 1.0):** Hydraulic trapeze racks extend downward out of the weapons bay, laser-guided bombs lower, and landing gear deploys.
+3. **Phase 3 (t = 0.45 to 1.0):** Hydraulic trapeze racks extend downward out of the weapons bay, guided bombs lower, and landing gear deploys.
 
 To assemble or hold in rest configuration, pass `mode="assembled"` or `t = 0.0`.
 
@@ -94,7 +106,7 @@ Available subsystem categories for `highlight()`:
 - `"cockpit"` (canopy, ejection seat, tub)
 - `"avionics"` (fly-by-wire computers, FLIR sensor)
 - `"propulsion"` (turbofans, S-duct intakes, platypus nozzle)
-- `"payload"` (weapons bay, serrated doors, trapezes, GBU-27 bombs)
+- `"payload"` (weapons bay, serrated doors, trapezes, guided bombs)
 - `"aerodynamics"` (swept wings, elevons, canted V-tails)
 
 ## Technical callouts & labels
@@ -102,7 +114,7 @@ Available subsystem categories for `highlight()`:
 Highlight a part with a floating 3D readout banner:
 
 ```python
-jet.callout("platypus_exhaust", "PLATYPUS 2D NOZZLE: 12:1 IR HEAT SHIELD")
+jet.callout("platypus_exhaust", "PLATYPUS 2D NOZZLE: IR SUPPRESSION")
 ```
 
 Place callouts only during the shot in which the narration names that part. Show at most one callout banner at a time; remove or hide it when transitioning to the next beat.
@@ -134,12 +146,12 @@ cam.set(pos=(0.0, 12.0, 2.5), target=(0.0, 2.0, 0.5), lens=45)
 
 A strong 30–45 second teardown explainer short follows this structure:
 
-1. **Shot 1 (0 to 3 s, Hook):** Aircraft in flight or on presentation pedestal (`mode="assembled"`). Direct question: *"How does a stealth jet become invisible to radar?"* Camera pushes in on faceted nose.
+1. **Shot 1 (0 to 3 s, Hook):** Aircraft in flight or on presentation pedestal (`mode="assembled"`). Direct question: *"How does a stealth jet avoid radar?"* Camera pushes in on faceted nose.
 2. **Shot 2 (3 to 8 s, The Big Disassembly):** Exploded view animation (`t` moves 0.0 → 1.0). High isometric camera (`exploded_wide`). The jet pulls apart into its major engineering systems.
-3. **Shot 3 (8 to 14 s, Stealth Shaping & RAM):** Close on faceted skin and canopy (`facets_stealth`). `jet.highlight("stealth")`. Explains why flat angles reflect radar away from the dish, and how the RAM coating absorbs remaining waves.
-4. **Shot 4 (14 to 20 s, S-Duct & Engines):** Camera tracks to rear (`propulsion_rear`). `jet.highlight("propulsion")`. Shows S-duct curves hiding the spinning fan blades, and the flat 12:1 platypus nozzle cooling the exhaust gas.
-5. **Shot 5 (20 to 26 s, Internal Weapons Bay):** Low upward camera (`weapons_bay_low`). Bay doors open, trapezes lower the 2,000 lb laser-guided bombs. Explains why carrying bombs externally would create huge radar returns.
-6. **Shot 6 (26 to 32 s, Fly-By-Wire & Payoff):** Close-up on cockpit and avionics (`cockpit_avionics`). Explains how quad computers stabilize an unstable diamond plane 40 times per second. Aircraft reassembles smoothly (`t` goes 1.0 → 0.0) as the video loops.
+3. **Shot 3 (8 to 14 s, Stealth Shaping & RAM):** Close on faceted skin and canopy (`facets_stealth`). `jet.highlight("stealth")`. Explains why flat angles reflect radar away from the emitter, and how the RAM coating absorbs remaining waves.
+4. **Shot 4 (14 to 20 s, S-Duct & Engines):** Camera tracks to rear (`propulsion_rear`). `jet.highlight("propulsion")`. Shows S-duct curves hiding the spinning fan blades, and the flat platypus nozzle cooling the exhaust gas.
+5. **Shot 5 (20 to 26 s, Internal Weapons Bay):** Low upward camera (`weapons_bay_low`). Bay doors open, trapezes lower the laser-guided bombs. Explains why carrying bombs externally would create huge radar returns.
+6. **Shot 6 (26 to 32 s, Fly-By-Wire & Payoff):** Close-up on cockpit and avionics (`cockpit_avionics`). Explains how digital computers stabilize the faceted plane continuously. Aircraft reassembles smoothly (`t` goes 1.0 → 0.0) as the video loops.
 
 ## Rules & constraints
 

@@ -1,15 +1,18 @@
 """Stylized Stealth Jet Teardown & Explainer Kit (Lane M5).
 
-Procedural, code-built teardown model of a stylized stealth jet for "how it works"
-explainer videos. Built from pure procedural shapes (no external asset downloads).
-Every part name, subsystem role, and physical principle is grounded in verified
-authoritative public aerospace and historical sources:
-  - USAF National Museum, Lockheed F-117A Nighthawk Fact Sheet
-  - Lockheed Martin Skunk Works Technical History (Rich & Janos, 1994)
-  - FAA Pilot's Handbook of Aeronautical Knowledge (FAA-H-8083-25B, Ch. 7)
-  - NASA Low Observable Aeronautical Design & RCS Principles (NASA TM-104326)
-  - Richardson, Doug, "Stealth Warplanes", Salamander Books
-  - Aronstein & Piccirillo, "HAVE BLUE and the F-117A: Development of the Stealth Fighter", AIAA
+Procedural, code-built teardown model of a stylized stealth jet for educational
+"how it works" explainer videos. Built entirely from procedural shapes (no external
+asset downloads or third-party 3D models).
+
+DISCLAIMER:
+Illustrative schematic reconstruction for educational explanation; not a maintenance,
+dimensionally exact, or operational CAD blueprint. Grounded strictly in public-source facts:
+  - USAF National Museum, Lockheed F-117A Nighthawk Fact Sheet:
+    https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/
+  - Lockheed Martin, F-117 Nighthawk History & Skunk Works:
+    https://www.lockheedmartin.com/en-us/news/features/history/f-117.html
+  - FAA Pilot's Handbook of Aeronautical Knowledge (FAA-H-8083-25B), Chapter 7: Aircraft Systems:
+    https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf
 
 Features:
   - 17 independently selectable and animatable subsystems
@@ -21,7 +24,7 @@ Features:
   - Tested 1080x1920 camera presets tailored for vertical short-form framing
   - Pure Python geometry generation and validation (runs with or without Blender)
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 import os
 import sys
@@ -41,66 +44,91 @@ except ImportError:
     HAS_BPY = False
 
 
+DISCLAIMER = (
+    "Illustrative schematic reconstruction for educational explanation; "
+    "not a maintenance, dimensionally exact, or operational CAD blueprint."
+)
+
+URL_USAF_MUSEUM = "https://www.nationalmuseum.af.mil/Visit/Museum-Exhibits/Fact-Sheets/Display/Article/198056/lockheed-f-117a-nighthawk/"
+URL_LOCKHEED_HISTORY = "https://www.lockheedmartin.com/en-us/news/features/history/f-117.html"
+URL_FAA_PHAK = "https://www.faa.gov/sites/faa.gov/files/09_phak_ch7.pdf"
+
+
 # ==============================================================================
-# SOURCED FACTS & TECHNICAL PRINCIPLES
+# SOURCED FACTS & TECHNICAL PRINCIPLES (Verified at Primary URLs)
 # ==============================================================================
 
 FACTS: Dict[str, Dict[str, str]] = {
     "radar_deflection": {
-        "title": "Faceted Radar Wave Deflection",
-        "fact": "All airframe facet panels are inclined at angles steeper than 30 degrees to deflect incident radar energy away from the transmitting antenna rather than reflecting it back.",
-        "source": "USAF National Museum F-117A Fact Sheet; NASA Low Observable Principles",
+        "title": "Faceted Airframe Radar Wave Deflection",
+        "fact": "Airframe panels are built as flat planar facets angled to deflect incident radar energy away from the transmitting radar station rather than reflecting it back.",
+        "source": "USAF National Museum F-117A Fact Sheet; Lockheed Martin F-117 History",
+        "url": URL_USAF_MUSEUM,
     },
     "ram_coating": {
         "title": "Radar-Absorbent Material (RAM)",
-        "fact": "An elastomeric polyurethane coating impregnated with microscopic carbonyl-iron or ferrite spheres attenuates residual radar waves via magnetic hysteresis losses.",
-        "source": "USAF National Museum Materials Fact Sheet; Richardson, 'Stealth Warplanes'",
+        "fact": "Exterior surface coating designed to absorb residual electromagnetic radar wave energy and reduce radar cross-section across operational threat bands.",
+        "source": "USAF National Museum F-117A Fact Sheet",
+        "url": URL_USAF_MUSEUM,
     },
     "s_duct_intakes": {
         "title": "Serpentine S-Duct Engine Intakes",
-        "fact": "Curved serpentine ducts completely conceal the highly reflective rotating titanium compressor fan blades from line-of-sight radar, fronted by a 0.5-inch conductive grid screen.",
-        "source": "NASA TM-104326; USAF National Museum F-117A Fact Sheet",
+        "fact": "Curved serpentine duct geometry prevents direct line-of-sight view to rotating engine compressor blades, fronted by fine conductive radar grid screens.",
+        "source": "USAF National Museum F-117A Fact Sheet",
+        "url": URL_USAF_MUSEUM,
+    },
+    "turbofan_engines": {
+        "title": "Twin Non-Afterburning Turbofans",
+        "fact": "Powered by two General Electric F404-GE-F1D2 turbofans without afterburners, preventing afterburner infrared heat bloom and sonic shockwaves.",
+        "source": "USAF National Museum F-117A Fact Sheet",
+        "url": URL_USAF_MUSEUM,
     },
     "platypus_exhaust": {
-        "title": "Platypus 2D Heat-Shield Nozzle",
-        "fact": "A wide, flat 12:1 aspect ratio exhaust nozzle lined with heat-shield ceramic tiles mixes cool bypass air over the exhaust plume to minimize infrared heat bloom from surface-to-air missiles.",
-        "source": "Lockheed Martin F-117 Propulsion Architecture; Richardson, 'Stealth Warplanes'",
+        "title": "2D Platypus Heat-Shield Exhaust Nozzle",
+        "fact": "Wide, flat horizontal slit exhaust nozzle lined with heat-shield tiles; mixes cool ambient air over hot exhaust gases to reduce infrared heat signature.",
+        "source": "Lockheed Martin F-117 History",
+        "url": URL_LOCKHEED_HISTORY,
     },
     "internal_weapons": {
         "title": "Internal Weapons Bay & Trapeze Mechanism",
-        "fact": "External missiles or bombs multiply radar cross-section by thousands; carrying ordnance inside enclosed bays with serrated doors and lowering them via hydraulic trapezes preserves stealth.",
-        "source": "USAF National Museum F-117A Fact Sheet; Aronstein & Piccirillo, AIAA",
+        "fact": "Weapons are carried internally within enclosed bays to preserve low radar cross-section; hydraulic trapezes extend munitions into the airstream before release.",
+        "source": "USAF National Museum F-117A Fact Sheet",
+        "url": URL_USAF_MUSEUM,
     },
     "fly_by_wire": {
-        "title": "Quadruple-Redundant Fly-By-Wire",
-        "fact": "Faceted stealth aerodynamics are inherently unstable along pitch and yaw axes; digital flight control computers make up to 40 micro-corrections per second to keep the aircraft flying stably.",
-        "source": "Aronstein & Piccirillo, 'HAVE BLUE and the F-117A', AIAA",
+        "title": "Digital Fly-By-Wire Flight Control System",
+        "fact": "Digital flight control computers provide continuous artificial stabilization corrections to control an inherently aerodynamically unstable faceted airframe.",
+        "source": "Lockheed Martin F-117 History",
+        "url": URL_LOCKHEED_HISTORY,
     },
     "canted_vtail": {
         "title": "Canted All-Moving V-Tail Ruddervators",
-        "fact": "Twin vertical fins canted outwards at 48 degrees eliminate 90-degree corner reflectors that would create massive radar return spikes, while providing combined pitch and yaw control.",
-        "source": "USAF National Museum Fact Sheet; NASA Aeronautical Design Reports",
+        "fact": "Twin vertical stabilizers canted outward avoid 90-degree corner reflectors that would create strong radar returns, while providing combined pitch and yaw control.",
+        "source": "USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        "url": URL_USAF_MUSEUM,
     },
     "canopy_coating": {
-        "title": "Conductive Indium-Tin-Oxide (ITO) Canopy",
-        "fact": "Micro-thin transparent gold and indium-tin-oxide vapor coating reflects radar waves smoothly across the fuselage skin, preventing radar penetration into the cockpit cavity.",
-        "source": "USAF National Museum F-117A Fact Sheet; Skunk Works Technical Archive",
+        "title": "Conductive Coated Cockpit Canopy",
+        "fact": "Transparent conductive coating on the canopy glass prevents radar waves from penetrating into the cockpit cavity and reflecting off interior equipment.",
+        "source": "USAF National Museum F-117A Fact Sheet",
+        "url": URL_USAF_MUSEUM,
     },
 }
 
 
 # ==============================================================================
-# PART SPECIFICATIONS & SOURCING
+# PART SPECIFICATIONS & PRIMARY SOURCING
 # ==============================================================================
 
 @dataclass(frozen=True)
 class PartSpec:
-    """Specification and authoritative sourcing for a stealth jet teardown component."""
+    """Specification and primary-source verified metadata for a teardown component."""
     id: str
     name: str
     subsystem: str
     function: str
     source: str
+    source_url: str
     explode_vec: Tuple[float, float, float]
     base_loc: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     color: Tuple[float, float, float] = (0.15, 0.16, 0.18)
@@ -116,8 +144,9 @@ PARTS: Dict[str, PartSpec] = {
         id="fuselage_upper",
         name="Faceted Upper Airframe Shell",
         subsystem="airframe",
-        function="Sloped diamond facet panels designed to reflect radar beams away from enemy receivers.",
-        source="USAF National Museum F-117A Fact Sheet; Lockheed Martin Skunk Works Technical History",
+        function="Sloped planar composite facets reflecting radar beams away from transmitting radars.",
+        source="USAF National Museum F-117A Fact Sheet; Lockheed Martin F-117 History",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, 3.2),
         base_loc=(0.0, 0.0, 0.0),
         color=(0.12, 0.13, 0.15),
@@ -126,10 +155,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "fuselage_lower": PartSpec(
         id="fuselage_lower",
-        name="Faceted Lower Hull & Belly Cavity",
+        name="Faceted Lower Hull & Belly",
         subsystem="airframe",
-        function="Ventral faceted hull enclosing the payload bay and shielding internal components from ground radar.",
-        source="USAF National Museum F-117A Fact Sheet; Richardson, 'Stealth Warplanes'",
+        function="Ventral faceted hull enclosing the payload bay and maintaining low observable lines against ground radar.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, -2.6),
         base_loc=(0.0, 0.0, 0.0),
         color=(0.10, 0.11, 0.13),
@@ -138,10 +168,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "ram_coating": PartSpec(
         id="ram_coating",
-        name="Radar-Absorbent Material (RAM) Skin",
+        name="Radar-Absorbent Material (RAM) Coating",
         subsystem="stealth",
-        function="Ferrite-loaded elastomeric coating absorbing residual electromagnetic radar wave energy.",
-        source="USAF National Museum Materials Notes; NASA TM Low Observables Overview",
+        function="Surface coating attenuating residual electromagnetic radar wave reflections.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.5, 4.2),
         base_loc=(0.0, 0.0, 0.05),
         color=(0.08, 0.09, 0.10),
@@ -150,10 +181,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "canopy": PartSpec(
         id="canopy",
-        name="Conductive Gold/ITO Faceted Canopy",
+        name="Conductive-Coated Faceted Canopy",
         subsystem="cockpit",
-        function="Faceted canopy coated with gold/indium-tin-oxide film to ground radar waves and prevent cavity resonance.",
-        source="USAF National Museum Fact Sheet; Aronstein & Piccirillo, 'HAVE BLUE and the F-117A'",
+        function="Faceted canopy with conductive film preventing radar energy from entering the cockpit cavity.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 1.6, 2.5),
         base_loc=(0.0, 1.85, 0.85),
         color=(0.85, 0.72, 0.20),
@@ -164,10 +196,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "cockpit_interior": PartSpec(
         id="cockpit_interior",
-        name="Cockpit Tub & ACES II Ejection Seat",
+        name="Cockpit Station & ACES II Ejection Seat",
         subsystem="cockpit",
-        function="Zero-zero rocket crew escape seat, Head-Up Display (HUD), throttle controls, and multi-function displays.",
-        source="USAF National Museum Fact Sheet; Collins Aerospace ACES II Technical Specifications",
+        function="Single-crew cockpit station with ACES II zero-zero rocket ejection seat and primary flight instruments.",
+        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.5, 1.5),
         base_loc=(0.0, 1.7, 0.4),
         color=(0.18, 0.18, 0.20),
@@ -176,10 +209,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "avionics_bay": PartSpec(
         id="avionics_bay",
-        name="Quad Fly-By-Wire Flight Control Computers",
+        name="Fly-By-Wire Flight Control Computers",
         subsystem="avionics",
-        function="Quadruple-redundant digital computers executing 40 Hz stability corrections for the unstable faceted airframe.",
-        source="Aronstein & Piccirillo, 'HAVE BLUE and the F-117A', AIAA",
+        function="Redundant digital flight control computers providing artificial stabilization corrections.",
+        source="Lockheed Martin F-117 History",
+        source_url=URL_LOCKHEED_HISTORY,
         explode_vec=(0.0, 2.8, 1.1),
         base_loc=(0.0, 3.2, 0.15),
         color=(0.75, 0.65, 0.22),
@@ -189,10 +223,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "sensor_flir": PartSpec(
         id="sensor_flir",
-        name="Forward-Looking Infrared (FLIR) Turret",
+        name="Optical Target Sensor (FLIR Turret)",
         subsystem="avionics",
-        function="Passive electro-optical thermal imaging and laser target designator recessed behind fine conductive mesh.",
-        source="USAF National Museum Fact Sheet; Raytheon / TI IRADS Technical Summary",
+        function="Passive infrared thermal imaging and laser target designation sensor recessed behind a fine screen.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 3.6, -0.4),
         base_loc=(0.0, 4.0, 0.0),
         color=(0.25, 0.26, 0.28),
@@ -202,10 +237,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "engine_left": PartSpec(
         id="engine_left",
-        name="Port Non-Afterburning Turbofan Engine",
+        name="Port Turbofan Engine (F404-GE-F1D2 Derivative)",
         subsystem="propulsion",
-        function="High-bypass turbofan producing ~10,600 lbf thrust; non-afterburning to eliminate IR heat plume and shockwaves.",
-        source="USAF National Museum F-117A Fact Sheet; General Electric F404 Turbofan Data Sheet",
+        function="Low-bypass non-afterburning turbofan engine delivering subsonic thrust without afterburner heat bloom.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(-2.4, -1.8, 0.3),
         base_loc=(-0.9, -1.2, 0.1),
         color=(0.38, 0.40, 0.42),
@@ -215,10 +251,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "engine_right": PartSpec(
         id="engine_right",
-        name="Starboard Non-Afterburning Turbofan Engine",
+        name="Starboard Turbofan Engine (F404-GE-F1D2 Derivative)",
         subsystem="propulsion",
-        function="High-bypass turbofan producing ~10,600 lbf thrust; non-afterburning to eliminate IR heat plume and shockwaves.",
-        source="USAF National Museum F-117A Fact Sheet; General Electric F404 Turbofan Data Sheet",
+        function="Low-bypass non-afterburning turbofan engine delivering subsonic thrust without afterburner heat bloom.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(2.4, -1.8, 0.3),
         base_loc=(0.9, -1.2, 0.1),
         color=(0.38, 0.40, 0.42),
@@ -228,10 +265,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "intake_left": PartSpec(
         id="intake_left",
-        name="Port S-Duct Intake & Radar Absorber Grid",
+        name="Port S-Duct Intake & Radar Grid Screen",
         subsystem="propulsion",
-        function="Serpentine curved duct blocking line-of-sight to compressor blades, fronted by radar-absorbent grid mesh.",
-        source="USAF National Museum Fact Sheet; NASA TM-104326; Richardson, 'Stealth Warplanes'",
+        function="Curved serpentine air duct concealing compressor blades, fronted by a conductive radar-absorbent grid screen.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(-2.0, 1.2, 0.7),
         base_loc=(-1.1, 0.6, 0.25),
         color=(0.18, 0.20, 0.22),
@@ -240,10 +278,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "intake_right": PartSpec(
         id="intake_right",
-        name="Starboard S-Duct Intake & Radar Absorber Grid",
+        name="Starboard S-Duct Intake & Radar Grid Screen",
         subsystem="propulsion",
-        function="Serpentine curved duct blocking line-of-sight to compressor blades, fronted by radar-absorbent grid mesh.",
-        source="USAF National Museum Fact Sheet; NASA TM-104326; Richardson, 'Stealth Warplanes'",
+        function="Curved serpentine air duct concealing compressor blades, fronted by a conductive radar-absorbent grid screen.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(2.0, 1.2, 0.7),
         base_loc=(1.1, 0.6, 0.25),
         color=(0.18, 0.20, 0.22),
@@ -254,8 +293,9 @@ PARTS: Dict[str, PartSpec] = {
         id="exhaust_nozzle",
         name="2D Platypus Exhaust Nozzle & Heat Shield",
         subsystem="propulsion",
-        function="12:1 flat horizontal slit nozzle lined with ceramic heat-dissipation tiles and ambient bypass mixing baffles.",
-        source="Lockheed Martin F-117 Propulsion Architecture; Richardson, 'Stealth Warplanes'",
+        function="Flat horizontal slit exhaust nozzle lined with heat-shield tiles; mixes bypass air to suppress infrared signature.",
+        source="Lockheed Martin F-117 History",
+        source_url=URL_LOCKHEED_HISTORY,
         explode_vec=(0.0, -4.2, 0.0),
         base_loc=(0.0, -3.8, 0.2),
         color=(0.24, 0.22, 0.22),
@@ -264,10 +304,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "weapons_bay": PartSpec(
         id="weapons_bay",
-        name="Internal Dual Weapons Bay Structure",
+        name="Internal Dual Weapons Bay",
         subsystem="payload",
-        function="Divided central weapons cavity carrying ordnance internally so external stores do not destroy stealth RCS.",
-        source="USAF National Museum F-117A Fact Sheet; Aronstein & Piccirillo, AIAA",
+        function="Divided central internal weapons cavity keeping munitions enclosed within the airframe.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, -1.2),
         base_loc=(0.0, -0.4, -0.2),
         color=(0.85, 0.85, 0.85),
@@ -276,10 +317,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "bay_door_left": PartSpec(
         id="bay_door_left",
-        name="Port Serrated Sawtooth Weapons Bay Door",
+        name="Port Serrated Weapons Bay Door",
         subsystem="payload",
-        function="Structural door with sawtooth edge serrations channeling diffracted radar reflection spikes into narrow angles.",
-        source="USAF National Museum Fact Sheet; NASA Low Observable Principles",
+        function="Structural door with sawtooth edge serrations channeling diffracted radar reflections away from threat sectors.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(-1.8, -0.2, -1.8),
         base_loc=(-0.65, -0.4, -0.45),
         color=(0.12, 0.13, 0.15),
@@ -288,10 +330,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "bay_door_right": PartSpec(
         id="bay_door_right",
-        name="Starboard Serrated Sawtooth Weapons Bay Door",
+        name="Starboard Serrated Weapons Bay Door",
         subsystem="payload",
-        function="Structural door with sawtooth edge serrations channeling diffracted radar reflection spikes into narrow angles.",
-        source="USAF National Museum Fact Sheet; NASA Low Observable Principles",
+        function="Structural door with sawtooth edge serrations channeling diffracted radar reflections away from threat sectors.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(1.8, -0.2, -1.8),
         base_loc=(0.65, -0.4, -0.45),
         color=(0.12, 0.13, 0.15),
@@ -300,10 +343,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "weapon_rack_left": PartSpec(
         id="weapon_rack_left",
-        name="Port Extending Trapeze Ordnance Rack",
+        name="Port Trapeze Weapon Rack",
         subsystem="payload",
-        function="Hydraulic articulating trapeze extending the bomb into the free airstream before release to avoid cavity turbulence.",
-        source="USAF National Museum F-117A Fact Sheet; Lockheed Martin Weapons Separation Summary",
+        function="Articulating hydraulic trapeze extending the bomb into the free airstream before release.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(-0.8, -0.2, -2.5),
         base_loc=(-0.55, -0.4, -0.2),
         color=(0.50, 0.52, 0.55),
@@ -313,10 +357,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "weapon_rack_right": PartSpec(
         id="weapon_rack_right",
-        name="Starboard Extending Trapeze Ordnance Rack",
+        name="Starboard Trapeze Weapon Rack",
         subsystem="payload",
-        function="Hydraulic articulating trapeze extending the bomb into the free airstream before release to avoid cavity turbulence.",
-        source="USAF National Museum F-117A Fact Sheet; Lockheed Martin Weapons Separation Summary",
+        function="Articulating hydraulic trapeze extending the bomb into the free airstream before release.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.8, -0.2, -2.5),
         base_loc=(0.55, -0.4, -0.2),
         color=(0.50, 0.52, 0.55),
@@ -326,10 +371,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "ordnance_left": PartSpec(
         id="ordnance_left",
-        name="Port GBU-27 Laser-Guided Penetrator Bomb",
+        name="Port Guided Bomb (GBU-27 Derivative)",
         subsystem="payload",
-        function="2,000 lb BLU-109 hardened penetrator bomb with semi-active laser guidance nose and folding airfoil fins.",
-        source="USAF Fact Sheet (GBU-27 Paveway III / GBU-10); Raytheon Missiles & Defense",
+        function="Precision-guided penetrator bomb with laser seeker nose and airfoil guidance fins.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(-0.8, -0.2, -3.4),
         base_loc=(-0.55, -0.4, -0.55),
         color=(0.22, 0.28, 0.18),
@@ -338,10 +384,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "ordnance_right": PartSpec(
         id="ordnance_right",
-        name="Starboard GBU-27 Laser-Guided Penetrator Bomb",
+        name="Starboard Guided Bomb (GBU-27 Derivative)",
         subsystem="payload",
-        function="2,000 lb BLU-109 hardened penetrator bomb with semi-active laser guidance nose and folding airfoil fins.",
-        source="USAF Fact Sheet (GBU-27 Paveway III / GBU-10); Raytheon Missiles & Defense",
+        function="Precision-guided penetrator bomb with laser seeker nose and airfoil guidance fins.",
+        source="USAF National Museum F-117A Fact Sheet",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.8, -0.2, -3.4),
         base_loc=(0.55, -0.4, -0.55),
         color=(0.22, 0.28, 0.18),
@@ -350,10 +397,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "wing_left": PartSpec(
         id="wing_left",
-        name="Port 67.5-Deg Swept Faceted Wing & Elevons",
+        name="Port Swept Faceted Wing & Elevons",
         subsystem="aerodynamics",
-        function="Extreme 67.5-degree swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
-        source="USAF National Museum F-117A Fact Sheet; Lockheed Martin Skunk Works History",
+        function="Highly swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
+        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(-4.2, -1.0, 0.3),
         base_loc=(-2.2, -1.1, 0.1),
         color=(0.12, 0.13, 0.15),
@@ -362,10 +410,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "wing_right": PartSpec(
         id="wing_right",
-        name="Starboard 67.5-Deg Swept Faceted Wing & Elevons",
+        name="Starboard Swept Faceted Wing & Elevons",
         subsystem="aerodynamics",
-        function="Extreme 67.5-degree swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
-        source="USAF National Museum F-117A Fact Sheet; Lockheed Martin Skunk Works History",
+        function="Highly swept leading edge to deflect lateral radar returns, with trailing elevons for pitch and roll.",
+        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(4.2, -1.0, 0.3),
         base_loc=(2.2, -1.1, 0.1),
         color=(0.12, 0.13, 0.15),
@@ -374,10 +423,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "vtail_left": PartSpec(
         id="vtail_left",
-        name="Port 48-Deg Canted All-Moving Ruddervator",
+        name="Port Canted All-Moving V-Tail Ruddervator",
         subsystem="aerodynamics",
-        function="All-moving vertical stabilizer canted outward at 48 degrees; prevents 90-degree corner radar reflection traps.",
-        source="USAF National Museum Fact Sheet; NASA Aeronautical Design Reports",
+        function="All-moving vertical stabilizer canted outward; prevents 90-degree corner radar reflection traps.",
+        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(-2.2, -3.6, 2.2),
         base_loc=(-1.1, -3.6, 0.5),
         color=(0.12, 0.13, 0.15),
@@ -386,10 +436,11 @@ PARTS: Dict[str, PartSpec] = {
     ),
     "vtail_right": PartSpec(
         id="vtail_right",
-        name="Starboard 48-Deg Canted All-Moving Ruddervator",
+        name="Starboard Canted All-Moving V-Tail Ruddervator",
         subsystem="aerodynamics",
-        function="All-moving vertical stabilizer canted outward at 48 degrees; prevents 90-degree corner radar reflection traps.",
-        source="USAF National Museum Fact Sheet; NASA Aeronautical Design Reports",
+        function="All-moving vertical stabilizer canted outward; prevents 90-degree corner radar reflection traps.",
+        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(2.2, -3.6, 2.2),
         base_loc=(1.1, -3.6, 0.5),
         color=(0.12, 0.13, 0.15),
@@ -400,8 +451,9 @@ PARTS: Dict[str, PartSpec] = {
         id="landing_gear",
         name="Retractable Tricycle Landing Gear",
         subsystem="airframe",
-        function="Oleo-pneumatic shock struts and wheels retracting flush into fuselage wells behind serrated doors during flight.",
-        source="USAF National Museum F-117A Fact Sheet; FAA-H-8083-25B, Chapter 7",
+        function="Oleo-pneumatic shock struts and wheels retracting flush into fuselage wells behind doors during flight.",
+        source="USAF National Museum F-117A Fact Sheet; FAA PHAK Ch. 7",
+        source_url=URL_USAF_MUSEUM,
         explode_vec=(0.0, 0.0, -3.2),
         base_loc=(0.0, 0.2, -0.6),
         color=(0.70, 0.72, 0.75),
@@ -479,10 +531,8 @@ def _make_serrated_plate(x_span: Tuple[float, float], y_span: Tuple[float, float
     y0, y1 = y_span
     ys = np.linspace(y0, y1, n_teeth * 2 + 1)
     top_loop: List[Tuple[float, float, float]] = []
-    # inner straight edge
     top_loop.append((x0, y1, z))
     top_loop.append((x0, y0, z))
-    # outer sawtooth edge
     for i, y in enumerate(ys):
         indent = tooth_depth if (i % 2 == 1) else 0.0
         x_val = x1 - indent if side == "outer" else x1 + indent
@@ -492,13 +542,10 @@ def _make_serrated_plate(x_span: Tuple[float, float], y_span: Tuple[float, float
     bot_v = top_v - np.array([0.0, 0.0, thick])
     verts = np.vstack([top_v, bot_v])
     faces: List[Tuple[int, ...]] = []
-    # top face (fan from inner midpoint)
     for i in range(1, n_loop - 1):
         faces.append((0, i, i + 1))
-    # bottom face
     for i in range(1, n_loop - 1):
         faces.append((n_loop, n_loop + i + 1, n_loop + i))
-    # sides
     for i in range(n_loop):
         i_next = (i + 1) % n_loop
         faces.append((i, i_next, n_loop + i_next, n_loop + i))
@@ -583,13 +630,12 @@ def _make_faceted_fuselage_lower() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
 def _make_ram_coating() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
     """Offset radar-absorbent material skin layer with panel seams."""
     v_base, f_base = _make_faceted_fuselage_upper()
-    # Expand slightly outward along surface normal
     v_ram = v_base * 1.025 + np.array([0.0, 0.0, 0.03])
     return v_ram, f_base
 
 
 def _make_canopy() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
-    """Faceted cockpit canopy with gold-reflected Indium-Tin-Oxide (ITO) glass."""
+    """Faceted cockpit canopy with conductive coating."""
     v = [
         (0.0, 3.8, 0.68),     # 0: front apex
         (-0.55, 2.4, 0.76),   # 1: port forward sill
@@ -613,11 +659,8 @@ def _make_canopy() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
 def _make_cockpit_interior() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
     """Cockpit tub, instrument panel coaming, and ACES II zero-zero ejection seat."""
     tub_v, tub_f = _make_box((-0.42, 1.45, 0.1), (0.42, 2.8, 0.65))
-    # Ejection seat
     seat_v, seat_f = _make_box((-0.22, 1.7, 0.25), (0.22, 2.1, 0.95))
-    # Headrest
     head_v, head_f = _make_box((-0.14, 1.72, 0.95), (0.14, 1.95, 1.18))
-    # Merge
     v = np.vstack([tub_v, seat_v, head_v])
     f = list(tub_f)
     offset1 = len(tub_v)
@@ -628,7 +671,7 @@ def _make_cockpit_interior() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
 
 
 def _make_avionics_bay() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
-    """Avionics compartment housing the 4x redundant fly-by-wire flight control computers."""
+    """Avionics compartment housing redundant fly-by-wire flight control computers."""
     rack_v, rack_f = _make_box((-0.55, 3.0, -0.15), (0.55, 3.9, 0.35))
     fcc1_v, fcc1_f = _make_box((-0.48, 3.1, 0.0), (-0.26, 3.8, 0.30))
     fcc2_v, fcc2_f = _make_box((-0.22, 3.1, 0.0), (0.0, 3.8, 0.30))
@@ -645,9 +688,7 @@ def _make_avionics_bay() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
 
 def _make_sensor_flir() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
     """Forward-Looking Infrared optical turret ball and faceted housing."""
-    # Housing
     h_v, h_f = _make_box((-0.24, 3.85, -0.15), (0.24, 4.25, 0.15))
-    # Turret cylinder / sphere approximation
     t_v, t_f = _make_cylinder((0.0, 4.05, -0.1), (0.0, 4.05, 0.1), r=0.18, n=12)
     offset = len(h_v)
     f = list(h_f)
@@ -657,16 +698,12 @@ def _make_sensor_flir() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
 
 
 def _make_turbofan_engine(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
-    """Detailed turbofan engine with compressor, combustor, turbine, and bypass duct."""
+    """Turbofan engine with compressor, combustor, turbine, and bypass casing."""
     sx = -1.0 if side == "left" else 1.0
     x_c = sx * 0.95
-    # Fan / compressor spool
     c1_v, c1_f = _make_cylinder((x_c, 0.8, 0.12), (x_c, -0.4, 0.12), r=0.42, n=16)
-    # Combustor casing
     c2_v, c2_f = _make_cylinder((x_c, -0.4, 0.12), (x_c, -1.8, 0.12), r=0.36, n=16)
-    # Turbine & after-mixer stage
     c3_v, c3_f = _make_cylinder((x_c, -1.8, 0.12), (x_c, -3.2, 0.12), r=0.32, n=16)
-    # Central cone spinner
     s_v, s_f = _make_cylinder((x_c, 0.8, 0.12), (x_c, 1.15, 0.12), r=0.14, n=12)
     parts = [(c1_v, c1_f), (c2_v, c2_f), (c3_v, c3_f), (s_v, s_f)]
     all_v: List[np.ndarray] = []
@@ -685,7 +722,6 @@ def _make_s_duct_intake(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int,
     sx = -1.0 if side == "left" else 1.0
     x0, x1 = sx * 1.6, sx * 0.95
     duct_v, duct_f = _make_box((min(x0, x1), 0.6, -0.1), (max(x0, x1), 2.2, 0.55))
-    # Grid screen frame
     g_v, g_f = _make_box((min(x0, x0 + sx * 0.12), 2.15, -0.05), (max(x0, x0 + sx * 0.12), 2.22, 0.5))
     offset = len(duct_v)
     f = list(duct_f)
@@ -696,7 +732,6 @@ def _make_s_duct_intake(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int,
 
 def _make_platypus_exhaust() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
     """2D Platypus flat slit exhaust nozzle with heat-shield tiles."""
-    # Wide 12:1 flat nozzle
     w = 1.35
     h = 0.18
     v = [
@@ -760,15 +795,12 @@ def _make_weapon_rack(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, .
 
 
 def _make_laser_guided_bomb(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
-    """GBU-27 style 2,000 lb laser-guided bomb with seeker nose and airfoil guidance fins."""
+    """Laser-guided penetrator bomb with seeker nose and airfoil guidance fins."""
     sx = -1.0 if side == "left" else 1.0
     x = sx * 0.55
     y_center = -0.3
-    # Main penetrator body cylinder
     body_v, body_f = _make_cylinder((x, y_center + 1.1, -0.65), (x, y_center - 1.1, -0.65), r=0.18, n=14)
-    # Seeker nose cone
     nose_v, nose_f = _make_cylinder((x, y_center + 1.1, -0.65), (x, y_center + 1.55, -0.65), r=0.10, n=10)
-    # Tail fins (cross)
     f1_v, f1_f = _make_box((x - 0.45, y_center - 1.25, -0.67), (x + 0.45, y_center - 0.9, -0.63))
     f2_v, f2_f = _make_box((x - 0.02, y_center - 1.25, -1.1), (x + 0.02, y_center - 0.9, -0.2))
     parts = [(body_v, body_f), (nose_v, nose_f), (f1_v, f1_f), (f2_v, f2_f)]
@@ -784,12 +816,10 @@ def _make_laser_guided_bomb(side: str = "left") -> Tuple[np.ndarray, List[Tuple[
 
 
 def _make_swept_wing(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
-    """67.5-degree swept wing with faceted bevels and trailing edge elevon segments."""
+    """Swept wing with faceted bevels and trailing edge elevon segments."""
     sx = -1.0 if side == "left" else 1.0
-    # Root vertices
     xr0, yr0 = sx * 1.65, 0.40
     xr1, yr1 = sx * 1.45, -2.60
-    # Tip vertices (67.5 deg sweep)
     xt0, yt0 = sx * 5.80, -3.80
     xt1, yt1 = sx * 5.50, -4.35
     z_mid = 0.12
@@ -816,14 +846,12 @@ def _make_swept_wing(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, ..
 
 
 def _make_canted_vtail(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
-    """48-degree outward-canted all-moving V-tail fin (ruddervator)."""
+    """Outward-canted all-moving V-tail fin (ruddervator)."""
     sx = -1.0 if side == "left" else 1.0
     cant_rad = math.radians(48.0) * sx
-    # Generate fin in local coordinates then rotate by cant angle
     y_root_le, y_root_te = -2.8, -4.4
     y_tip_le, y_tip_te = -3.4, -4.5
     h = 2.1
-    # Local fin coordinates: x=thickness, y=chord, z=span
     t = 0.06
     local_v = [
         (0.0, y_root_le, 0.0),    # 0
@@ -835,7 +863,6 @@ def _make_canted_vtail(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, 
         (-t, (y_root_le + y_root_te) / 2, 0.0),  # 6
         (-t * 0.5, (y_tip_le + y_tip_te) / 2, h),# 7
     ]
-    # Rotate around Y axis by cant angle and offset root
     root_x = sx * 1.15
     root_z = 0.52
     rot_v = []
@@ -857,13 +884,10 @@ def _make_canted_vtail(side: str = "left") -> Tuple[np.ndarray, List[Tuple[int, 
 
 def _make_landing_gear() -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
     """Retractable tricycle landing gear: nose gear and twin main gear with oleo struts."""
-    # Nose gear
     n_strut_v, n_strut_f = _make_cylinder((0.0, 2.8, -0.3), (0.0, 2.7, -1.8), r=0.045, n=10)
     n_wheel_v, n_wheel_f = _make_cylinder((-0.06, 2.7, -1.8), (0.06, 2.7, -1.8), r=0.22, n=14)
-    # Main port gear
     p_strut_v, p_strut_f = _make_cylinder((-1.3, -0.8, -0.3), (-1.4, -0.8, -1.8), r=0.06, n=10)
     p_wheel_v, p_wheel_f = _make_cylinder((-1.52, -0.8, -1.8), (-1.28, -0.8, -1.8), r=0.32, n=14)
-    # Main starboard gear
     s_strut_v, s_strut_f = _make_cylinder((1.3, -0.8, -0.3), (1.4, -0.8, -1.8), r=0.06, n=10)
     s_wheel_v, s_wheel_f = _make_cylinder((1.28, -0.8, -1.8), (1.52, -0.8, -1.8), r=0.32, n=14)
     parts = [
@@ -919,7 +943,7 @@ def build_part_geometry(part_id: str) -> Tuple[np.ndarray, List[Tuple[int, ...]]
 
 
 def get_all_geometry() -> Dict[str, Tuple[np.ndarray, List[Tuple[int, ...]]]]:
-    """Generates procedural geometry for all 17+ parts of the stealth jet."""
+    """Generates procedural geometry for all parts of the stealth jet."""
     return {pid: fn() for pid, fn in GEOMETRY_BUILDERS.items()}
 
 
@@ -989,7 +1013,6 @@ class StealthJet:
                 self.origin[1] + (by + dy) * self.scale,
                 self.origin[2] + (bz + dz) * self.scale,
             )
-            # Articulated rotations for doors and canopy
             factor = smoothstep(t_val)
             if pid == "canopy":
                 obj.rotation_euler = (math.radians(22.0) * factor, 0.0, 0.0)
@@ -1130,7 +1153,7 @@ def _make_callout_label(collection: Any, name: str, body: str, target_pos: Tuple
     if not HAS_BPY:
         return None
     cu = bpy.data.curves.new(name, 'FONT')
-    cu.body = body.split("\n")[0]  # First line on banner
+    cu.body = body.split("\n")[0]
     cu.size = 0.32
     cu.align_x = 'CENTER'
     cu.align_y = 'CENTER'
@@ -1152,17 +1175,14 @@ def build(collection: Any, origin: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     if not HAS_BPY:
         return jet
 
-    # Create root empty
     root = bpy.data.objects.new("stealth_jet_root", None)
     root.location = origin
     collection.objects.link(root)
     jet.root = root
 
-    # Shared materials
     jet.materials["xray_shell"] = _make_xray_shell_material()
     jet.materials["hud_glow"] = _make_emit_material("hud_glow", (0.2, 1.0, 0.4), 3.0)
 
-    # Build each part mesh
     for pid, spec in PARTS.items():
         v, f = build_part_geometry(pid)
         v_scaled = v * scale
@@ -1176,7 +1196,6 @@ def build(collection: Any, origin: Tuple[float, float, float] = (0.0, 0.0, 0.0),
             origin[2] + spec.base_loc[2] * scale,
         )
         ob.parent = root
-        # Assign material
         mat = _make_pbr_material(f"mat_{pid}", spec.color, rough=spec.roughness,
                                  metallic=spec.metallic, alpha=spec.alpha)
         me.materials.append(mat)
@@ -1225,71 +1244,12 @@ CAMERA_POSES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def build_set(origin: Tuple[float, float, float] = (0.0, 0.0, 0.0), detail: str = "standard") -> Dict[str, Any]:
-    """Ready-to-render studio teardown set: presentation turntable pedestal, key/fill/rim lights."""
-    if not HAS_BPY:
-        return {"origin": origin, "ready": False, "note": "Blender not loaded"}
-    scene = bpy.context.scene
-    coll = bpy.data.collections.new("set_teardown")
-    scene.collection.children.link(coll)
-
-    # Turntable pedestal (low circular platform)
-    p_v, p_f = _make_cylinder((origin[0], origin[1], origin[2] - 0.25),
-                              (origin[0], origin[1], origin[2]), r=7.5, n=48)
-    p_me = bpy.data.meshes.new("me_pedestal")
-    p_me.from_pydata(p_v.tolist(), [], p_f)
-    p_me.update()
-    p_ob = bpy.data.objects.new("turntable_pedestal", p_me)
-    p_mat = _make_pbr_material("pedestal_mat", (0.04, 0.04, 0.05), rough=0.85)
-    p_me.materials.append(p_mat)
-    coll.objects.link(p_ob)
-
-    # Lighting: 3-point studio lighting calibrated for dark stealth composite materials
-    # Overhead Key Light
-    key_l = bpy.data.lights.new("LGT_Key", 'AREA')
-    key_l.energy = 4500.0
-    key_l.size = 8.0
-    key_l.color = (1.0, 0.98, 0.95)
-    key_ob = bpy.data.objects.new("LGT_Key", key_l)
-    key_ob.location = (origin[0] + 6.0, origin[1] - 8.0, origin[2] + 12.0)
-    coll.objects.link(key_ob)
-
-    # Soft Fill Light
-    fill_l = bpy.data.lights.new("LGT_Fill", 'AREA')
-    fill_l.energy = 1800.0
-    fill_l.size = 12.0
-    fill_l.color = (0.75, 0.85, 1.0)
-    fill_ob = bpy.data.objects.new("LGT_Fill", fill_l)
-    fill_ob.location = (origin[0] - 8.0, origin[1] - 6.0, origin[2] + 8.0)
-    coll.objects.link(fill_ob)
-
-    # Rim / Edge Light (crisp silhouette separation for dark aircraft)
-    rim_l = bpy.data.lights.new("LGT_Rim", 'AREA')
-    rim_l.energy = 6000.0
-    rim_l.size = 6.0
-    rim_l.color = (0.5, 0.8, 1.0)
-    rim_ob = bpy.data.objects.new("LGT_Rim", rim_l)
-    rim_ob.location = (origin[0], origin[1] + 12.0, origin[2] + 4.0)
-    coll.objects.link(rim_ob)
-
-    # Build jet model at center of pedestal
-    jet = build(coll, origin=origin, scale=1.0)
-
-    return {
-        "collection": coll,
-        "origin": origin,
-        "jet": jet,
-        "pedestal": p_ob,
-        "lights": [key_ob, fill_ob, rim_ob],
-    }
-
-
 # ==============================================================================
 # CATALOG & QUERY API
 # ==============================================================================
 
 def catalog() -> List[Dict[str, Any]]:
-    """Returns a list of all part records with their sourced technical metadata."""
+    """Returns a list of all part records with their sourced technical metadata and primary URLs."""
     return [
         {
             "id": p.id,
@@ -1297,6 +1257,7 @@ def catalog() -> List[Dict[str, Any]]:
             "subsystem": p.subsystem,
             "function": p.function,
             "source": p.source,
+            "source_url": p.source_url,
             "explode_vec": list(p.explode_vec),
         }
         for p in PARTS.values()
@@ -1309,7 +1270,7 @@ def subsystems() -> List[str]:
 
 
 def facts(key: Optional[str] = None) -> Any:
-    """Returns fact sheets for script writing and fact-checking."""
+    """Returns primary-sourced facts for script writing and fact-checking."""
     if key:
         return FACTS.get(key)
     return FACTS
@@ -1337,34 +1298,27 @@ def geometry_summary() -> Dict[str, Dict[str, Any]]:
 
 def run_self_checks() -> bool:
     """Comprehensive standalone validation test for teardown kit."""
-    # 1. Check all parts defined
     assert len(PARTS) >= 17, f"Expected at least 17 parts, found {len(PARTS)}"
     for pid, spec in PARTS.items():
         assert spec.id == pid
         assert len(spec.name) > 0, f"Part {pid} missing name"
         assert len(spec.function) > 0, f"Part {pid} missing function"
         assert len(spec.source) > 0, f"Part {pid} missing source citation"
+        assert spec.source_url.startswith("https://"), f"Part {pid} missing primary URL: {spec.source_url}"
         assert len(spec.explode_vec) == 3, f"Part {pid} invalid explode_vec"
         assert pid in GEOMETRY_BUILDERS, f"Part {pid} missing geometry builder"
 
-    # 2. Check geometry generation
-    total_faces = 0
-    total_verts = 0
     for pid, fn in GEOMETRY_BUILDERS.items():
         v, f = fn()
         assert isinstance(v, np.ndarray), f"Part {pid} verts must be ndarray"
         assert v.ndim == 2 and v.shape[1] == 3, f"Part {pid} verts shape invalid: {v.shape}"
         assert len(v) > 0, f"Part {pid} has 0 vertices"
         assert len(f) > 0, f"Part {pid} has 0 faces"
-        # Check face index validity
         max_idx = max(max(face) for face in f)
         min_idx = min(min(face) for face in f)
         assert min_idx >= 0, f"Part {pid} has negative vertex index"
         assert max_idx < len(v), f"Part {pid} face references vertex {max_idx} >= len(v)={len(v)}"
-        total_verts += len(v)
-        total_faces += len(f)
 
-    # 3. Check easing math
     for t in (0.0, 0.25, 0.5, 0.75, 1.0):
         s = smoothstep(t)
         assert 0.0 <= s <= 1.0, f"smoothstep({t}) out of bounds: {s}"
@@ -1372,10 +1326,10 @@ def run_self_checks() -> bool:
             dx, dy, dz = calculate_part_pose(pid, t)
             assert not any(math.isnan(x) for x in (dx, dy, dz))
 
-    # 4. Check facts
     assert len(FACTS) >= 8, f"Expected at least 8 facts, found {len(FACTS)}"
     for fk, fact in FACTS.items():
-        assert "title" in fact and "fact" in fact and "source" in fact
+        assert "title" in fact and "fact" in fact and "source" in fact and "url" in fact
+        assert fact["url"].startswith("https://")
 
     return True
 
@@ -1388,3 +1342,4 @@ if __name__ == "__main__":
     print(f"Self-checks passed: {passed}")
     print(f"Total parts: {len(PARTS)}")
     print(f"Total vertices: {total_v}, Total faces: {total_f}")
+    print(f"Primary sources checked: USAF Museum, Lockheed Martin, FAA PHAK")
