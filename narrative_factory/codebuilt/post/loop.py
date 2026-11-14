@@ -14,27 +14,34 @@ from . import media, run
 
 
 def check_motion(files, fps=30):
-    """8-bit RGB MAE; measure all delivered adjacent frames, plus half cycle."""
+    """Does the rendered loop move, all the way round? Mean absolute error on 8-bit RGB, frames reduced to 180 px wide.
+
+    range: the largest distance of any frame from frame 0 (a still picture gives 0).
+    pace: the distance between frames `window` apart (a sixth of a second), around the seam; its median is the loop's own usual pace.
+    A frame is still when its pace is under a tenth of that median, so a slow turn at the end of a swing is not a freeze, and a
+    gentle or a 20 second loop is measured against itself. Refused: no range, no usual pace (most of the loop stands still), or
+    one still run longer than a sixth of the loop (and at least a third of a second)."""
     def read(file):
         with Image.open(file) as im:
-            return np.asarray(im.convert('RGB'), dtype=np.float32)
-    first = previous = read(files[0])
-    steps, frozen, longest = [], 0, 0
-    half = None
-    for i, file in enumerate(files[1:], 1):
-        current = read(file)
-        diff = float(np.abs(current - previous).mean())
-        steps.append(diff)
-        frozen = frozen + 1 if diff < 0.05 else 0
-        longest = max(longest, frozen)
-        if i == len(files) // 2:
-            half = float(np.abs(current - first).mean())
-        previous = current
-    mean = float(np.mean(steps))
-    return {'passed': mean >= 0.1 and half is not None and half >= 0.2 and longest < fps / 2,
-            'mean_step_rgb_255': mean, 'half_cycle_rgb_255': half,
-            'longest_frozen_steps': longest, 'step_floor': 0.1, 'half_floor': 0.2,
-            'frozen_step_floor': 0.05, 'max_frozen_steps_exclusive': fps / 2}
+            im = im.convert('RGB')
+            w = min(180, im.width)
+            return np.asarray(im.resize((w, max(1, round(im.height * w / im.width))), Image.BOX), dtype=np.int16)
+    frames = [read(f) for f in files]
+    n = len(frames)
+    window = max(1, fps // 6)
+    dist = lambda a, b: float(np.abs(a - b).mean())
+    span = max((dist(frames[0], f) for f in frames[1:]), default=0.0)
+    pace = [dist(frames[i], frames[(i + window) % n]) for i in range(n)]
+    usual = float(np.median(pace)) if pace else 0.0
+    still = longest = 0
+    for value in pace + pace:                         # twice round, so a still run across the seam is counted whole
+        still = still + 1 if value < 0.1 * usual or value == 0 else 0
+        longest = max(longest, still)
+    longest = min(longest, n)
+    limit = max(fps / 3, n / 6)
+    return {'passed': span >= 0.3 and usual >= 0.02 and longest <= limit,
+            'range_from_frame0_rgb_255': span, 'usual_pace_rgb_255': usual, 'pace_window_frames': window,
+            'longest_still_frames': longest, 'range_floor': 0.3, 'pace_floor': 0.02, 'max_still_frames': limit}
 
 
 def produce_loop(job, fps=30):

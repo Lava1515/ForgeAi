@@ -29,11 +29,42 @@ def test_pixel_motion_rejects_static_tiny_motion_and_long_freeze():
             file = Path(folder) / f'{i}.png'
             Image.fromarray(np.full((32, 32, 3), i % 30, dtype=np.uint8)).save(file)
             files.append(file)
-        # Half must differ as well as adjacent frames.
-        assert not check_motion(files)['passed']
-        assert not check_motion([files[0]] * 60)['passed']
-        assert not check_motion([files[0]] * 20 + files[1:41])['passed']
+        assert not check_motion([files[0]] * 60)['passed']                    # a still picture
+        assert not check_motion([files[0]] * 20 + files[1:41])['passed']      # a third of the loop frozen
+        assert not check_motion(files[:10] + [files[10]] * 50)['passed']      # moves, then stops for good
         assert check_motion(files[:30])['passed']
+        assert check_motion(files)['passed']                                  # two cycles: the half-cycle frame equals frame 0
+
+
+def test_gentle_and_long_loops_pass_the_pixel_gate():
+    # Review cases: a slow cosine bob eases to a stop at each end of the swing; that is not a freeze.
+    scratch = Path('output/temp/loop-d2').resolve(); scratch.mkdir(parents=True, exist_ok=True)
+    def bob(n, amplitude, size=40, h=320, w=180):
+        with tempfile.TemporaryDirectory(dir=scratch) as folder:
+            files = []
+            for i in range(n):
+                px = np.full((h, w, 3), 30, dtype=np.uint8)
+                y = int(round(h / 2 + amplitude * h * math.cos(math.tau * i / n)))
+                px[max(0, y - size):y + size, w // 2 - size:w // 2 + size] = 220
+                file = Path(folder) / f'{i:04d}.png'
+                Image.fromarray(px).save(file)
+                files.append(file)
+            return check_motion(files)
+    for n, amplitude in ((240, 0.05), (240, 0.10), (600, 0.25), (600, 0.10)):
+        assert bob(n, amplitude)['passed'], (n, amplitude)
+
+
+def test_preflight_samples_the_whole_cycle():
+    state = {}
+    # A sine that starts at its middle is back at the same value at the half cycle; two cycles likewise.
+    for cycles in (1, 2):
+        pose = lambda f, c=cycles: state.update(x=math.sin(c * f * math.tau / 180))
+        assert check_loop_state(pose, 180, lambda: state.copy())['passed']
+    # Moves for a quarter of the cycle, then stands still, and still closes.
+    def stall(f):
+        state['x'] = math.sin(4 * math.pi * f / 180) if f % 180 < 45 else 0.0
+    with pytest.raises(ValueError, match='third of the cycle'):
+        check_loop_state(stall, 180, lambda: state.copy())
 
 
 def test_small_subject_erasure_fails_tile_even_below_global_threshold():

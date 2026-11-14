@@ -215,12 +215,18 @@ def loop_state():
     return values
 
 
-def check_loop_state(apply, nframes, snapshot=None):
-    """No renders: independently pose 0, half-cycle and N. Raise before frame zero."""
+def check_loop_state(apply, nframes, snapshot=None, samples=24):
+    """No renders: pose frame 0, `samples` whole frames spread over the cycle, and frame N. Raise before frame zero is rendered.
+
+    The state at N must equal frame 0 (the loop closes). Something must differ from frame 0 somewhere in the cycle (it moves): the
+    whole cycle is sampled, because a sine that starts at its middle is back at the same value at the half cycle. And the state may
+    not stand still for more than a third of the cycle."""
     import math
     snapshot = snapshot or loop_state
+    nframes = int(nframes)
+    frames = sorted({min(nframes - 1, int(round(i * nframes / samples))) for i in range(samples)})
     states = []
-    for frame in (0, nframes / 2, nframes):
+    for frame in frames + [nframes]:
         apply(frame)
         states.append(snapshot())
     def equal(a, b):
@@ -228,12 +234,28 @@ def check_loop_state(apply, nframes, snapshot=None):
             math.isclose(a[k], b[k], rel_tol=1e-6, abs_tol=1e-5)
             if isinstance(a[k], (int, float)) and isinstance(b[k], (int, float))
             else a[k] == b[k] for k in a)
-    if not equal(states[0], states[2]):
+    if not equal(states[0], states[-1]):
         raise ValueError('loop preflight: state at N does not equal frame 0')
-    if equal(states[0], states[1]):
-        raise ValueError('loop preflight: no motion at half cycle')
+    cycle = states[:-1]
+    moved = sum(1 for st in cycle[1:] if not equal(cycle[0], st))
+    if moved == 0:
+        raise ValueError('loop preflight: no motion anywhere in the cycle')
+    still = longest = 0
+    for i in range(len(cycle)):                      # around the seam too
+        still = still + 1 if equal(cycle[i], cycle[(i + 1) % len(cycle)]) else 0
+        longest = max(longest, still)
+    if longest * nframes / len(cycle) > nframes / 3:
+        raise ValueError('loop preflight: no motion for more than a third of the cycle')
     apply(0)
-    return {'passed': True, 'frames': [0, nframes / 2, nframes]}
+    return {'passed': True, 'frames': frames + [nframes], 'frames_differing_from_0': moved, 'longest_still_samples': longest}
+
+
+def loop_glyphs():
+    """Names of text objects and text curves in the scene. A silent loop shows no glyphs; a source scan cannot prove that, the scene can."""
+    import bpy
+    names = ['object/' + o.name for o in bpy.context.scene.objects if o.type == 'FONT']
+    names += ['curve/' + c.name for c in bpy.data.curves if c.bl_rna.identifier == 'TextCurve' and c.users > 0]
+    return sorted(set(names))
 
 
 def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=print, hold=1, require_qa=False):
@@ -260,6 +282,9 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         with open('/job/inputs/pathpack.json', encoding='utf-8') as fh:
             pack = json.load(fh)
         if pack.get('videoType') == 'loop':
+            glyphs = loop_glyphs()
+            if glyphs:
+                raise ValueError('loop preflight: text in a silent loop: ' + ', '.join(glyphs[:8]))
             preflight = check_loop_state(apply, pack['loop']['nframes'])
             log('LOOP_PREFLIGHT ' + json.dumps(preflight))
             if spec is None:
