@@ -530,7 +530,9 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     if (!voice) {
     step(rec, 'voicing');
     fs.mkdirSync(stage, { recursive: true });
-    createEpisodeDir(episodesRoot, `cb-${rec.id}`);
+    // A job resumed at the voice step already has its episode folder from the first attempt: that is not a conflict. Without this
+    // every Resume from "voicing" failed at once as "The job failed" (job mwg5e6hs-e826b9, 2026-11-14 10:37).
+    try { createEpisodeDir(episodesRoot, `cb-${rec.id}`); } catch (error) { if (!(resume && error?.code === 'conflict')) throw error; }
     try {
       // The voice is generated with fresh random seeds every time, and now and then one sentence comes out wrong (a long ramble, a
       // clipped start), so the recording does not line up with its own word times and is refused. Recording again usually works: the
