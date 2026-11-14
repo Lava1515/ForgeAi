@@ -488,7 +488,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     try {
       const fn = scriptStage ?? pl.planCodebuiltScript;
       if (typeof fn !== 'function') throw new StartError('script_unavailable', 501);
-      scripted = await fn({ topic: rec.topic, duration: rec.duration, signal, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall });
+      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall });
     } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
     }
     if (!scripted || typeof scripted.script !== 'string' || !scripted.script.trim() || typeof scripted.brief !== 'string') throw new StartError('script_failed', 502);

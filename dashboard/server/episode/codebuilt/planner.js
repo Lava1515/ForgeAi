@@ -59,7 +59,8 @@ export const SCRIPT_OVER_TARGET = 0.06;
 export { LENGTH_TOLERANCE_S, lengthCheck };
 const MAX_ATTEMPTS = 2;
 // Writing the whole Blender build script takes a model several minutes; the CLI default of 300 s killed the real 60 s run (2026-11-13).
-export const BUILD_TIMEOUT_MS = 20 * 60 * 1000;
+// 45 minutes since 2026-11-14: the first directed build (job mwg20ivw-ea1a19) took 29.6 minutes to answer and its reply was thrown away at 20.
+export const BUILD_TIMEOUT_MS = 45 * 60 * 1000;
 
 export class PlannerError extends Error {
   constructor(code, message, reasons) { super(message); this.name = 'PlannerError'; this.code = code; if (Array.isArray(reasons)) this.reasons = reasons; }
@@ -211,11 +212,22 @@ export const scriptShotRange = (duration) => {
   const range = shotCountRange(d);
   return { min: shotCountRange(d * (1 - SCRIPT_LENGTH_BAND.under)).min, target: range.target, max: shotCountRange(d + SCRIPT_LENGTH_BAND.over).max };
 };
-export const targetWords = (duration) => Math.round((Number(duration) - FIXED_VIDEO_S) * wordsPerSecond(duration));
-export const wordWindow = (duration) => {
+// How fast each built-in voice really speaks, in words per second of narration (voice.json duration, pauses included). The script length
+// has to follow the voice: the first video of 2026-11-14 used eric, who took 75 s for a 130-word script written for a 45 s video
+// (job mwg1o6h5-6f5a74, stopped as too_long). Measured on real jobs: aiden 2.78 (146 words in 52.5 s), ryan 2.57, dylan 2.61, eric 1.73.
+// The others are estimated from the same-script samples of 2026-11-14 (output/temp/voice-samples) scaled to aiden, and are marked so.
+export const VOICE_WORDS_PER_SECOND = Object.freeze({
+  aiden: 2.78, ryan: 2.57, dylan: 2.61, eric: 1.73,
+  serena: 2.56, vivian: 2.26, uncle_fu: 2.39, sohee: 2.56, ono_anna: 2.86, // estimated
+});
+export const DEFAULT_VOICE_WORDS_PER_SECOND = 2.6;
+/** Words per second the script length is planned for: the voice's measured pace when the voice is known, else the duration table. */
+export const scriptPace = (duration, voice) => (typeof voice === 'string' && Object.hasOwn(VOICE_WORDS_PER_SECOND, voice) ? VOICE_WORDS_PER_SECOND[voice] : voice ? DEFAULT_VOICE_WORDS_PER_SECOND : wordsPerSecond(duration));
+export const targetWords = (duration, voice) => Math.round((Number(duration) - FIXED_VIDEO_S) * scriptPace(duration, voice));
+export const wordWindow = (duration, voice) => {
   const d = Number(duration);
-  const pace = wordsPerSecond(d);
-  const target = targetWords(d);
+  const pace = scriptPace(d, voice);
+  const target = targetWords(d, voice);
   // The tolerance of 10 s over the request is for what the voice does with the script, not an invitation to write more: the three
   // 45 s scripts of 2026-11-13 all came back at 146 words (target 127) and their videos ran 51.6, 54.3 and 58.6 s, because the
   // real voices spoke 2.6 to 2.8 words per second, slower than the calibrated pace. The script may exceed its target by 6 percent.
@@ -234,23 +246,23 @@ function guidesFor(pack, step) {
   try { return loadCodebuiltGuides({ pack, step }); } catch { return ''; }
 }
 
-function scriptPrompt({ topic, duration, pack, choices }) {
-  const { target, min, max } = wordWindow(duration);
+function scriptPrompt({ topic, duration, pack, choices, voice }) {
+  const { target, min, max } = wordWindow(duration, voice);
   const count = scriptShotRange(duration);
   const guides = guidesFor(pack, 'script');
   return `You write the narration for a ${duration}-second vertical 3D explainer short for a faceless channel. Every picture is later built from code in Blender in a bright toy-like style (simple people, vehicles, animals, buildings, landscapes, planets, cutaways), so write a story a viewer can SEE: things that happen to someone or something, in places, with a beginning, a turn and an ending.
 Topic: ${JSON.stringify(topic)}
 ${scriptChoicesPrompt(choices)}${storyDirection(choices?.type ?? (isWhatIfTopic(topic) ? 'whatif' : 'factual'))}
 Reply with ONE JSON object and nothing else: {"script": string, "shots": [{"narration": string, "subject": string, "action": string}, ...], "brief": string}
-- script: the spoken narration, plain sentences, no stage directions, no markdown, about ${target} words (at least ${min} and at most ${max}; the voice speaks about ${wordsPerSecond(duration)} words per second; stay close to the target, a longer script makes the video too long). The first sentence is the hook: the question or the most surprising fact, in 12 words or fewer. Then one idea per sentence, short sentences (most under 14 words), concrete nouns and numbers instead of adjectives, "you" where it fits. Each sentence should name something that can be shown. Only facts you are sure of; name a simplification as one. A "what if" is already understood as imaginary: say so at most once, in passing, and never spend a sentence on disclaimers ("scientists do not expect this", "luckily this cannot happen") or on reassuring the viewer; follow the consequences instead, each one bigger than the last. End on a pay-off: the answer, a twist or a line that returns to the opening, never a summary or "so that is why".
+- script: the spoken narration, plain sentences, no stage directions, no markdown, about ${target} words (at least ${min} and at most ${max}; the voice speaks about ${scriptPace(duration, voice)} words per second; stay close to the target, a longer script makes the video too long). The first sentence is the hook: the question or the most surprising fact, in 12 words or fewer. Then one idea per sentence, short sentences (most under 14 words), concrete nouns and numbers instead of adjectives, "you" where it fits. Each sentence should name something that can be shown. Only facts you are sure of; name a simplification as one. A "what if" is already understood as imaginary: say so at most once, in passing, and never spend a sentence on disclaimers ("scientists do not expect this", "luckily this cannot happen") or on reassuring the viewer; follow the consequences instead, each one bigger than the last. End on a pay-off: the answer, a twist or a line that returns to the opening, never a summary or "so that is why".
 - shots: the visual beats in order, about ${count.target} (at least ${count.min}, at most ${count.max}), one idea per beat. Each: the narration it covers (quoted from script; together they cover the whole script in order), in subject the thing the viewer watches and the place it is in, and in action what visibly happens to it. Think in a few places (2 to 5 for the whole video) that the story returns to, not a new place for every sentence. A director turns these beats into the final shot list after the voice is recorded.
 - brief: 3 to 6 sentences for the director: the idea of the video, the recurring character or object, the places, the palette and mood.
 ${pacingRule(duration) ? `- ${pacingRule(duration)}
 ` : ''}${guides ? `Guidance for this step (project skills):\n${guides}\n` : ''}Production playbook: ${JSON.stringify(compact(pack).playbook)}`;
 }
 
-function checkScript(duration) {
-  const { target, min, max } = wordWindow(duration);
+function checkScript(duration, voice) {
+  const { target, min, max } = wordWindow(duration, voice);
   const shotRange = scriptShotRange(duration);
   return (text) => {
     const v = parseModelJson(text);
@@ -289,7 +301,8 @@ export async function planCodebuiltScript(input = {}, deps = {}) {
   const choices = choicesOf(input);
   const pathPack = loadCodebuiltPathPack(deps);
   const asker = makeAsker(deps, 'script', deps.onCall);
-  const v = await asker.run(scriptPrompt({ topic, duration, pack: pathPack, choices }), checkScript(duration), input.signal);
+  const voice = typeof input.voice === 'string' ? input.voice : undefined;
+  const v = await asker.run(scriptPrompt({ topic, duration, pack: pathPack, choices, voice }), checkScript(duration, voice), input.signal);
   return { script: v.script.trim(), brief: briefMarkdown(topic, duration, v, choices), shots: v.shots, pathPack, calls: asker.calls };
 }
 
@@ -341,7 +354,7 @@ ${direction ? 'The director\'s shot list. It is binding: build these places and 
 ${windowLines}
 
 Hard requirements (a script that breaks any of them is refused):
-1. Output ONLY the Python source in one \`\`\`python block. No explanation.
+1. Output ONLY the Python source in one \`\`\`python block. No explanation. Keep it compact: aim for 500 to 800 lines and stay under 55,000 characters. Build places from props and set calls plus a few primitives for what is special to the story, share small helpers (ease, lerp3, one reset per place), and write each shot function in 15 to 35 lines. Do not deliberate at length before writing: the direction has already decided what each shot shows.
 2. Put these constants at the top, with exactly these values: FPS = ${FPS}, NFRAMES = ${nframes}, SHOT_STARTS = [${shotStarts.join(', ')}], OUT = '/job/frames'.
 ${item3}
 4. Drive every in-shot event (a readout appearing, an object launching, a light changing, the second beat of a shot) from the measured word times above (hard-code the video seconds you chose from them: word time + ${LEAD_S}), never from guessed times. Each shot function receives t in VIDEO seconds (not seconds since the shot started): use local = t - SHOT_STARTS[i] for motion inside the shot. Something must visibly move or change in every shot from its first frame to its last; a still picture with a drifting camera is not enough.${pacingRule(duration) ? ` ${pacingRule(duration)}` : ''}
@@ -517,7 +530,7 @@ export function sceneWeightOf(bare) {
 export function validateBuildScript(code, { nframes, shotStarts, places }) {
   const why = [];
   const src = String(code ?? '');
-  if (src.length < 600 || src.length > 60000) why.push('script must be a complete program between 600 and 60000 characters');
+  if (src.length < 600 || src.length > 90000) why.push('script must be a complete program between 600 and 90000 characters');
   for (const [re, msg] of FORBIDDEN) if (re.test(src)) why.push(msg);
   const imports = [...src.matchAll(/^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w., ]+))/gm)].flatMap((m) => (m[1] ? [m[1]] : m[2].split(',').map((x) => x.trim().split(/\s+as\s+/)[0])));
   const okRoot = new Set(['bpy', 'math', 'sys', 'os', 'numpy', 'mathutils', 'blender_worker']);
