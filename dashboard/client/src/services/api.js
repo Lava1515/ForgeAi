@@ -210,9 +210,14 @@ export async function getYoutubeStatus() {
   return request('/api/youtube/status');
 }
 
-// publishAt (ISO): upload unlisted now, the server makes it public at that time.
+// publishAt (ISO): uploaded private with YouTube's own schedule (status.publishAt); YouTube makes it public at that time.
 export async function publishToYoutube(draftId, { privacy, madeForKids, tags, title, publishAt }) {
   return request(`/api/youtube/publish/${encodeURIComponent(draftId)}`, { method: 'POST', body: JSON.stringify({ privacy, madeForKids, tags, title, publishAt }) });
+}
+
+// Clears a schedule; the video stays private (or unlisted for older schedules) on YouTube.
+export async function cancelYoutubeSchedule(draftId) {
+  return request(`/api/youtube/schedule/${encodeURIComponent(draftId)}/cancel`, { method: 'POST' });
 }
 
 export async function getYoutubeDrafts() {

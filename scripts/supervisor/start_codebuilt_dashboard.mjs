@@ -1,8 +1,8 @@
 // Host dashboard launcher for the code-built path (KAN-931).
 // Why host, not Docker: CB6 policy uses fixed Windows C:/code paths plus host Docker and Python, which a Linux
-// dashboard container cannot compose. This starts only createApp() on 127.0.0.1; it never loads index.js, so the
-// YouTube releaseDue timer is not armed. The only timer is the auto release loop below, which does
-// nothing unless a channel has auto release switched on AND a daily cap set (both default off); pass --no-auto-release to skip it.
+// dashboard container cannot compose. This starts only createApp() on 127.0.0.1; it never loads index.js.
+// The only timer is the schedule loop below (one pass: releaseDue for owner-made schedules, then auto release,
+// which does nothing unless a channel has it switched on AND a daily cap set; both default off); pass --no-auto-release to skip it.
 // It reads no env files, prints no secrets and copies no credentials: it only points the existing CLI homes at
 // directories that already hold the logins.
 import path from 'node:path';
@@ -14,6 +14,15 @@ export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_FACTORY_URL = 'http://127.0.0.1:5050';
 export const AUTO_RELEASE_INTERVAL_MS = 60_000;
+
+// One loop pass, in the one existing loop (no second scheduler). releaseDue() only touches videos the owner already scheduled:
+// it records YouTube's own scheduled publishes once their time has passed, and makes older local (unlisted) schedules public.
+// autoReleaseRun() uploads nothing unless a channel is enabled with a cap. A failure in one part never blocks the other.
+export async function runScheduleLoop(youtube, log = console.error) {
+  for (const name of ['releaseDue', 'autoReleaseRun']) {
+    try { await youtube[name]?.(); } catch (err) { log(`${name} failed: ${err?.message || err}`); }
+  }
+}
 
 // A self-rescheduling loop: the next tick is armed only after the current one has finished, so ticks never overlap. A tick that
 // throws is logged and the loop continues. Returns stop(). Timer functions are injectable for tests.
@@ -97,10 +106,10 @@ export async function startHostDashboard(opts = {}) {
   const app = createApp();
   // Loaded after apply() so the YouTube module reads the production paths. Inert unless the owner enabled a channel with a cap.
   const youtubeFile = `${root}/dashboard/server/routes/youtube.js`;
-  const stopLoop = autoRelease && exists(youtubeFile) ? startLoop({ run: async () => (await importApp(youtubeFile)).autoReleaseRun() }) : null;
+  const stopLoop = autoRelease && exists(youtubeFile) ? startLoop({ run: async () => runScheduleLoop(await importApp(youtubeFile)) }) : null;
   return new Promise((resolve, reject) => {
     const server = app.listen(port, DEFAULT_HOST, () => {
-      log(`Host dashboard ready on http://${DEFAULT_HOST}:${port} (root ${root}); auto release loop ${stopLoop ? 'armed (inert until a channel enables it and sets a cap)' : 'off'}, no scheduled creation`);
+      log(`Host dashboard ready on http://${DEFAULT_HOST}:${port} (root ${root}); schedule loop ${stopLoop ? 'armed (acts only on videos the owner scheduled, or a channel with auto release on and a cap)' : 'off'}, no scheduled creation`);
       resolve({ server, root, env: vars });
     });
     if (server && typeof server.on === 'function') { server.on('error', (err) => { stopLoop?.(); reject(err); }); server.on('close', () => stopLoop?.()); }

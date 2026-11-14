@@ -19,3 +19,10 @@ test('the loop never overlaps ticks, survives a throwing tick, and stops', async
   await timers.shift()?.();
   assert.equal(timers.length, 0);
 });
+
+test('one failing part of a loop pass does not block the other', async () => {
+  const { runScheduleLoop } = await import('../../../scripts/supervisor/start_codebuilt_dashboard.mjs');
+  const seen = [];
+  await runScheduleLoop({ releaseDue: async () => { seen.push('due'); throw new Error('x'); }, autoReleaseRun: async () => { seen.push('auto'); } }, () => {});
+  assert.deepEqual(seen, ['due', 'auto']);
+});
