@@ -45,3 +45,7 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 
 - Only facts you are sure of, with real magnitudes. Name a simplification as one ("roughly", "about").
 - In a "what if", say once that it is hypothetical; everything that follows from it must be real physics.
+
+## Premise at the opening and ending
+
+Open on the premise itself: the first sentence states the question or claim. End on the payoff and stop, or end where a loop can start. No call to action.

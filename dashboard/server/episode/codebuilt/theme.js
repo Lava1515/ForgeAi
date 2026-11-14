@@ -180,8 +180,8 @@ function prepareHistory(history, o, index) {
     .sort((a, b) => (Number.isNaN(b.t) ? -Infinity : b.t) - (Number.isNaN(a.t) ? -Infinity : a.t) || a.i - b.i)
     .slice(0, o.history_window).map(({ v }) => v);
   return ordered.map((v) => {
-    const tokens = wordSet(v.title, v.theme);
-    return { video_id: text(v.video_id), title: text(v.title), tokens, setting: bestSet(index, tokens, o.history_setting_min_hits) };
+    const tokens = wordSet(v.title, v.theme, ...(o.profile ? [v.subject, v.topic] : []));
+    return { video_id: text(v.video_id), title: text(v.title), ...(o.profile ? { subject: text(v.subject) } : {}), tokens, setting: bestSet(index, tokens, o.history_setting_min_hits) };
   });
 }
 
@@ -194,7 +194,7 @@ function candidateSetting(c, index) {
 
 // Rule 4: not close to the newest videos in topic or main setting. A repeat is rejected.
 function ruleRepeat(c, o, videos, index) {
-  const own = wordSet(c.topic, c.title);
+  const own = wordSet(c.topic, c.title, ...(o.profile ? [c.subject] : []));
   let topicSimilarity = 0; let topicVideo = null;
   for (const v of videos) {
     const shared = [...own].filter((w) => v.tokens.has(w)).length;
@@ -209,6 +209,17 @@ function ruleRepeat(c, o, videos, index) {
   const reasons = [];
   if (topicVideo && topicSimilarity >= o.topic_similarity_limit) reasons.push({ rule: 'not_repeat', detail: 'topic', video_id: topicVideo.video_id, title: topicVideo.title, similarity: round3(topicSimilarity) });
   if (recent) reasons.push({ rule: 'not_repeat', detail: 'main_setting', video_id: recent.video_id, title: recent.title, setting });
+  if (o.profile) {
+    for (const v of videos) {
+      const titleWords = wordSet(c.title); const previousWords = wordSet(v.title);
+      const shared = [...titleWords].filter(w => previousWords.has(w)).length;
+      const similarity = shared >= 2 ? shared / Math.max(1, Math.min(titleWords.size, previousWords.size)) : 0;
+      if (similarity >= o.topic_similarity_limit) reasons.push({ rule: 'not_repeat', detail: 'title_wording', video_id: v.video_id, similarity: round3(similarity) });
+      const subject = [...stems(c.subject)];
+      const earlier = stems(`${v.subject ?? ''} ${v.title ?? ''}`);
+      if (subject.length && subject.every((w) => earlier.has(w))) reasons.push({ rule: 'not_repeat', detail: 'subject', video_id: v.video_id, subject: normalise(c.subject) });
+    }
+  }
   const score = clamp01(1 - Math.max(topicSimilarity, settingShare));
   return { score, pass: reasons.length === 0, reasons, detail: { topic_similarity: round3(topicSimilarity), nearest_video_id: topicVideo ? topicVideo.video_id : null, main_setting: setting, setting_share: round3(settingShare), videos_compared: videos.length } };
 }
@@ -252,6 +263,44 @@ function ruleFactSafety(c, o) {
   return { score: unique.length ? 0 : 1, pass: unique.length === 0, reasons: unique.map((detail) => ({ rule: 'fact_safety', detail })), detail: { claims: claims.length, problems: unique } };
 }
 
+// codex · gpt-6.1-sol · 2026-11-14: deterministic premise floor; semantic fields are explicit evidence, not model scores.
+const LIST_START = /^(top\s+)?(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty)\s+\p{L}+/iu;
+const LIST_WORDS = /\b(things that|top\s+\d+|\d+\s+(things|ways|facts|reasons|places|countries))\b/i;
+const QUESTION_WORD = /^(who|what|why|how|when|where|which|can|could|do|does|did|is|are|will|would|should)\b/i;
+const PREDICATE = /\b(is|are|was|were|has|have|had|can|cannot|will|would|does|did|\p{L}{3,}(s|ed))\b/iu;
+const stems = (value) => new Set(String(value ?? '').normalize('NFKC').toLocaleLowerCase('en-US').split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(stem).map((w) => w.replace(/(e|ly)$/, '')));
+/** Every word of the phrase, by stem, is in the text: "disputed borders" also catches "border dispute"; "war" does not catch "toward". */
+function mentions(textStems, phrase) { const need = [...stems(phrase)]; return need.length > 0 && need.every((w) => textStems.has(w)); }
+
+/**
+ * The premise floor (research report 4.3). These are checks a program can make: length, one premise and not a list, a full sentence,
+ * the named subject really in the title, the fields the model must commit to, the channel's avoid list. They are a floor, not a judge of quality.
+ * The word lists are English; for another language only the language-neutral checks apply (a question mark counts as a question).
+ */
+export function rulePremise(c, avoid = [], language = 'en') {
+  const title = text(c.title).trim();
+  const count = title.split(/\s+/).filter(Boolean).length;
+  const subject = text(c.subject).trim();
+  const english = /^en\b/i.test(language || 'en');
+  const titleStems = stems(`${title} ${text(c.topic)}`);
+  const subjectStems = [...stems(subject)];
+  const sentence = title.endsWith('?') || !english || QUESTION_WORD.test(title) || PREDICATE.test(title);
+  const checks = [
+    ['title_length', count >= 6 && count <= 10 && title.length <= 100, `${count} words, ${title.length} characters; need 6 to 10 words and at most 100 characters`],
+    ['hashtag', !title.includes('#'), 'Plain title without hashtags'],
+    ['list', !LIST_START.test(title) && !(english && LIST_WORDS.test(title)), 'One premise, no list'],
+    ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectStems.every((w) => titleStems.has(w)), 'One named subject, present in the title'],
+    ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
+    ['sentence', sentence, 'Full question or claim'],
+    ['answer', text(c.answer).trim().length >= 12, text(c.answer) || 'Missing one-sentence answer'],
+    ['payoff', text(c.payoff || c.loop_idea).trim().length >= 12, text(c.payoff || c.loop_idea) || 'Missing visual payoff'],
+  ];
+  const haystack = stems([c.topic, title, subject, c.stake, c.answer, c.hook, c.payoff, c.loop_idea, c.main_setting, ...(c.shots || []).flatMap(s => [s.visual, s.location]), ...(c.tags || [])].join(' '));
+  for (const phrase of avoid) checks.push([`avoid:${normalise(phrase)}`, !mentions(haystack, phrase), `Avoid phrase: ${phrase}`]);
+  const reasons = checks.filter(([, pass]) => !pass).map(([key]) => ({ rule: 'premise', detail: key }));
+  return { pass: reasons.length === 0, score: round3(checks.filter(([, pass]) => pass).length / checks.length), reasons, detail: checks.map(([rule, pass, reason]) => ({ rule, pass, score: pass ? 1 : 0, reason })) };
+}
+
 // ---- scoring ------------------------------------------------------------------------------------------------------
 
 export function scoreCandidates({ candidates, history, sets, options } = {}) {
@@ -263,20 +312,28 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
 
   const scored = candidates.map((c, position) => {
     const results = {
-      numbers_checkable: ruleNumbers(c, o),
-      shots_locations: ruleShots(c, o),
+      numbers_checkable: o.profile && o.type === 'loop' ? { score: 1, pass: true, detail: { waived: 'silent loop has no fact minimum' } } : ruleNumbers(c, o),
+      shots_locations: o.profile && o.type === 'loop' ? { score: c.shots.length >= 1 && c.shots.length <= 3 ? 1 : 0, pass: c.shots.length >= 1 && c.shots.length <= 3, detail: { shots: c.shots.length, needed: '1 to 3' } } : ruleShots(c, o),
       hook: ruleHook(c, o),
       not_repeat: ruleRepeat(c, o, videos, index),
       set_fit: ruleSetFit(c, o, index),
       fact_safety: ruleFactSafety(c, o),
     };
     const reasons = THEME_RULES.filter((r) => r.gate).flatMap((r) => results[r.key].reasons || []);
-    const total = THEME_RULES.reduce((sum, r) => sum + o.weights[r.key] * results[r.key].score, 0) / weightSum;
+    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language) : null;
+    if (premise) {
+      reasons.push(...premise.reasons);
+      if (o.type === 'loop' && !text(c.loop_idea).trim()) reasons.push({ rule: 'premise', detail: 'missing_loop_idea' });
+      if (o.type === 'loop' && !results.shots_locations.pass) reasons.push({ rule: 'shots_locations', detail: 'loop needs 1 to 3 shots' });
+    }
+    const baseTotal = THEME_RULES.reduce((sum, r) => sum + o.weights[r.key] * results[r.key].score, 0) / weightSum;
+    const total = premise ? (baseTotal * weightSum + premise.score) / (weightSum + 1) : baseTotal;
     const rules = Object.fromEntries(THEME_RULES.map((r) => {
       const { score, pass, detail } = results[r.key];
       return [r.key, { score: round3(score), pass, detail }];
     }));
-    return { id: c.id === undefined ? `c${position}` : c.id, topic: c.topic.trim(), total: round3(total), rules, reasons, position };
+    if (premise) rules.premise = premise;
+    return { ...(premise ? { title: c.title, subject: c.subject, hook: c.hook, payoff: c.payoff || c.loop_idea, answer: c.answer } : {}), id: c.id === undefined ? `c${position}` : c.id, topic: c.topic.trim(), total: round3(total), rules, reasons, position };
   });
 
   const ranked = scored.filter((c) => c.reasons.length === 0)
@@ -303,7 +360,7 @@ export function loadChannelHistory({ file, limit = DEFAULT_OPTIONS.history_windo
   if (!object(report) || !Array.isArray(report.videos)) fail('channel history needs a videos array');
   const usable = report.videos.filter((v) => object(v) && !Number.isNaN(Date.parse(v.published_at)));
   const videos = usable.sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at)).slice(0, limit)
-    .map((v) => ({ video_id: text(v.video_id), title: text(v.title), theme: text(v.theme), published_at: v.published_at }));
+    .map((v) => ({ video_id: text(v.video_id), title: text(v.title), theme: text(v.theme), ...(v.subject ? { subject: text(v.subject) } : {}), ...(v.topic ? { topic: text(v.topic) } : {}), published_at: v.published_at }));
   return { videos, total_saved: report.videos.length, skipped: report.videos.length - usable.length, scanned_at: typeof report.scanned_at === 'string' ? report.scanned_at : null, channel_id: typeof report.channel_id === 'string' ? report.channel_id : null };
 }
 

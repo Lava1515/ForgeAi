@@ -302,6 +302,32 @@ export function validateGrowthABChannel(channelId, targetChannelId, channels = n
  * Rule: The key field stays masked, is never logged and never appears in a report or API response (KAN-251).
  * Also shows which account a channel is bound to (channel name and id from token).
  */
+// codex · gpt-6.1-sol · 2026-11-14: optional, bounded channel profile data.
+/** A profile that says nothing (no niche, narrated) is no profile: the channel keeps today's behaviour. */
+export const isActiveProfile = (profile) => !!profile && typeof profile === 'object' && (!!profile.niche || profile.format === 'loop');
+/** -> { profile } to spread into a channel, or {} when the body clears it (null, or a profile that says nothing). */
+function profileField(value) {
+  if (value === null) return {};
+  const profile = validateChannelProfile(value);
+  return isActiveProfile(profile) ? { profile } : {};
+}
+export function validateChannelProfile(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new TypeError('Invalid profile');
+  const phrase = (value, max) => {
+    if (typeof value !== 'string' || value.trim().length > max || (value.trim() && !/^[\p{L}\p{M}\p{N} ,.'’:;?!%&/+()-]+$/u.test(value.trim()))) throw new TypeError(`Invalid profile text (letters, digits and , . ' : ; ? ! % & / + ( ) - only, at most ${max} characters)`);
+    return value.trim();
+  };
+  const niche = phrase(profile.niche ?? '', 200);
+  const format = profile.format ?? 'narrated';
+  if (!['narrated', 'loop'].includes(format)) throw new TypeError('Invalid profile format');
+  const language = profile.language || 'en';
+  if (typeof language !== 'string' || language.length > 35 || !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(language)) throw new TypeError('Invalid profile language');
+  try { Intl.getCanonicalLocales(language); } catch { throw new TypeError('Invalid profile language'); }
+  const avoid = profile.avoid ?? [];
+  if (!Array.isArray(avoid) || avoid.length > 10) throw new TypeError('Invalid profile avoid list');
+  return { niche, format, language, avoid: avoid.map(v => { const text = phrase(v, 80); if (!text) throw new TypeError('Empty avoid phrase'); return text; }) };
+}
+
 export function sanitizeChannel(channel) {
   if (!channel) return null;
   const token = channel.token || getChannelToken(channel.id);
@@ -366,6 +392,7 @@ export async function createChannel(data = {}, ask = undefined) {
   }
 
   const newChannel = {
+    ...(data.profile !== undefined ? profileField(data.profile) : {}),
     id: cleanId,
     name,
     genre,
@@ -455,6 +482,7 @@ export async function updateChannel(id, updates = {}, ask = undefined) {
   const updatedChannel = {
     ...existing,
     ...updates,
+    ...(Object.hasOwn(updates, 'profile') ? { profile: undefined, ...profileField(updates.profile) } : {}),
     id: existing.id, // the id is a file name elsewhere: the body never changes it
     name: name || existing.name,
     genre: genre || existing.genre,

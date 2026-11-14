@@ -19,7 +19,7 @@ export function jobWriteBlockedReason(jobsDir, id) {
 
 export function writeHostJobReceipt(jobsDir, id, name, bytes) {
   assertJobId(id);
-  if (!['cost_calls.json', 'visual_loop.json'].includes(name)) throw new Error('Invalid host receipt');
+  if (!['cost_calls.json', 'visual_loop.json', 'premise.json'].includes(name)) throw new Error('Invalid host receipt');
   const blocked = jobWriteBlockedReason(jobsDir, id);
   if (blocked) throw new Error(blocked);
   const directory = assertJobDirSafe(path.resolve(jobsDir, id), { jobRoot: jobsDir });

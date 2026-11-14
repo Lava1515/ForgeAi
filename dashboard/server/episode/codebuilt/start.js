@@ -506,7 +506,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     try {
       const fn = scriptStage ?? pl.planCodebuiltScript;
       if (typeof fn !== 'function') throw new StartError('script_unavailable', 501);
-      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall });
+      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
     } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
     }
     if (!scripted || typeof scripted.script !== 'string' || !scripted.script.trim() || typeof scripted.brief !== 'string') throw new StartError('script_failed', 502);
@@ -599,7 +599,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     if (!plan) try {
       step(rec, 'planning');
       if (typeof pl.planCodebuiltBuild !== 'function') throw new StartError('planner_unavailable', 501);
-      plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
+      plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
       try {
         fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript);
         fs.writeFileSync(path.join(stage, 'planner-plan.json'), JSON.stringify({ nframes: plan.nframes, shotStarts: plan.shotStarts, ...(plan.places ? { places: plan.places, lookShots: plan.lookShots, directionMarkdown: plan.directionMarkdown } : {}) }));
@@ -654,6 +654,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     }
     writeCalls(rec.id, allCalls, true);
     writeLoopReceipt(rec.id, loopReceipt);
+    if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
     checkAbort();
 
     // 6. Titles and tags are the only model-authored draft metadata. Failures retain the topic fallback.
@@ -665,7 +666,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     const title = validateTitle(metadata) ? metadata.title : undefined;
     const tags = validateTags(metadata) ? metadata.tags : undefined;
     try {
-      const out = toDraft({ jobId: rec.id, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}) });
+      const out = toDraft({ jobId: rec.id, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}) });
       rec.draftId = out?.id ?? out?.draftId ?? draftIdForJob(rec.id);
       // KAN-933: requested versus actual seconds. The probed video length (draft metadata) wins over the voice estimate; a miss is recorded, never patched by stretching audio.
       const probed = out?.metadata?.social?.duration_seconds;
@@ -707,7 +708,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const id = newId();
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
-        ...(batch ? { factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : 'factual', ...(choices ? { choices } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
+        ...(batch ? { factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
       save(rec);
       live.set(id, { rec, controller: new AbortController() });
       waiting.push(id);
