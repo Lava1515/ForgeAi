@@ -621,6 +621,8 @@ class WorldMap:
         hh = hv * ASPECT                              # tan(half horizontal field)
         el = math.radians(tilt)
         if span is not None:
+            if not math.isfinite(span) or span <= 0:
+                raise ValueError("span must be finite and positive")
             need_w, need_h = span, 0.0
         else:
             need_w, need_h = max(w * margin, min_span), h * margin
