@@ -219,24 +219,26 @@ export const scriptShotRange = (duration) => {
 // pace gate on, the same voice read 77 words in 34.0 s (job mwg5e6hs-e826b9).
 // The others are estimated from the same-script samples of 2026-11-14 (output/temp/voice-samples) scaled to aiden, and are marked so.
 export const VOICE_WORDS_PER_SECOND = Object.freeze({
-  aiden: 2.78, ryan: 2.57, dylan: 2.61, eric: 2.27,
-  serena: 2.56, vivian: 2.26, uncle_fu: 2.39, sohee: 2.56, ono_anna: 2.86, // estimated
+  aiden: 2.78, ryan: 2.57, dylan: 2.61, eric: 2.27, serena: 2.05, // serena measured on job mwg83rd6-959255 (112 words in 54.6 s)
+  vivian: 2.0, uncle_fu: 2.1, sohee: 2.2, ono_anna: 2.4, // estimated, and lowered: the first estimate for serena (2.56) was a quarter too fast
 });
 export const DEFAULT_VOICE_WORDS_PER_SECOND = 2.6;
 /** Words per second the script length is planned for: the voice's measured pace when the voice is known, else the duration table. */
-export const scriptPace = (duration, voice) => (typeof voice === 'string' && Object.hasOwn(VOICE_WORDS_PER_SECOND, voice) ? VOICE_WORDS_PER_SECOND[voice] : voice ? DEFAULT_VOICE_WORDS_PER_SECOND : wordsPerSecond(duration));
-export const targetWords = (duration, voice) => Math.round((Number(duration) - FIXED_VIDEO_S) * scriptPace(duration, voice));
-export const wordWindow = (duration, voice) => {
+/** A pace measured on this job's own first recording (words per second), when it is a sane number; it wins over the table. */
+const measuredPaceOf = (pace) => (typeof pace === 'number' && Number.isFinite(pace) && pace >= 1 && pace <= 5 ? pace : null);
+export const scriptPace = (duration, voice, pace) => measuredPaceOf(pace) ?? (typeof voice === 'string' && Object.hasOwn(VOICE_WORDS_PER_SECOND, voice) ? VOICE_WORDS_PER_SECOND[voice] : voice ? DEFAULT_VOICE_WORDS_PER_SECOND : wordsPerSecond(duration));
+export const targetWords = (duration, voice, pace) => Math.round((Number(duration) - FIXED_VIDEO_S) * scriptPace(duration, voice, pace));
+export const wordWindow = (duration, voice, pace) => {
   const d = Number(duration);
-  const pace = scriptPace(d, voice);
-  const target = targetWords(d, voice);
+  const paceUsed = scriptPace(d, voice, pace);
+  const target = targetWords(d, voice, pace);
   // The tolerance of 10 s over the request is for what the voice does with the script, not an invitation to write more: the three
   // 45 s scripts of 2026-11-13 all came back at 146 words (target 127) and their videos ran 51.6, 54.3 and 58.6 s, because the
   // real voices spoke 2.6 to 2.8 words per second, slower than the calibrated pace. The script may exceed its target by 6 percent.
   return {
     target,
-    min: Math.ceil((d * (1 - SCRIPT_LENGTH_BAND.under) - FIXED_VIDEO_S) * pace - 1e-9),
-    max: Math.min(Math.floor((d + SCRIPT_LENGTH_BAND.over - LAST_WORD_EXTENSION_RESERVE_S - FIXED_VIDEO_S) * pace + 1e-9), Math.ceil(target * (1 + SCRIPT_OVER_TARGET))),
+    min: Math.ceil((d * (1 - SCRIPT_LENGTH_BAND.under) - FIXED_VIDEO_S) * paceUsed - 1e-9),
+    max: Math.min(Math.floor((d + SCRIPT_LENGTH_BAND.over - LAST_WORD_EXTENSION_RESERVE_S - FIXED_VIDEO_S) * paceUsed + 1e-9), Math.ceil(target * (1 + SCRIPT_OVER_TARGET))),
   };
 };
 const compact = (pack) => ({ id: pack.id, skills: pack.skills.map((s) => s.skill), playbook: pack.rules.playbook, steps: pack.rules.steps });
@@ -248,23 +250,23 @@ function guidesFor(pack, step) {
   try { return loadCodebuiltGuides({ pack, step }); } catch { return ''; }
 }
 
-function scriptPrompt({ topic, duration, pack, choices, voice }) {
-  const { target, min, max } = wordWindow(duration, voice);
+function scriptPrompt({ topic, duration, pack, choices, voice, pace }) {
+  const { target, min, max } = wordWindow(duration, voice, pace);
   const count = scriptShotRange(duration);
   const guides = guidesFor(pack, 'script');
   return `You write the narration for a ${duration}-second vertical 3D explainer short for a faceless channel. Every picture is later built from code in Blender in a bright toy-like style (simple people, vehicles, animals, buildings, landscapes, planets, cutaways), so write a story a viewer can SEE: things that happen to someone or something, in places, with a beginning, a turn and an ending.
 Topic: ${JSON.stringify(topic)}
 ${scriptChoicesPrompt(choices)}${storyDirection(choices?.type ?? (isWhatIfTopic(topic) ? 'whatif' : 'factual'))}
 Reply with ONE JSON object and nothing else: {"script": string, "shots": [{"narration": string, "subject": string, "action": string}, ...], "brief": string}
-- script: the spoken narration, plain sentences, no stage directions, no markdown, about ${target} words (at least ${min} and at most ${max}; the voice speaks about ${scriptPace(duration, voice)} words per second; stay close to the target, a longer script makes the video too long). The first sentence is the hook: the question or the most surprising fact, in 12 words or fewer. Then one idea per sentence, short sentences (most under 14 words), concrete nouns and numbers instead of adjectives, "you" where it fits. Each sentence should name something that can be shown. Only facts you are sure of; name a simplification as one. A "what if" is already understood as imaginary: say so at most once, in passing, and never spend a sentence on disclaimers ("scientists do not expect this", "luckily this cannot happen") or on reassuring the viewer; follow the consequences instead, each one bigger than the last. End on a pay-off: the answer, a twist or a line that returns to the opening, never a summary or "so that is why".
+- script: the spoken narration, plain sentences, no stage directions, no markdown, about ${target} words (at least ${min} and at most ${max}; the voice speaks about ${scriptPace(duration, voice, pace)} words per second; stay close to the target, a longer script makes the video too long). The first sentence is the hook: the question or the most surprising fact, in 12 words or fewer. Then one idea per sentence, short sentences (most under 14 words), concrete nouns and numbers instead of adjectives, "you" where it fits. Each sentence should name something that can be shown. Only facts you are sure of; name a simplification as one. A "what if" is already understood as imaginary: say so at most once, in passing, and never spend a sentence on disclaimers ("scientists do not expect this", "luckily this cannot happen") or on reassuring the viewer; follow the consequences instead, each one bigger than the last. End on a pay-off: the answer, a twist or a line that returns to the opening, never a summary or "so that is why".
 - shots: the visual beats in order, about ${count.target} (at least ${count.min}, at most ${count.max}), one idea per beat. Each: the narration it covers (quoted from script; together they cover the whole script in order), in subject the thing the viewer watches and the place it is in, and in action what visibly happens to it. Think in a few places (2 to 5 for the whole video) that the story returns to, not a new place for every sentence. A director turns these beats into the final shot list after the voice is recorded.
 - brief: 3 to 6 sentences for the director: the idea of the video, the recurring character or object, the places, the palette and mood.
 ${pacingRule(duration) ? `- ${pacingRule(duration)}
 ` : ''}${guides ? `Guidance for this step (project skills):\n${guides}\n` : ''}Production playbook: ${JSON.stringify(compact(pack).playbook)}`;
 }
 
-function checkScript(duration, voice) {
-  const { target, min, max } = wordWindow(duration, voice);
+function checkScript(duration, voice, pace) {
+  const { target, min, max } = wordWindow(duration, voice, pace);
   const shotRange = scriptShotRange(duration);
   return (text) => {
     const v = parseModelJson(text);
@@ -304,7 +306,7 @@ export async function planCodebuiltScript(input = {}, deps = {}) {
   const pathPack = loadCodebuiltPathPack(deps);
   const asker = makeAsker(deps, 'script', deps.onCall);
   const voice = typeof input.voice === 'string' ? input.voice : undefined;
-  const v = await asker.run(scriptPrompt({ topic, duration, pack: pathPack, choices, voice }), checkScript(duration, voice), input.signal);
+  const v = await asker.run(scriptPrompt({ topic, duration, pack: pathPack, choices, voice, pace: input.pace }), checkScript(duration, voice, input.pace), input.signal);
   return { script: v.script.trim(), brief: briefMarkdown(topic, duration, v, choices), shots: v.shots, pathPack, calls: asker.calls };
 }
 

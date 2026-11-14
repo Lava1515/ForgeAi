@@ -56,6 +56,8 @@ export const TOPIC_MAX = 200;
 export const ACTIVE = Object.freeze(['queued', 'scripting', 'factchecking', 'voicing', 'planning', 'previewing', 'looking', 'building', 'drafting']);
 export const FINAL = Object.freeze(['done', 'failed', 'aborted', 'interrupted']);
 export const STAGE_DIR = '.start';
+// How many times a job may rewrite its script for the voice's measured pace after a too_long or too_short voice (see execute).
+export const LENGTH_RETRIES = 1;
 // Refusals of a voice recording that a second recording can cure (see the voice step in execute).
 // 0 since the same day: the voice engine derives its seeds from the text, so recording the same script again gives the same audio.
 // The cure for a bad sentence is the engine's pace gate (episode/voice.js sends pace_gate_v1). The loop stays for a voice stage
@@ -490,14 +492,21 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       checkAbort();
     }
 
+    // 2 to 4a. Script, fact check, voice and the length check run at most twice. A voice whose real pace differs from the planned one
+    // gives a video that is too long or too short; instead of stopping there (job mwg83rd6-959255: serena read 112 words in 54.6 s,
+    // 11.4 s over), the script is written once more for the pace that was just measured, and voiced again. A second miss stops the job.
+    let scripted; let voice; let words; let measured;
+    let measuredPace = null;
+    for (let lengthAttempt = 0; ; lengthAttempt += 1) {
+    const fresh = lengthAttempt > 0; // the retry reuses nothing from a resume: its script and voice are the ones being replaced
     // 2. Script
-    let scripted = resume?.scriptOk ? resume.scripted : null;
+    scripted = resume?.scriptOk && !fresh ? resume.scripted : null;
     if (!scripted) {
     step(rec, 'scripting');
     try {
       const fn = scriptStage ?? pl.planCodebuiltScript;
       if (typeof fn !== 'function') throw new StartError('script_unavailable', 501);
-      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall });
+      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}) }, { onCall: addCall });
     } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
     }
     if (!scripted || typeof scripted.script !== 'string' || !scripted.script.trim() || typeof scripted.brief !== 'string') throw new StartError('script_failed', 502);
@@ -512,7 +521,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     checkAbort();
 
     // 2b. Fact check (owner-started batch videos only; the single-job route is unchanged). Nothing is spent on voice or build when it does not verify.
-    if (rec.factCheck && !resume?.voiceOk) {
+    if (rec.factCheck && (!resume?.voiceOk || fresh)) {
       step(rec, 'factchecking');
       if (typeof factCheckStage !== 'function') throw new StartError('fact_check_unavailable', 501);
       let verdict;
@@ -532,13 +541,13 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     }
 
     // 3. Voice: the existing TTS stage and measured word times (an estimate is refused by the voice module).
-    let voice = resume?.voiceOk ? resume.voice : null;
+    voice = resume?.voiceOk && !fresh ? resume.voice : null;
     if (!voice) {
     step(rec, 'voicing');
     fs.mkdirSync(stage, { recursive: true });
     // A job resumed at the voice step already has its episode folder from the first attempt: that is not a conflict. Without this
     // every Resume from "voicing" failed at once as "The job failed" (job mwg5e6hs-e826b9, 2026-11-14 10:37).
-    try { createEpisodeDir(episodesRoot, `cb-${rec.id}`); } catch (error) { if (!(resume && error?.code === 'conflict')) throw error; }
+    try { createEpisodeDir(episodesRoot, `cb-${rec.id}`); } catch (error) { if (!((resume || fresh) && error?.code === 'conflict')) throw error; }
     try {
       // The voice is generated with fresh random seeds every time, and now and then one sentence comes out wrong (a long ramble, a
       // clipped start), so the recording does not line up with its own word times and is refused. Recording again usually works: the
@@ -563,10 +572,18 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     }
 
     // 4. Planner writes the build script from the topic, script, measured words and path pack.
-    const words = JSON.parse(fs.readFileSync(voice.wordsPath, 'utf8'));
+    words = JSON.parse(fs.readFileSync(voice.wordsPath, 'utf8'));
     // The requested length is a promise: a voice that leaves the finished video well under it stops the job before the planner and the build spend anything.
-    const measured = measuredVideoSeconds(voice, words);
+    measured = measuredVideoSeconds(voice, words);
     const lengthFailure = measuredLengthFailure(rec.duration, measured);
+    if (lengthFailure && lengthAttempt < LENGTH_RETRIES && Array.isArray(words?.words) && words.words.length >= 20 && Number.isFinite(words.dur) && words.dur > 5) {
+      // Words per second of this voice on this script, pauses included: what the next script is sized for.
+      measuredPace = Math.round((words.words.length / words.dur) * 100) / 100;
+      if (lengthFailure === 'too_short') writeTooShortDiagnostic(rec.id, rec.duration, Math.round(measured.seconds * 1000) / 1000, measured.source);
+      else writeTooLongDiagnostic(rec.id, rec.duration, Math.round(measured.seconds * 1000) / 1000, measured.source);
+      checkAbort();
+      continue;
+    }
     if (lengthFailure === 'too_short') {
       writeTooShortDiagnostic(rec.id, rec.duration, Math.round(measured.seconds * 1000) / 1000, measured.source);
       throw new StartError('too_short', 422);
@@ -574,6 +591,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     if (lengthFailure === 'too_long') {
       writeTooLongDiagnostic(rec.id, rec.duration, Math.round(measured.seconds * 1000) / 1000, measured.source);
       throw new StartError('too_long', 422);
+    }
+    break;
     }
     const pathPack = scripted.pathPack;
     let plan = resume?.build ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
