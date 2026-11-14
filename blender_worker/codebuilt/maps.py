@@ -34,7 +34,7 @@ ASPECT = 1080 / 1920
 # ------------------------------------------------------------------------------------------------ data
 _ALIASES = {"usa": "USA", "us": "USA", "united states": "USA", "america": "USA", "uk": "GBR", "britain": "GBR", "great britain": "GBR",
             "england": "GBR", "russian federation": "RUS", "south korea": "KOR", "north korea": "PRK", "czech republic": "CZE",
-            "ivory coast": "CIV", "burma": "MMR", "holland": "NLD", "uae": "ARE", "drc": "COD", "congo": "COD", "swaziland": "SWZ"}
+            "ivory coast": "CIV", "burma": "MMR", "holland": "NLD", "uae": "ARE", "drc": "COD", "congo": "COD", "dr congo": "COD", "d.r. congo": "COD", "democratic republic of congo": "COD", "congo kinshasa": "COD", "czechia": "CZE", "turkey": "TUR", "east timor": "TLS", "swaziland": "SWZ"}
 
 
 class Country:
@@ -364,7 +364,8 @@ class WorldMap:
         sea_mat = materials.pbr("map_sea", sea_color, 0.95, Emission_Color=(*sea_color, 1), Emission_Strength=0.12)
         cx, cy = (sx0 + sx1) / 2, (sy0 + sy1) / 2
         hx, hy = (sx1 - sx0) / 2 + mx, (sy1 - sy0) / 2 + my
-        self.sea = meshes.mk("map_sea", [(cx - hx, cy - hy, -0.02), (cx + hx, cy - hy, -0.02), (cx + hx, cy + hy, -0.02), (cx - hx, cy + hy, -0.02)],
+        sz = self.origin[2] - 0.02
+        self.sea = meshes.mk("map_sea", [(cx - hx, cy - hy, sz), (cx + hx, cy - hy, sz), (cx + hx, cy + hy, sz), (cx - hx, cy + hy, sz)],
                              [(0, 1, 2, 3)], sea_mat, c, smooth=False)
         from . import stage
         stage.mark_scenery(self.sea)
@@ -594,7 +595,7 @@ class WorldMap:
         nm = name or f"mv_{cty.iso}"
         ob = self._mesh(nm, vh, shape, color, (float(hx), float(hy), self.origin[2]), meshes, materials)
         self.set_material_glow(ob, color, emission)
-        return Mover(ob, vh, vd, self.thickness + lift, (float(hx), float(hy)), (float(tx), float(ty)), shape.n)
+        return Mover(ob, vh, vd, lift, (float(hx), float(hy)), (float(tx), float(ty)), shape.n)
 
     @staticmethod
     def set_material_glow(ob, color, emission):
@@ -674,12 +675,12 @@ class Mover:
         self.home_xy, self.dest_xy, self.n = home_xy, dest_xy, n
 
     def pose(self, t, arc=0.6, hold_lift=0.0):
-        """Place the copy at progress t (smoothstep eased). It rises by arc * sin(pi * e) on the way and rests hold_lift above the map."""
+        """Place the copy at progress t (smoothstep eased). It rises by arc * sin(pi * e) on the way and rests the `lift` given to moving() plus hold_lift above the map surface, so it never lies in the same plane as the country under it."""
         from . import meshes
         e = min(1.0, max(0.0, t))
         e = e * e * (3 - 2 * e)
         v = self.home + (self.dest - self.home) * e
-        v[:, 2] += arc * math.sin(math.pi * e) + hold_lift
+        v[:, 2] += arc * math.sin(math.pi * e) + self.float_z + hold_lift
         meshes.set_verts(self.obj, v)
         return self.obj
 
