@@ -834,7 +834,8 @@ export async function planCodebuiltLoop(input, deps = {}) {
     // No factual on-screen claims are needed in this format. Block text rather than skipping a claim check.
     if (/\b(?:text|hud_text|readout)\s*\(/.test(stripPython(code).code) || /\.body\s*=|\btype\s*=\s*['"]FONT['"]/.test(code)) why.push('loop scenes must contain no text or numeric readouts');
     if (/\btext_add\b|\bstage\s*\.\s*(?:text|hud_text)\b|\bFONT\b|\.\s*label\s*\(/.test(code)) why.push('loop scenes must contain no glyphs (no text objects, no map labels); the kit refuses any text object before rendering');
-    if (/\buse_animated_seed\b/.test(code)) why.push('loop render seed must be fixed');
+    // Setting it to False is the correct, fixed seed; only another value breaks the seam (two builds were refused for `= False`, 2026-11-14).
+    if (/\buse_animated_seed\s*=(?!\s*False\b)/.test(stripPython(code).code)) why.push('loop render seed must be fixed: scene.cycles.use_animated_seed must stay False');
     return why;
   };
   const prompt = `Write the COMPLETE offline Blender Python program for this silent loop. Output only Python in one fenced block.
