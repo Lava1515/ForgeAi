@@ -69,8 +69,12 @@ export function isTrustedOfficialSource(s, manifest = OFFICIAL_MANIFEST) {
 }
 
 async function readCapped(response, maxBytes) {
+  maxBytes = Number.isSafeInteger(maxBytes) && maxBytes > 0 ? maxBytes : 2 * 1024 * 1024;
   const declared = Number(response.headers.get('content-length'));
-  if (declared > maxBytes) throw new Error(`Official source exceeds size cap of ${maxBytes} bytes.`);
+  if (declared > maxBytes) {
+    await response.body?.cancel?.().catch(() => {});
+    throw new Error(`Official source exceeds size cap of ${maxBytes} bytes.`);
+  }
   const chunks = [];
   let total = 0;
   for await (const chunk of response.body ?? []) {
