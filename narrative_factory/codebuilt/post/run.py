@@ -9,6 +9,8 @@ import argparse
 import json
 import os
 import subprocess
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +39,23 @@ def _frames(frames_dir):
     if not files:
         raise FileNotFoundError(f"no .png frames in {frames_dir}")
     return files
+
+
+MAX_GRADE_WORKERS = 8
+
+
+def grade_workers():
+    """Threads for decoding and grading frames: half the logical CPUs, at least 1, at most MAX_GRADE_WORKERS."""
+    return max(1, min(MAX_GRADE_WORKERS, (os.cpu_count() or 2) // 2))
+
+
+def _graded_frame(path, width, height, vig):
+    """One frame decoded, fitted to the output size and graded (glow, saturation, vignette), as an RGB image. No captions."""
+    with open_frame(path) as opened:
+        im = opened.convert("RGB")
+    if im.size != (width, height):
+        im = im.resize((width, height), Image.LANCZOS)
+    return Image.fromarray(grade.apply_look(np.asarray(im), vig))
 
 
 def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, width=None, height=None, crf=17, preset="medium",
@@ -77,14 +96,29 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
            "-af", afilter, "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(video)]
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
     try:
-        for i, f in enumerate(files):
-            with open_frame(f) as opened:
-                im = opened.convert("RGB")
-            if im.size != (width, height):
-                im = im.resize((width, height), Image.LANCZOS)
-            out = Image.fromarray(grade.apply_look(np.asarray(im), vig))
-            track.draw(out, i / fps)
-            ff.stdin.write(out.tobytes())
+        # Decoding and grading a frame is independent of every other frame and is where the time went (about 6 of the 7 minutes
+        # between the last rendered frame and the draft, measured 2026-11-14 on jobs mwg20ivw-ea1a19 and mwg64zr1-5606e5, on one
+        # core). Pillow and numpy release the interpreter lock in that work, so a few threads do it side by side. The frames still
+        # reach the encoder in order, captions are still drawn one frame at a time on this thread, and at most `ahead` graded
+        # frames wait in memory.
+        workers = grade_workers()
+        ahead = workers * 2
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="grade") as pool:
+            pending = deque()
+            source = iter(enumerate(files))
+            def fill():
+                while len(pending) < ahead:
+                    item = next(source, None)
+                    if item is None:
+                        return
+                    pending.append((item[0], pool.submit(_graded_frame, item[1], width, height, vig)))
+            fill()
+            while pending:
+                i, future = pending.popleft()
+                out = future.result()
+                fill()
+                track.draw(out, i / fps)
+                ff.stdin.write(out.tobytes())
         ff.stdin.close()
         err = ff.stderr.read().decode("utf-8", "replace")[-media.STDERR_TAIL:]
         code = ff.wait(timeout=600)
