@@ -14,7 +14,8 @@ export const LOOK_CHECKLIST = Object.freeze([
   'Camera: the camera is never against or inside a wall, floor, sky dome, backdrop card or plate. A frame that is one flat colour, or mostly filled by one flat surface, is a P0 (the measured facts name such tiles).',
   'Scenery: every place reads as a real location with depth: ground, things behind the subject up to a horizon or far wall, things around it. A bare floor with one wall, or a subject floating in an empty colour, is a P0 (deep space with stars and a planet is a place).',
   'Light: no black frame, no blown-out white blob where the subject should be, nothing important lost in shadow (P0 when the subject cannot be read, else P1).',
-  'Plates and labels: no label, HUD plate or readout wider than 70 percent of the frame or covering the subject (P0); text on a plate must be readable at the size it is drawn (P1); leftover text that belongs to another shot is a P1.',
+  'Plates and labels: no label, HUD plate or readout wider than 70 percent of the frame or covering the subject (P0); text on a plate must be readable at the size it is drawn (P1); leftover text that belongs to another shot is a P1. A diagram board (a flat panel with a drawn diagram on it) is not a plate: it may be up to 84 percent of the frame wide.',
+  'Diagrams (triangles, arrows, charts, number cards, labelled sketches): every corner and end of a diagram is inside the frame and the diagram is at least 45 percent of the frame width; lines are at least 15 px wide and capital letters at least 50 px tall at 1080 x 1920 (half of that in the preview tiles); at most 6 short labels. Judge each fault by what is on the tile: a diagram cut by the frame edge is a P1 whose fix is to pull back or shrink it, a diagram that is small or thin is a P1 whose fix is to enlarge or thicken it. Never ask for the opposite of what the numbers in the script show.',
   'Caption band: the burned-in captions will cover the band from 66 to 80 percent of the frame height (counted from the top), across the middle. The most important part of the subject (a face, the thing being pointed at) must not sit only in that band (P1).',
   'Change: two tiles of the same shot must differ (the action or the camera moved); neighbouring shots differ in composition (camera side, height or distance). A shot whose tiles are identical, or two neighbouring shots that look the same, is a P1.',
   'Continuity: a recurring character or object looks the same in every shot it appears in, and objects of one shot are not left standing in another shot of the same place (P1).',
@@ -53,13 +54,37 @@ function cleanDiagnostic(text) {
     .slice(-3000);
 }
 
+// A diagram or label finding that comes back for the same shot after a fix is a wrong diagnosis (job mwhu3xfu-a118b6: the Everest triangle was
+// called small and thin in rounds 2, 3 and 4 and every fix moved the camera, while its corners were off the frame). Say so, and say what to do.
+const LEGIBILITY_SUBJECT = /\b(diagram|triangle|chart|graph|arrow|labels?|text|cards?|numbers?|readouts?|rays?|layers?|lines?|plates?)\b/i;
+const LEGIBILITY_FAULT = /\b(small|thin|tiny|unread|illegib|not readable|cannot be read|too small|cropped|cut off|cut by)/i;
+
+/** Shot ids whose diagram or text legibility finding (P0 or P1) appears in two or more earlier rounds. */
+export function repeatedLegibilityShots(previous) {
+  const seen = new Map();
+  for (const round of Array.isArray(previous) ? previous : []) {
+    const inRound = new Set();
+    for (const f of round.findings ?? []) {
+      if ((f.severity === 'P0' || f.severity === 'P1') && f.shot && LEGIBILITY_SUBJECT.test(f.issue ?? '') && LEGIBILITY_FAULT.test(f.issue ?? '')) inRound.add(f.shot);
+    }
+    for (const shot of inRound) seen.set(shot, (seen.get(shot) ?? 0) + 1);
+  }
+  return [...seen].filter(([, n]) => n >= 2).map(([shot]) => shot);
+}
+
+function repeatedLegibilityNote(previous) {
+  const shots = repeatedLegibilityShots(previous);
+  if (!shots.length) return '';
+  return `\nREPEATED LEGIBILITY FINDING (${shots.join(', ')}): the same diagram or text fault came back after a fix, so the fix changed the wrong thing. Do not change the same numbers again. Project the diagram's corners and ends through the camera first (frame height at distance d is d * 36 / lens, width 9/16 of that): a corner outside the frame needs a camera further back or a smaller diagram, a thin line or small text needs bigger strokes and letters (15 px and 50 px at 1080 x 1920). Then rebuild that diagram on a diagram.Board (from blender_worker.codebuilt import diagram; the review guidance describes it) and aim the shot with board.camera(cam, ...).\n`;
+}
+
 function previousSummary(previous) {
   if (!Array.isArray(previous) || !previous.length) return '';
   const lines = [];
   for (const round of previous) {
     for (const f of round.findings ?? []) lines.push(`round ${Number(round.round) + 1}: [${f.severity}] ${f.shot ?? 'all'}: ${f.issue} -> ${f.fix ?? ''}`.slice(0, 400));
   }
-  return lines.length ? `\nWHAT WAS ALREADY FOUND AND TRIED (do not repeat a fix that did not work; check that these are really gone):\n${lines.join('\n').slice(0, 3000)}\n` : '';
+  return lines.length ? `\nWHAT WAS ALREADY FOUND AND TRIED (do not repeat a fix that did not work; check that these are really gone):\n${lines.join('\n').slice(0, 3000)}\n${repeatedLegibilityNote(previous)}` : '';
 }
 
 export function buildLookPrompt({

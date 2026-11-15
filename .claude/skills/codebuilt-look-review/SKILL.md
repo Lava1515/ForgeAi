@@ -33,6 +33,15 @@ Always find the cause in the script before writing an edit. Read the place's ori
 - Nothing moves: the shot uses `t` as if it started at 0. Use `local = t - SHOT_STARTS[i]`.
 - A readout cropped or huge: fit it with `stage.hud(cam, obj, x, y, dist, scale)` after `cam.set`, with a plate at most 70 percent of the frame width.
 
+## Diagrams and text: measure, do not guess
+
+"Small", "thin", "unreadable" on a diagram can mean two opposite faults. In the Everest draft (job mwhu3xfu-a118b6) the triangle was called small and thin for three rounds, "move closer" was asked each time, and the cause was that its corners were already off the frame (x = -0.02 and 1.08): closer made it worse. So for a diagram, a chart, an arrow or a number card:
+
+1. List its corner and end points from the script and project them. Frame height at distance d with lens L is `d * 36 / L`, width 9/16 of that. A point is off screen when its offset from the aim point is more than half of that. If any corner is outside, or the whole diagram is under 45 percent of the frame width, say which; the fix is to pull back (corners) or enlarge it (size).
+2. Work out each stroke and capital in pixels: stroke / frame width * 1080 (need 15 or more), capital height / frame height * 1920 (need 50 or more). Layer lines of 0.22 m seen from 85 m are 5 px; that is the finding, not "thin".
+3. Fix by rebuilding the diagram on a `diagram.Board` (the kit's `diagram` module, described in the scene-generation guidance) with `b.camera(cam, ...)`, instead of repeating a number change. If the same diagram or label finding appears in two rounds, the diagnosis was wrong: do not change the same numbers again, rebuild it on a board.
+4. A diagram board may be up to 84 percent of the frame wide; labels on it stay few and short (6 at most). The 70 percent width limit is for readout plates and labels.
+
 ## Writing the fix
 
 - Fix every P0 and P1 you found in the same reply. Looks are limited; a fault left for "next round" may ship.
