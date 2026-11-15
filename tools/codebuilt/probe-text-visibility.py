@@ -73,7 +73,7 @@ Path('/job/work/visibility.json').write_text(json.dumps(out, indent=2))
 # Replay only scene setup and a few poses INSIDE the fence, never the QA/render tail.
 # Keep name/frame/collection pairs rather than the lossy union in the failure message.
 import ast
-for name in ('m2', 'm4'):
+for name in ('m2', 'm4', 'm4r4'):
     source = Path('/job/build/' + name + '.py').read_text()
     tree = ast.parse(source)
     boundary = next(i for i, node in enumerate(tree.body)
@@ -86,11 +86,15 @@ for name in ('m2', 'm4'):
     frames = sorted(set([0, 290, 319, 338] + [int(t * 30) + 1 for t in ns['SHOT_STARTS']]
                         + [int((a + b) * 15) for a, b in zip(ns['SHOT_STARTS'], ns['SHOT_STARTS'][1:])]))
     rows, fitted, lenses = [], [], []
+    readout_width_failures, after_fit_readout_width_failures = [], []
     for f in frames:
         ns['apply'](f)
         p.update()
         for obj in p.text_objects():
             box = p.text_box(obj)
+            if obj.get('codebuilt_readout', False) and box[1] - box[0] > .70:
+                readout_width_failures.append({'frame': f, 'name': obj.name,
+                                               'width': box[1] - box[0], 'box': list(box)})
             if not shotcheck.box_in_safe(box):
                 rows.append({'frame': f, 'name': obj.name, 'box': list(box),
                              'scale': list(obj.matrix_world.to_scale()),
@@ -101,9 +105,19 @@ for name in ('m2', 'm4'):
         lenses.append(ns['cam'].data.lens)
         fitted.extend({'frame': f, 'name': obj.name, 'box': list(p.text_box(obj))}
                       for obj in p.text_objects() if not shotcheck.box_in_safe(p.text_box(obj)))
+        after_fit_readout_width_failures.extend(
+            {'frame': f, 'name': obj.name, 'width': p.text_box(obj)[1] - p.text_box(obj)[0],
+             'box': list(p.text_box(obj))}
+            for obj in p.text_objects() if obj.get('codebuilt_readout', False)
+            and p.text_box(obj)[1] - p.text_box(obj)[0] > .70)
     out[name] = {'source_sha256': hashlib.sha256(source.encode()).hexdigest(), 'failures': rows,
-                 'after_fit_failures': fitted, 'lens_range': [min(lenses), max(lenses)]}
+                 'after_fit_failures': fitted, 'lens_range': [min(lenses), max(lenses)],
+                 'readout_width_failures': readout_width_failures,
+                 'after_fit_readout_width_failures': after_fit_readout_width_failures}
     Path('/job/work/visibility.json').write_text(json.dumps(out, indent=2))
     assert min(lenses) >= 14, (name, lenses)
     if name == 'm2':
         assert fitted, 'Misplaced M2 labels must still fail at the lens floor'
+    if name == 'm4r4':
+        assert not readout_width_failures, ('M4 r4 readouts exceed 70% before fit', readout_width_failures)
+        assert not after_fit_readout_width_failures, ('M4 r4 readouts exceed 70% after fit', after_fit_readout_width_failures)
