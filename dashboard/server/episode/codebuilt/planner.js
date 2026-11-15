@@ -307,7 +307,8 @@ function checkScript(duration, voice, pace) {
   };
 }
 
-function endingSentences(script) {
+// codex · gpt-6.1-sol, 2026-11-15 16:38 +02:00: validate boundaries and response schemas locally.
+function sentenceCuts(script) {
   const text = script.trimEnd();
   const re = /[.!?](?:["')\]]*)?(?=\s|$)/g;
   const cuts = [];
@@ -321,15 +322,23 @@ function endingSentences(script) {
     }
     cuts.push(re.lastIndex);
   }
+  if (cuts.at(-1) !== text.length) cuts.push(text.length);
+  return cuts;
+}
+
+function endingSentences(script) {
+  const text = script.trimEnd();
+  const cuts = sentenceCuts(text);
   const start = cuts.length > 1 ? cuts.at(-2) : 0;
   return text.slice(start).trim();
 }
 
 function replaceEnding(script, shots, replacement) {
   const old = endingSentences(script);
-  const next = String(replacement ?? '').trim();
-  if (!next || /[#*`]|\[[^\]]*\]/.test(next) || /[.!?][^.!?\s]/.test(next)) throw new PlannerError('BAD_SCRIPT', 'ending rewrite must be plain complete sentences');
-  const updatedScript = script.slice(0, script.length - old.length) + next;
+  if (typeof replacement !== 'string') throw new PlannerError('BAD_SCRIPT', 'ending rewrite must be text');
+  const next = replacement.trim();
+  if (!next || /[#*`]|\[[^\]]*\]/.test(next) || !/[.!?]["')\]]*$/.test(next) || sentenceCuts(next).length > 2) throw new PlannerError('BAD_SCRIPT', 'ending rewrite must be one or two plain complete sentences');
+  const updatedScript = script.trimEnd().slice(0, -old.length) + next;
   if (updatedScript === script) throw new PlannerError('BAD_SCRIPT', 'ending rewrite could not be applied');
   const last = shots.at(-1);
   if (!last.narration.endsWith(old)) throw new PlannerError('BAD_SCRIPT', 'ending rewrite does not align with the final shot narration');
@@ -358,7 +367,8 @@ async function landEnding(v, context, askRoleFn, onCallRecord) {
     verdict = await askRoleFn('writer', `Check this ending. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Final line: ${JSON.stringify(ending)}. Judge whether it keeps the hook's promise, echoes a hook word or image, lands with energy, and avoids a correction, caveat, limitation, bare data point, summary triplet, moral or CTA. Return JSON {"ok": boolean, "reasons": [short strings]}.`, { step: 'script_ending', validate: schema, onCallRecord: recordCall });
     if (context.signal?.aborted) throw abortError();
   } catch (error) { if (context.signal?.aborted || error?.name === 'AbortError') throw error; return evidence('degraded', `checker failed: ${error.message}`); }
-  if (verdict.ok) return { value: v, calls, evidence: { status: 'approved' } };
+  if (!schema(verdict)) return evidence('degraded', 'checker returned an invalid verdict');
+  if (verdict.ok === true) return { value: v, calls, evidence: { status: 'approved' } };
   let rewritten;
   try {
   if (context.signal?.aborted) throw abortError();
@@ -366,7 +376,7 @@ async function landEnding(v, context, askRoleFn, onCallRecord) {
   if (context.signal?.aborted) throw abortError();
   } catch (error) { if (context.signal?.aborted || error?.name === 'AbortError') throw error; return evidence('degraded', `rewrite failed: ${error.message}`); }
   let revised;
-  try { revised = replaceEnding(script, v.shots, rewritten.ending); } catch (error) { return evidence('degraded', `rewrite rejected: ${error.message}`); }
+  try { revised = replaceEnding(script, v.shots, rewritten?.ending); } catch (error) { return evidence('degraded', `rewrite rejected: ${error.message}`); }
   const revisedValue = { ...v, ...revised };
   const { min, max } = wordWindow(context.duration, context.voice, context.pace);
   const n = wordCount(revisedValue.script);

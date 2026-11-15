@@ -58,7 +58,7 @@ export const STEP_TIERS = Object.freeze({
 // schema_failed_twice trigger. agy models are a fixed table (a caller cannot name another one). agy never takes a script,
 // a build or a build review: its build on the comparison brief was broken and its report said success. fact_check keeps its own rule.
 export const LIGHT_STEPS = Object.freeze(new Set(['titles', 'tags', 'subtitle_text', 'topic_dedup']));
-export const AGY_FORBIDDEN_STEPS = Object.freeze(new Set(['script', 'direction', 'build', 'review']));
+export const AGY_FORBIDDEN_STEPS = Object.freeze(new Set(['script', 'script_ending', 'direction', 'build', 'review']));
 export const AGY_LIGHT_MODELS = Object.freeze({ flash_high: 'gemini-3.8-flash-high', flash_low: 'gemini-3.8-flash-low' });
 export const isLightStep = (step) => LIGHT_STEPS.has(step);
 

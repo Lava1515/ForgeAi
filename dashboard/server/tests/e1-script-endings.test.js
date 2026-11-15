@@ -22,7 +22,7 @@ const script = (ending) => {
     'Morning finds it near a distant island.',
     ending,
   ];
-  while (sentences.join(' ').split(/\s+/).length < 74) sentences.splice(1, 0, 'Small ripples rock the paper boat beneath the open sky.');
+  while (sentences.join(' ').split(/\s+/).length < 80) sentences.splice(1, 0, 'Small ripples rock the paper boat beneath the open sky.');
   return sentences.join(' ');
 };
 const shotsFor = (text) => text.split(/(?<=[.!?])\s+/).map((narration) => ({ narration, subject: 'paper boat', action: 'drifts across the harbor', feel: 'curious' }));
@@ -68,4 +68,45 @@ test('passing ending checks make no rewrite call', async () => {
   assert.equal(count, 1);
   assert.equal(result.script, original);
   assert.equal(result.endingCheck.status, 'approved');
+});
+
+test('invalid checker verdicts retain the original without an unjudged rewrite', async () => {
+  const original = script('Its paper hull still stays soft.');
+  for (const verdict of [null, 'ok', {}, { ok: 'yes' }, { ok: false }]) {
+    let count = 0;
+    const result = await planCodebuiltScript({ topic: 'paper boats', duration: 30 }, {
+      askFn: async () => reply(original),
+      askRoleFn: async () => { count += 1; return verdict; },
+    });
+    assert.equal(result.script, original);
+    assert.equal(result.endingCheck.status, 'degraded');
+    assert.equal(count, 1);
+  }
+});
+
+test('ending rewrites preserve literal dollars, decimals and abbreviations', async () => {
+  const original = script('Its paper hull still stays soft.');
+  for (const ending of ['The gull carries $& across 3.5 meters of ocean.', 'The gull carries the tiny sail into the U.S. Navy.']) {
+    let count = 0;
+    const result = await planCodebuiltScript({ topic: 'paper boats', duration: 30 }, {
+      askFn: async () => reply(original),
+      askRoleFn: async () => ++count === 1 ? { ok: false, reasons: ['flat'] } : { ending },
+    });
+    assert.equal(result.endingCheck.status, 'rewritten');
+    assert.equal(result.script.endsWith(ending), true);
+    assert.equal(result.shots.at(-1).narration, ending);
+  }
+});
+
+test('invalid rewrite text is retained as degraded evidence', async () => {
+  const original = script('Its paper hull still stays soft.');
+  for (const ending of [null, 42, 'First sentence. Second sentence. Third sentence.', 'No final punctuation']) {
+    let count = 0;
+    const result = await planCodebuiltScript({ topic: 'paper boats', duration: 30 }, {
+      askFn: async () => reply(original),
+      askRoleFn: async () => ++count === 1 ? { ok: false, reasons: ['flat'] } : { ending },
+    });
+    assert.equal(result.script, original);
+    assert.equal(result.endingCheck.status, 'degraded');
+  }
 });
