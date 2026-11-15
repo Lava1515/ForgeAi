@@ -1,4 +1,4 @@
-﻿# ForgeAi backlog
+# ForgeAi backlog
 
 One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude-pro Â· claude-sonnet-5-5.
 `READY` = nothing outside the code blocks it; the fleet can take it. `OWNER` = waits on the owner. `PARKED` = the
@@ -14,7 +14,7 @@ run with the spare workers, one worker or two each, and never on a file another 
 
 | Id | Lane | State | Notes and main files |
 |---|---|---|---|
-| M1 | Fact check speed | MERGED; proof running | One pass took about 447 s, nearly all page fetches. Fetch in parallel, cap per page, cache by URL. `episode/codebuilt/retrievalAdapter.js`, `routes/storySources.js` |
+| M1 | Fact check speed | VERIFIED; 3 of 3 completed | One pass took about 447 s, nearly all page fetches. Fetch in parallel, cap per page, cache by URL. `episode/codebuilt/retrievalAdapter.js`, `routes/storySources.js` |
 | M2 | Failure triage | MERGED; proof pending | Sort real bugs from model noise in the job folders and fix the cheap ones. Narrated jobs since the fact check fix finished 2 of 2 so far; the older failures were mostly loop jobs (now removed) or fact check blocks before the fix. Open case: the what-if job `mwg8b8qd` stopped at `look_failed`. Keep watching new runs. `episode/codebuilt/planner.js`, `start.js` |
 | M3 | Map video proof | MERGED; map proof pending | Make 3 narrated map videos through the real path (type factual, map theme) and fix what breaks. Needs the running video run to be over. `blender_worker/codebuilt/maps.py`, `sets/world_map.py` |
 | M4 | History video type | MERGED; history proof pending | A `history` type next to `factual` and `whatif`: period places and people, sourced dates and numbers. `episode/codebuilt/productionChoices.js`, `planner.js`, `autoTopic.js`, new skill `codebuilt-history` |
@@ -47,3 +47,5 @@ run with the spare workers, one worker or two each, and never on a file another 
 
 Updated 2026-11-15 00:05 +0200 by codex Â· gpt-6.1-sol: merged 5bceabc; M1 run-mwgyf268-dbaa4c count3 Auto in progress. Other route proofs pending; public P5 already implemented, Analytics OWNER. H1 deletion limited to own merged branches; H2 requires a requested feature.
 
+
+Updated 2026-11-15 02:30 +02:00 by codex · gpt-6.1-sol: M1 run-mwgyf268-dbaa4c completed 3/3 with no M1-specific bug; all lengths and measured audio levels passed. First draft visually unapproved; third visual pass retains 2 P1 findings. Verification applies to M1, not clean visual quality. M2 proof is next.
