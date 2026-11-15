@@ -1,4 +1,4 @@
-﻿# ForgeAi backlog
+# ForgeAi backlog
 
 One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude-pro Â· claude-sonnet-5-5.
 `READY` = nothing outside the code blocks it; the fleet can take it. `OWNER` = waits on the owner. `PARKED` = the
@@ -49,7 +49,7 @@ Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan
 | G3 | Stats watcher and age snapshots | MERGED 81f30f7; live since 22:20 | Each scan stores views over time (`data/trends/snapshots*.json`); videos carry views at 1, 2, 7 and 28 days plus `views_24h`; the existing host loop rescans every 3 h, read-only. `growth/snapshots.js`, `routes/channel.js`, `growth/report.js`, launcher |
 | G4 | Growth review skill | MERGED 81f30f7 | New skill `codebuilt-growth`: how an agent reads the numbers, applies the pilot's stop rule and writes a proposal; never publishes |
 | G5 | YouTube Analytics numbers | OWNER | Needs `yt-analytics.readonly` on the channel login; then stayed-to-watch, swipe-away, average percentage viewed and viewer countries next to the G3 snapshots. Same blocker as P5 |
-| G6 | Growth page over time | READY | `Growth.jsx`: views at 1, 2 and 7 days, views in the last 24 h, the stop-rule state per channel; `npm run build` in `dashboard/client` |
+| G6 | Growth page over time | MERGED cb8db7e; client build passed | `Growth.jsx`: views at 1, 2 and 7 days, views in the last 24 h, the stop-rule state per channel; `npm run build` in `dashboard/client` |
 
 ## Housekeeping
 
@@ -76,3 +76,5 @@ Updated 2026-11-15 13:07 +02:00 by codex · gpt-6.1-sol: S1 text fitting and pai
 
 Updated 2026-11-15 18:05 +02:00 by codex · gpt-6.1-sol: reviewed batch merged through11abc4a at zero active jobs. V1 CPU measurements and existing prevention-primary-v1 policy accepted saved report with supplementary EPERM gaps retained (not exhaustive observation). Server104/Python166/client build pass. Dashboard and factory restarted once idle; Auto3 run-mwi0z8oe-a9a8e3 started18:04. Owner17:15 order supersedes old per-lane proof order: Auto3 then teardown3 then five Opus finals. No restart or mounted-code merge while active.
 
+
+Updated 2026-11-15 23:27 +02:00 by codex · gpt-6.1-sol: G6 cross-family reviewed exact0d4dc28, merged idle cb8db7e; client build/licence33 pass and premerge server120 pass. Factual final31.47s complete, whatif retrieval failure under diagnosis; history final running. T1/E4 wait for finals and push.
