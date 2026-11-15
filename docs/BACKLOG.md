@@ -42,6 +42,12 @@ Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan
 | P3 | Type to channel map | MERGED; checks passed | Each video type points at a channel in the dashboard; a channel can carry several types. `routes/channelsManager.js`, `ChannelModal.jsx` |
 | P4 | Voices page | MERGED; checks passed | Browse and pick the Qwen speakers with their samples (nine samples exist in `output/temp/voice-samples`). New client page and route |
 | P5 | Channel stats and growth | PARTLY BLOCKED | Public numbers work now (`routes/channel.js`, `Growth.jsx`). Retention and swipe-away need the YouTube Analytics login scope: OWNER |
+| G1 | Growth knowledge base | BUILT on `feat/content-growth-skills`; review, merge after the run | `growth/knowledge/` was missing, so every growth prompt ran on a placeholder with no schema. Ten sub-skills and three references, each naming the JSON keys the code reads. `dashboard/server/growth/knowledge/**`. Plan: `docs/plans/2026-11-15-content-growth-lanes.md` |
+| G2 | Publishing copy skill | BUILT on the same branch | New skill `codebuilt-publish` at `skillsByStep.publish`; the drafting step passes the script and premise, so titles and tags describe the video. `lightMetadata.js`, one call in `start.js`, `paths/codebuilt.json` |
+| G3 | Stats watcher and age snapshots | BUILT on the same branch | Each scan stores views over time (`data/trends/snapshots*.json`); videos carry views at 1, 2, 7 and 28 days plus `views_24h`; the existing host loop rescans every 3 h, read-only. `growth/snapshots.js`, `routes/channel.js`, `growth/report.js`, launcher |
+| G4 | Growth review skill | BUILT on the same branch | New skill `codebuilt-growth`: how an agent reads the numbers, applies the pilot's stop rule and writes a proposal; never publishes |
+| G5 | YouTube Analytics numbers | OWNER | Needs `yt-analytics.readonly` on the channel login; then stayed-to-watch, swipe-away, average percentage viewed and viewer countries next to the G3 snapshots. Same blocker as P5 |
+| G6 | Growth page over time | READY after G3 merges | `Growth.jsx`: views at 1, 2 and 7 days, views in the last 24 h, the stop-rule state per channel; `npm run build` in `dashboard/client` |
 
 ## Housekeeping
 

@@ -50,6 +50,11 @@
       "id": "codebuilt-teardown",
       "skill": "codebuilt-teardown",
       "mode": "guidance_only"
+    },
+    {
+      "id": "codebuilt-publish",
+      "skill": "codebuilt-publish",
+      "mode": "guidance_only"
     }
   ],
   "rules": {
@@ -111,6 +116,9 @@
       ],
       "look": [
         "codebuilt-look-review"
+      ],
+      "publish": [
+        "codebuilt-publish"
       ]
     },
     "typeSkills": {

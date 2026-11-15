@@ -23,6 +23,7 @@ import { normalizeJobCalls } from '../../perf/creationCost.js';
 import { lengthCheck, LENGTH_TOLERANCE_S } from './lengthCheck.js';
 import { GENERATED_GPU_EXECUTOR_ID } from '../engines/codebuilt/launch.js';
 import { produceLightMetadata, validateTitle, validateTags } from './lightMetadata.js';
+import { loadCodebuiltGuides } from './skills.js';
 import { askRole } from '../../routes/askRole.js';
 import { postFactory } from '../../routes/factoryClient.js';
 import { askClaude } from '../../routes/claudeCli.js';
@@ -726,7 +727,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     // 6. Titles and tags are the only model-authored draft metadata. Failures retain the topic fallback.
     step(rec, 'drafting');
     let metadata = {};
-    try { metadata = (await (lightMetadataStage ?? produceLightMetadata)(rec.topic, { askRoleFn, onCallRecord })) ?? {}; } catch { metadata = {}; }
+    let publishGuide = ''; try { publishGuide = loadCodebuiltGuides({ pack: pathPack, step: 'publish' }); } catch { /* no guide: topic-only prompts */ }
+    try { metadata = (await (lightMetadataStage ?? produceLightMetadata)(rec.topic, { askRoleFn, onCallRecord, script: scripted.script, premise: rec.premise ?? null, guide: publishGuide })) ?? {}; } catch { metadata = {}; }
     checkAbort();
     // Whatever produced the metadata, only a schema-valid title and tag list reach the draft; otherwise the topic fallback stands.
     const title = validateTitle(metadata) ? metadata.title : undefined;
