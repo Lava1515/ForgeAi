@@ -15,11 +15,27 @@ import { isInside, samePath } from './jobPaths.js';
 const IGNORE_DIRS = new Set(['node_modules', '.git']);
 const errText = (p, e) => `${p}: ${e.code ?? e.message}`;
 
-/** specs: [{ root, depth, exclude?: string[] }]; depth 0 = direct children only. Never follows links. */
-export function snapshotTrees(specs, { maxEntries = 50000 } = {}) {
+/**
+ * specs: [{ root, depth, exclude?: string[], frontierMtime?: boolean, detailBudget?: number }]; depth 0 = direct
+ * children only. Never follows links.
+ *
+ * `frontierMtime`: a directory that is listed but not walked into (depth reached) is recorded as `d:<mtime>` instead of
+ * plain `d`. Its mtime changes when a direct child is added, removed or renamed, so a change inside it is still seen
+ * although its children are not listed.
+ *
+ * `detailBudget` (a folder of many sibling job folders; implies frontierMtime, and lists children one level deep):
+ * every direct child of the root is always listed (that count is what `maxEntries` guards). Their own children are
+ * listed for the newest folders only, until `detailBudget` entries are spent; the rest are covered by their
+ * `d:<mtime>` entry alone and reported in `roots[].detail.summarised`, never as `truncated`. The set of listed folders
+ * is chosen by the first snapshot; pass it as `like` to the second so both compare the same folders. A snapshot's cost is
+ * therefore bounded by detailBudget plus the number of top-level entries, whatever the folders below hold.
+ */
+export function snapshotTrees(specs, { maxEntries = 50000, like } = {}) {
   const entries = new Map();
   let truncated = false;
   const errors = [];
+  const detail = new Map(); // spec index -> { listed: Set<path>, summarised: number }
+  const sigOf = (st, isDir, mtimeForDir) => (isDir ? (mtimeForDir ? `d:${Math.floor(st.mtimeMs)}` : 'd') : `f:${st.size}:${Math.floor(st.mtimeMs)}`);
   const walk = (dir, level, spec) => {
     let items;
     try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { errors.push(errText(dir, e)); return; }
@@ -31,13 +47,54 @@ export function snapshotTrees(specs, { maxEntries = 50000 } = {}) {
       try { st = fs.lstatSync(full); } catch (e) { if (e.code !== 'ENOENT') errors.push(errText(full, e)); continue; } // ENOENT: removed while listing
       if (entries.size >= maxEntries) { truncated = true; return; }
       const isDir = st.isDirectory();
-      // Directory mtime changes whenever a child changes; children are compared on their own.
-      entries.set(full, isDir ? 'd' : `f:${st.size}:${Math.floor(st.mtimeMs)}`);
-      if (isDir && !st.isSymbolicLink() && level < spec.depth && !IGNORE_DIRS.has(it.name)) walk(full, level + 1, spec);
+      const descend = isDir && !st.isSymbolicLink() && level < spec.depth && !IGNORE_DIRS.has(it.name);
+      // Directory mtime changes whenever a child changes; children are compared on their own, unless they are not listed.
+      entries.set(full, sigOf(st, isDir, spec.frontierMtime && !descend));
+      if (descend) walk(full, level + 1, spec);
     }
   };
-  for (const spec of specs) walk(path.resolve(spec.root), 0, spec);
-  return { entries, truncated, errors, roots: specs.map(s => ({ root: path.resolve(s.root), depth: s.depth })) };
+  // One level of children for the folders in the budget; everything else is a single `d:<mtime>` entry.
+  const walkBudgeted = (spec, index) => {
+    const rootDir = path.resolve(spec.root);
+    const info = { listed: new Set(), summarised: 0 };
+    detail.set(index, info);
+    let items;
+    try { items = fs.readdirSync(rootDir, { withFileTypes: true }); } catch (e) { errors.push(errText(rootDir, e)); return; }
+    const candidates = [];
+    for (const it of items) {
+      const full = path.join(rootDir, it.name);
+      if ((spec.exclude ?? []).some(x => samePath(x, full))) continue;
+      let st;
+      try { st = fs.lstatSync(full); } catch (e) { if (e.code !== 'ENOENT') errors.push(errText(full, e)); continue; }
+      if (entries.size >= maxEntries) { truncated = true; return; }
+      const isDir = st.isDirectory();
+      entries.set(full, sigOf(st, isDir, true)); // level 0 directories always carry their mtime: add/remove/rename inside is seen
+      if (isDir && !st.isSymbolicLink() && !IGNORE_DIRS.has(it.name)) candidates.push({ full, name: it.name, mtimeMs: st.mtimeMs });
+    }
+    const wanted = like?.detail?.get(index)?.listed;
+    let remaining = spec.detailBudget;
+    // First snapshot: newest folders first, name as the tie-break. Second snapshot: exactly the first one's folders.
+    const order = wanted ? candidates.filter(c => wanted.has(c.full)) : [...candidates].sort((a, b) => b.mtimeMs - a.mtimeMs || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const c of order) {
+      if (truncated) return;
+      if (!wanted) {
+        let size;
+        try { size = fs.readdirSync(c.full).length; } catch { size = 0; } // unreadable: the walk below reports it as an error
+        if (size > remaining) continue; // too big for what is left: summarised, a smaller folder may still fit
+      }
+      const before = entries.size;
+      walk(c.full, 1, { ...spec, depth: 1, frontierMtime: true, exclude: [] });
+      remaining -= entries.size - before;
+      info.listed.add(c.full);
+    }
+    info.summarised = candidates.length - info.listed.size;
+  };
+  specs.forEach((spec, i) => { if (spec.detailBudget !== undefined) walkBudgeted(spec, i); else walk(path.resolve(spec.root), 0, spec); });
+  const rootsInfo = specs.map((s, i) => ({
+    root: path.resolve(s.root), depth: s.depth,
+    ...(s.detailBudget !== undefined ? { detail: { budget: s.detailBudget, listedFolders: detail.get(i)?.listed.size ?? 0, summarisedFolders: detail.get(i)?.summarised ?? 0 } } : {}),
+  }));
+  return { entries, truncated, errors, roots: rootsInfo, detail };
 }
 
 const SENSITIVE_NAME_RE = /^\.env(?:\.|$)/i;
