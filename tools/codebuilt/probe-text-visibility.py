@@ -83,15 +83,23 @@ for name in ('m2', 'm4', 'm4r4'):
     ns = {'__name__': '__probe__'}
     exec(compile(tree, name, 'exec'), ns)
     p = shotcheck.BlenderProbe(ns['scene'], ns['cam'])
+    # codex · gpt-6.1-sol, 2026-11-15 15:59 +02:00: cover late shot readouts.
+    expected_readouts = {obj.name for obj in ns['scene'].objects
+                         if obj.get('codebuilt_readout', False)}
+    measured_readouts = set()
     frames = sorted(set([0, 290, 319, 338] + [int(t * 30) + 1 for t in ns['SHOT_STARTS']]
                         + [int((a + b) * 15) for a, b in zip(ns['SHOT_STARTS'], ns['SHOT_STARTS'][1:])]))
     rows, fitted, lenses = [], [], []
+    if name == 'm4r4':
+        frames = range(ns['NFRAMES'])
     readout_width_failures, after_fit_readout_width_failures = [], []
     for f in frames:
         ns['apply'](f)
         p.update()
         for obj in p.text_objects():
             box = p.text_box(obj)
+            if obj.get('codebuilt_readout', False):
+                measured_readouts.add(obj.name)
             if obj.get('codebuilt_readout', False) and box[1] - box[0] > .70:
                 readout_width_failures.append({'frame': f, 'name': obj.name,
                                                'width': box[1] - box[0], 'box': list(box)})
@@ -113,11 +121,14 @@ for name in ('m2', 'm4', 'm4r4'):
     out[name] = {'source_sha256': hashlib.sha256(source.encode()).hexdigest(), 'failures': rows,
                  'after_fit_failures': fitted, 'lens_range': [min(lenses), max(lenses)],
                  'readout_width_failures': readout_width_failures,
+                 'expected_readouts': sorted(expected_readouts),
+                 'measured_readouts': sorted(measured_readouts),
                  'after_fit_readout_width_failures': after_fit_readout_width_failures}
     Path('/job/work/visibility.json').write_text(json.dumps(out, indent=2))
     assert min(lenses) >= 14, (name, lenses)
     if name == 'm2':
         assert fitted, 'Misplaced M2 labels must still fail at the lens floor'
     if name == 'm4r4':
-        assert not readout_width_failures, ('M4 r4 readouts exceed 70% before fit', readout_width_failures)
+        assert expected_readouts and measured_readouts == expected_readouts, (expected_readouts, measured_readouts)
+        assert not readout_width_failures, ('M4 r4 readouts exceed 70% after hud fit, before world-label fit', readout_width_failures)
         assert not after_fit_readout_width_failures, ('M4 r4 readouts exceed 70% after fit', after_fit_readout_width_failures)
