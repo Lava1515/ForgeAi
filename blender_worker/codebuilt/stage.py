@@ -136,12 +136,54 @@ def text(c, name, body, size, mat, loc, extrude=0.06, font=None):
 
 
 def hud(cam, o, x, y, dist, s):
-    """Pin o in front of the camera: x,y offsets at distance dist, scale s."""
+    """Pin a readout to the camera, fitting its glyphs AND plate to the text safe area.
+
+    x/y are desired offsets at dist; fitting may shrink and shift the readout, never hide it.
+    """
     q = cam.obj.rotation_quaternion
     o.rotation_mode = 'QUATERNION'
     o.rotation_quaternion = q
     o.location = cam.obj.location + q @ Vector((x, y, -dist))
     o.scale = (s, s, s)
+    if s == 0 or not o.get('codebuilt_readout', False):
+        return
+    from .shotcheck import BlenderProbe, TEXT_SAFE, MAX_READOUT_FRAME_SHARE
+    probe = BlenderProbe(bpy.context.scene, cam)
+    left, right, bottom, top = (TEXT_SAFE[0] + .002, TEXT_SAFE[1] - .002,
+                                TEXT_SAFE[2] + .002, TEXT_SAFE[3] - .002)
+    for _ in range(4):
+        probe.update()
+        xmin, xmax, ymin, ymax, depth = probe.text_box(o)
+        if depth <= 0:
+            return  # invalid distance: QA must still reject this
+        factor = min(1, (min(right - left, MAX_READOUT_FRAME_SHARE - .004)) / max(xmax - xmin, 1e-9),
+                     (top - bottom) / max(ymax - ymin, 1e-9))
+        if factor < 1:
+            o.scale *= factor * .99
+            continue
+        dx = max(left - xmin, 0) + min(right - xmax, 0)
+        dy = max(bottom - ymin, 0) + min(top - ymax, 0)
+        if not (dx or dy):
+            break
+        frame = cam.obj.data.view_frame(scene=bpy.context.scene)
+        width = max(v.x / -v.z for v in frame) - min(v.x / -v.z for v in frame)
+        height = max(v.y / -v.z for v in frame) - min(v.y / -v.z for v in frame)
+        o.location += q @ Vector((dx * dist * width, dy * dist * height, 0))
+
+
+def fit_text(cam, labels):
+    """After cam.set, before hud: widen the lens to include explicit world labels.
+
+    Preserves labels and their world transforms. Ignores hidden collections and zero-scale
+    parents exactly as QA does. A label behind the camera remains a QA failure.
+    """
+    from .shotcheck import BlenderProbe, text_frame_factor
+    probe = BlenderProbe(bpy.context.scene, cam)
+    probe.update()
+    visible = {o.name for o in probe.text_objects()}
+    factor = min([1.0] + [text_frame_factor(probe.text_box(o)) for o in labels
+                         if o.name in visible and not o.get('codebuilt_readout', False)])
+    cam.obj.data.lens *= factor
 
 
 def hud_text(c, name, body, size, mat, w, h, plate_mat):

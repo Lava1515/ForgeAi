@@ -121,6 +121,18 @@ def box_in_safe(box, safe=TEXT_SAFE, min_depth=MIN_DEPTH):
             and box[4] > min_depth)
 
 
+def text_frame_factor(box, safe=TEXT_SAFE):
+    """Lens multiplier fitting a world text box about the optical centre; never zoom in.
+
+    A small inset avoids roundoff at the QA boundary. Behind-camera text is left for QA to reject.
+    """
+    if box[4] <= MIN_DEPTH:
+        return 1.0
+    limits = (safe[0] + .002, safe[1] - .002, safe[2] + .002, safe[3] - .002)
+    return min([1.0] + [abs(edge - .5) / abs(value - .5)
+                        for value, edge in zip(box[:4], limits) if abs(value - .5) > 1e-9])
+
+
 def find_text_clipped(samples, safe=TEXT_SAFE, min_depth=MIN_DEPTH):
     """samples: iterable of (frame, name, (xmin, xmax, ymin, ymax, depth)).
     Returns (frame, name, rounded box) for every box not fully inside the safe area."""
@@ -352,9 +364,16 @@ def describe(report, include_warnings=False):
     if report.get("uncheckable_shots"):
         parts.append(f"shots {report['uncheckable_shots'][:MAX_LISTED]} have no render-cadence QA sample")
     if report["text_clipped"]:
-        names = sorted({c[1] for c in report["text_clipped"]})[:MAX_LISTED]
-        frames = sorted({c[0] for c in report["text_clipped"]})[:MAX_LISTED]
-        parts.append(f"text leaves the safe area {TEXT_SAFE}: {names} at frames {frames}")
+        groups = {}
+        for frame, name, box in report["text_clipped"]:
+            if name not in groups:
+                if len(groups) >= MAX_LISTED:
+                    continue
+                groups[name] = [frame, frame, box]
+            groups[name][1] = frame
+        parts.append(f"text leaves the safe area {TEXT_SAFE}: " + "; ".join(
+            f"{name[:80]!r} at frames {first}-{last}, first box {box}"
+            for name, (first, last, box) in groups.items()))
     if report.get("readout_too_wide"):
         parts.append(f"readout exceeds {MAX_READOUT_FRAME_SHARE:.0%} of frame width")
     if report.get("readout_behind_subject"):
@@ -461,14 +480,14 @@ class BlenderProbe:
     def text_box(self, o):
         from bpy_extras.object_utils import world_to_camera_view
         from mathutils import Vector
-        target = next((ch for ch in o.children if ch.type == "MESH" and o.get("codebuilt_readout", False)), o)
-        if target is not o:
-            corners = [tuple(v.co) for v in target.data.vertices]
-            matrix = target.matrix_world
-        else:
-            corners = self._local_corners(o)
-            matrix = o.matrix_world
-        vs = [world_to_camera_view(self.scene, self.cam, matrix @ Vector(c)) for c in corners]
+        vs = [world_to_camera_view(self.scene, self.cam, o.matrix_world @ Vector(c))
+              for c in self._local_corners(o)]
+        if o.get("codebuilt_readout", False):
+            # A requested plate can be narrower than its glyphs. QA must cover BOTH.
+            for child in o.children:
+                if child.type == 'MESH' and not child.hide_render:
+                    vs.extend(world_to_camera_view(self.scene, self.cam, child.matrix_world @ v.co)
+                              for v in child.data.vertices)
         return (min(v.x for v in vs), max(v.x for v in vs), min(v.y for v in vs), max(v.y for v in vs), min(v.z for v in vs))
 
     def cam_pose(self):

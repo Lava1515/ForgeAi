@@ -60,3 +60,22 @@ def test_thirteen_shots_can_reuse_a_composition_after_two_intervening_shots():
     assert (0, 2) in qa.check_shot_variety(shots)
     shots[1] = shots[0]
     assert (0, 1) in qa.check_shot_variety(shots)
+
+
+def test_text_frame_factor_keeps_persistent_labels_inside_safe_area():
+    from .shotcheck import text_frame_factor, box_in_safe
+    box = (.768, 1.037, .658, .715, 10)
+    factor = text_frame_factor(box)
+    assert 0 < factor < 1
+    fitted = tuple(.5 + (v - .5) * factor for v in box[:4]) + (box[4],)
+    assert box_in_safe(fitted)
+    assert text_frame_factor((.4, .6, .4, .6, 10)) == 1
+
+
+def test_clipped_diagnostic_keeps_name_and_frame_paired():
+    from .shotcheck import describe
+    message = describe({'ok': False, 'text_clipped': [(0, 'tagw', (0, 1, 0, 1, 5)),
+                                                     (384, 'rd_clasts', (0, 1, 0, 1, 1))],
+                        'same_composition': [], 'missing_target': []})
+    assert "'tagw' at frames 0-0" in message
+    assert "'rd_clasts' at frames 384-384" in message
