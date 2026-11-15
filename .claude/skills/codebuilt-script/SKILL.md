@@ -39,8 +39,14 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 
 ## The ending
 
-- End on a pay-off: the answer to the opening question, a twist, or a last line that returns to the first picture.
-- Never end on a summary, a moral, "so that is why" or a call to subscribe.
+- Make the hook a promise the last line keeps. Hold the most surprising fact or consequence for the ending, echo a word or picture from the hook, and cut on the punch.
+- A short human or funny button may work when it fits the story. Do not add a forced joke or a trailing coda.
+- The last line cannot be a correction or error margin, caveat, limitation (including "still", "stays" or "remains"), bare data point, summary triplet, moral or call to action.
+
+## Shot feeling
+
+- Give each shot one concise feel: curious, intrigued, building, surprised, amazed, playful or satisfied.
+- End with the final shot feeling amazed, playful or satisfied. These describe the story beat; do not turn them into whispering, sadness or slowness.
 
 ## Truth
 

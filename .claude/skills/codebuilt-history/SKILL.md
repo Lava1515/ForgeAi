@@ -19,7 +19,7 @@ Guidance for the `history` video type. It adds to codebuilt-script and codebuilt
 - Open with the stake or the surprising sourced fact, 12 words or fewer, with its year if it helps.
 - Tell events in time order. Name the year when the place or the actor changes, so the viewer always knows when they are.
 - Carry the story through 2 to 5 real places and return to them. A place is a map location, a building, a landscape or an object, not a stock scene.
-- End with what changed afterward, as the sources state it, not an opinion.
+- End on the most surprising consequence, as the sources state it. Keep the hook's promise, echo a word or picture from the hook, and cut on that sourced payoff; do not add an opinion or coda.
 
 ## Picturing it
 - Maps are the main tool: use codebuilt-maps to show where, borders as they were only if the map data supports it, otherwise show modern outlines and label them as modern.
