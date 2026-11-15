@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   TrendingUp,
   RefreshCw,
@@ -53,7 +53,7 @@ const impactTone = (impact) => {
 
 const ageViews = (video, days) => {
   const snapshot = video.analytics_history?.find((item) => item.age_days === days);
-  return snapshot?.views ?? null;
+  return Number.isFinite(snapshot?.views) && snapshot.views >= 0 ? snapshot.views : null;
 };
 
 const median = (values) => {
@@ -64,6 +64,7 @@ const median = (values) => {
 };
 
 const stopRuleFor = (videos, format) => {
+  if (format !== 'short') return { state: 'Not defined for long videos' };
   if (!videos) return { state: 'Unavailable' };
   const uploads = videos.filter((video) => video.format === format);
   const judged = uploads.map((video) => ageViews(video, 7)).filter((views) => views != null);
@@ -99,6 +100,9 @@ export default function Growth({ activeChannel }) {
   const [savingAbChannel, setSavingAbChannel] = useState(false);
 
   const channelId = activeChannel?.id || 'default';
+  const currentChannel = useRef(channelId);
+  currentChannel.current = channelId;
+  const loadVersion = useRef(0);
   const channelName = activeChannel?.name || 'ForgeAI (Primary)';
   const isTopicPickingOn = activeChannel?.growth_topic_picking === true;
 
@@ -107,16 +111,21 @@ export default function Growth({ activeChannel }) {
   const boundAccountId = boundAccount?.channel_id;
 
   const loadData = async () => {
+    const version = ++loadVersion.current;
+    const isCurrent = () => currentChannel.current === channelId && loadVersion.current === version;
     try {
       setLoading(true);
+      setRefreshing(false);
+      setChannelStats(null);
       setError(null);
       const [reportData, stratData, ideasData, abChannelData, channelData] = await Promise.all([
         api.getGrowthReport(channelId).catch(() => null),
         api.getGrowthStrategy(channelId).catch(() => null),
         api.getGrowthIdeas(channelId).catch(() => null),
         api.getGrowthABChannel(channelId).catch(() => null),
-        api.getChannel().catch(() => null),
+        api.getChannel(channelId).catch(() => null),
       ]);
+      if (!isCurrent()) return;
 
       // Each call falls back to null so one failure keeps the rest; all five failing means the API is down.
       if (!reportData && !stratData && !ideasData && !abChannelData && !channelData) {
@@ -141,34 +150,41 @@ export default function Growth({ activeChannel }) {
       const currentTarget = abChannelData?.growth_ab_channel || activeChannel?.growth_ab_channel || channelId;
       setSelectedAbChannel(currentTarget);
     } catch (err) {
+      if (!isCurrent()) return;
       console.error('Failed to load growth intelligence:', err);
       setError(err.message || 'Failed to load growth intelligence');
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadData();
+    return () => { loadVersion.current += 1; };
   }, [channelId]);
 
   const handleRefreshReport = async (force = true) => {
+    const version = ++loadVersion.current;
+    const isCurrent = () => currentChannel.current === channelId && loadVersion.current === version;
     try {
       setRefreshing(true);
       setError(null);
       setNotice(null);
       const data = await api.refreshGrowthReport({ channelId, force });
+      if (!isCurrent()) return;
       setReport(data);
-      const freshChannelData = await api.getChannel().catch(() => null);
-      if (freshChannelData) setChannelStats(freshChannelData);
+      const freshChannelData = await api.getChannel(channelId).catch(() => null);
+      if (!isCurrent()) return;
+      setChannelStats(freshChannelData);
       if (data?.strategy) setStrategy(data.strategy);
       if (data?.ideas) setIdeas(data.ideas);
       setNotice(data?.cached ? 'Returned recent report (< 1 hour old).' : 'Growth report refreshed successfully.');
     } catch (err) {
+      if (!isCurrent()) return;
       console.error('Failed to refresh growth report:', err);
       setError(err.message || 'Failed to refresh growth report');
     } finally {
-      setRefreshing(false);
+      if (isCurrent()) setRefreshing(false);
     }
   };
 
@@ -754,7 +770,7 @@ export default function Growth({ activeChannel }) {
               <div key={format} className="p-3 rounded-xl bg-ink-900/50 border border-ink-800/80 flex items-start justify-between gap-3">
                 <div>
                   <span className="text-[11px] uppercase tracking-wider text-ink-400">{format === 'short' ? 'Shorts' : 'Videos'} stop rule</span>
-                  <p className="text-xs text-ink-300 mt-1">{rule.judged == null ? 'No channel scan data' : `${rule.judged}/20 videos with 7-day views`}{rule.typical != null ? ` · median ${formatNumber(rule.typical)} · best ${formatNumber(rule.best)}` : ''}</p>
+                  <p className="text-xs text-ink-300 mt-1">{format !== 'short' ? 'Pilot thresholds apply to Shorts only' : rule.judged == null ? 'No channel scan data' : `${rule.judged}/20 videos with 7-day views`}{rule.typical != null ? ` · median ${formatNumber(rule.typical)} · best ${formatNumber(rule.best)}` : ''}</p>
                 </div>
                 <Badge tone={tone}>{rule.state}</Badge>
               </div>
@@ -779,7 +795,7 @@ export default function Growth({ activeChannel }) {
         ) : (
           <p className="py-4 text-center text-xs text-ink-500">Per-video growth data unavailable. Run a channel scan to start collecting snapshots.</p>
         )}
-        <p className="text-[10px] text-ink-500">Stop rule: after 20 videos in a format have 7-day data, it is reached when the median is below 300 views and none passed 10,000.</p>
+        <p className="text-[10px] text-ink-500">Shorts stop rule: after 20 Shorts have 7-day data, it is reached when the median is below 300 views and none passed 10,000.</p>
       </Panel>
 
       {isEmpty ? (
