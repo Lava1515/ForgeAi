@@ -1,0 +1,67 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { loadTtsToken, startHostDashboard } from '../../../scripts/supervisor/start_codebuilt_dashboard.mjs';
+
+test('launcher loads only TTS_TOKEN using .env syntax when process env omits it', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeai-launcher-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, '.env'), [
+    '# ignored comment',
+    'OTHER_KEY=not-copied',
+    'export TTS_TOKEN="fixture token # preserved" # trailing comment',
+    '',
+  ].join('\n'));
+
+  const env = {};
+  const token = loadTtsToken(root, { env });
+  assert.equal(token, 'fixture token # preserved');
+  assert.deepEqual(env, {});
+});
+
+test('an explicitly supplied process token wins without reading .env', () => {
+  const env = { TTS_TOKEN: 'provided fixture' };
+  const token = loadTtsToken('unused-root', {
+    env,
+    readFile: () => { throw new Error('must not read .env'); },
+  });
+  assert.equal(token, 'provided fixture');
+});
+
+test('an absent .env file leaves TTS_TOKEN unset', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeai-launcher-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.equal(loadTtsToken(root, { env: {} }), undefined);
+});
+
+test('an explicitly present empty process token is preserved', () => {
+  assert.equal(loadTtsToken('unused-root', { env: { TTS_TOKEN: '' } }), '');
+});
+
+test('launcher applies the root token without applying other .env keys', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeai-launcher-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, '.env'), 'TTS_TOKEN=fixture-token\nOTHER_KEY=not-copied\n');
+  let applied;
+  await startHostDashboard({
+    root,
+    env: {},
+    exists: () => true,
+    log: () => {},
+    autoRelease: false,
+    apply: (vars) => { applied = vars; },
+    importApp: async () => ({
+      createApp: () => ({
+        listen: (_port, _host, onListen) => {
+          const server = { on() { return this; } };
+          queueMicrotask(onListen);
+          return server;
+        },
+      }),
+    }),
+  });
+  assert.equal(applied.TTS_TOKEN, 'fixture-token');
+  assert.equal(Object.hasOwn(applied, 'OTHER_KEY'), false);
+});

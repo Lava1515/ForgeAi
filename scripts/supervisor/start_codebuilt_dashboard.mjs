@@ -3,10 +3,11 @@
 // dashboard container cannot compose. This starts only createApp() on 127.0.0.1; it never loads index.js.
 // The only timer is the schedule loop below (one pass: releaseDue for owner-made schedules, then auto release,
 // which does nothing unless a channel has it switched on AND a daily cap set; both default off); pass --no-auto-release to skip it.
-// It reads no env files, prints no secrets and copies no credentials: it only points the existing CLI homes at
-// directories that already hold the logins.
+// It reads only TTS_TOKEN from the root .env when the process did not supply it, never prints the value, and
+// points the existing CLI homes at directories that already hold the logins.
 import path from 'node:path';
 import fs from 'node:fs';
+import { parseEnv } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +71,18 @@ export function buildEnv(root, { factoryUrl = DEFAULT_FACTORY_URL } = {}) {
   };
 }
 
+// Only TTS_TOKEN is imported from .env. An explicitly present process value (including an empty value) wins.
+export function loadTtsToken(root, { env = process.env, readFile = fs.readFileSync } = {}) {
+  if (Object.hasOwn(env, 'TTS_TOKEN')) return env.TTS_TOKEN;
+  try {
+    const parsed = parseEnv(readFile(path.join(root, '.env'), 'utf8'));
+    return parsed.TTS_TOKEN;
+  } catch (err) {
+    if (err?.code === 'ENOENT') return undefined;
+    throw err;
+  }
+}
+
 export function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -95,7 +108,9 @@ export async function startHostDashboard(opts = {}) {
   } = opts;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Bad port: ${port}`);
   const root = resolveRoot({ root: opts.root, env, scriptDir: opts.scriptDir });
+  const ttsToken = loadTtsToken(root, { env, readFile: opts.readFile });
   const vars = buildEnv(root, { factoryUrl });
+  if (ttsToken !== undefined) vars.TTS_TOKEN = ttsToken;
   const appFile = `${root}/dashboard/server/app.js`;
   for (const dir of [vars.CLAUDE_CONFIG_DIR, vars.AGY_HOME, vars.FORGEAI_AGENT_JOBS_DIR, vars.FORGEAI_DRAFTS_DIR]) {
     if (!exists(dir)) throw new Error(`Required existing path is missing: ${dir}`); // never created or filled here
