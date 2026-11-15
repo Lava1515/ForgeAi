@@ -1,22 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { loadTtsToken, startHostDashboard } from '../../../scripts/supervisor/start_codebuilt_dashboard.mjs';
 
-test('launcher loads only TTS_TOKEN using .env syntax when process env omits it', (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeai-launcher-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(root, '.env'), [
+test('launcher loads only TTS_TOKEN using .env syntax when process env omits it', () => {
+  const contents = [
     '# ignored comment',
     'OTHER_KEY=not-copied',
     'export TTS_TOKEN="fixture token # preserved" # trailing comment',
     '',
-  ].join('\n'));
+  ].join('\n');
 
   const env = {};
-  const token = loadTtsToken(root, { env });
+  const token = loadTtsToken('C:/code/launcher-fixture', { env, readFile: () => contents });
   assert.equal(token, 'fixture token # preserved');
   assert.deepEqual(env, {});
 });
@@ -30,24 +25,24 @@ test('an explicitly supplied process token wins without reading .env', () => {
   assert.equal(token, 'provided fixture');
 });
 
-test('an absent .env file leaves TTS_TOKEN unset', (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeai-launcher-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  assert.equal(loadTtsToken(root, { env: {} }), undefined);
+test('an absent .env file leaves TTS_TOKEN unset', () => {
+  assert.equal(loadTtsToken('C:/code/launcher-fixture', {
+    env: {},
+    readFile: () => { throw Object.assign(new Error('missing fixture'), { code: 'ENOENT' }); },
+  }), undefined);
 });
 
 test('an explicitly present empty process token is preserved', () => {
   assert.equal(loadTtsToken('unused-root', { env: { TTS_TOKEN: '' } }), '');
 });
 
-test('launcher applies the root token without applying other .env keys', async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeai-launcher-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  fs.writeFileSync(path.join(root, '.env'), 'TTS_TOKEN=fixture-token\nOTHER_KEY=not-copied\n');
+test('launcher applies the root token without applying other .env keys', async () => {
+  const root = 'C:/code/launcher-fixture';
   let applied;
   await startHostDashboard({
     root,
     env: {},
+    readFile: () => 'TTS_TOKEN=fixture-token\nOTHER_KEY=not-copied\n',
     exists: () => true,
     log: () => {},
     autoRelease: false,
