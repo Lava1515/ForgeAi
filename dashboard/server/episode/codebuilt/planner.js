@@ -230,7 +230,12 @@ export const DEFAULT_VOICE_WORDS_PER_SECOND = 2.6;
 /** Words per second the script length is planned for: the voice's measured pace when the voice is known, else the duration table. */
 /** A pace measured on this job's own first recording (words per second), when it is a sane number; it wins over the table. */
 const measuredPaceOf = (pace) => (typeof pace === 'number' && Number.isFinite(pace) && pace >= 1 && pace <= 5 ? pace : null);
-export const scriptPace = (duration, voice, pace) => measuredPaceOf(pace) ?? (typeof voice === 'string' && Object.hasOwn(VOICE_WORDS_PER_SECOND, voice) ? VOICE_WORDS_PER_SECOND[voice] : voice ? DEFAULT_VOICE_WORDS_PER_SECOND : wordsPerSecond(duration));
+// L1 (owner-approved 2026-11-15): 12 raw aiden drafts at a 30 s request ran long (median 34.03 s, 79.5 words, end to end 2.42 words/s). For aiden at 30 s the
+// script is planned at 2.68 w/s (target 74 words) and capped at 78 words. Other voices and durations keep the table pace and the 6 percent cap.
+const VOICE_PACE_BY_DURATION = Object.freeze({ aiden: Object.freeze({ 30: 2.68 }) });
+const VOICE_MAX_WORDS_BY_DURATION = Object.freeze({ aiden: Object.freeze({ 30: 78 }) });
+const voiceDurationValue = (table, voice, duration) => (typeof voice === 'string' && Object.hasOwn(table, voice) ? table[voice][Number(duration)] : undefined);
+export const scriptPace = (duration, voice, pace) => measuredPaceOf(pace) ?? voiceDurationValue(VOICE_PACE_BY_DURATION, voice, duration) ?? (typeof voice === 'string' && Object.hasOwn(VOICE_WORDS_PER_SECOND, voice) ? VOICE_WORDS_PER_SECOND[voice] : voice ? DEFAULT_VOICE_WORDS_PER_SECOND : wordsPerSecond(duration));
 export const targetWords = (duration, voice, pace) => Math.round((Number(duration) - FIXED_VIDEO_S) * scriptPace(duration, voice, pace));
 export const wordWindow = (duration, voice, pace) => {
   const d = Number(duration);
@@ -242,7 +247,7 @@ export const wordWindow = (duration, voice, pace) => {
   return {
     target,
     min: Math.ceil((d * (1 - SCRIPT_LENGTH_BAND.under) - FIXED_VIDEO_S) * paceUsed - 1e-9),
-    max: Math.min(Math.floor((d + SCRIPT_LENGTH_BAND.over - LAST_WORD_EXTENSION_RESERVE_S - FIXED_VIDEO_S) * paceUsed + 1e-9), Math.ceil(target * (1 + SCRIPT_OVER_TARGET))),
+    max: Math.min(Math.floor((d + SCRIPT_LENGTH_BAND.over - LAST_WORD_EXTENSION_RESERVE_S - FIXED_VIDEO_S) * paceUsed + 1e-9), Math.ceil(target * (1 + SCRIPT_OVER_TARGET)), measuredPaceOf(pace) === null ? (voiceDurationValue(VOICE_MAX_WORDS_BY_DURATION, voice, d) ?? Infinity) : Infinity),
   };
 };
 const compact = (pack) => ({ id: pack.id, skills: pack.skills.map((s) => s.skill), playbook: pack.rules.playbook, steps: pack.rules.steps });
