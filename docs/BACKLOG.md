@@ -12,6 +12,17 @@ run with the spare workers, one worker or two each, and never on a file another 
 
 ## Make the videos better and cheaper
 
+Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan: ForgeBrain/plans/2026-11-15-parallel-lanes.md. All branch changes require cross-family review and zero active jobs before merge; GPU proofs remain serial.
+
+| Id | Lane | State | Files and done when |
+|---|---|---|---|
+| V1 | Readable on-screen diagrams | BUILDING | Scene-generation/look-review skills, visualLoopPrompts.js, isolated diagram helpers; evidence-backed generic fix and fenced CPU label-size proof. |
+| M5p | Teardown pre-flight | BUILDING | stealth_jet_teardown set and teardown skill only; fenced CPU set build and dry plan pass before M5. |
+| M6p | YouTube rules pre-flight | AUDITING | Read-only prompt audit; report each live M6 rule and omissions, later fixes limited to autoTopic.js title rules. |
+| L1 | Length drift | ANALYSIS ONLY; code after E1a merges | Diagnose words/pauses behind 36.6–37.4 s for 30 s; later bring median below 34 s, planner/pace code waits for E1a. |
+| B1 | Unmerged branch salvage | AUDITING, four independent reports | Preserved job-detail-artifacts, 807b5801, m1-fetch-baseline and speed-up branches; identify patch equivalence, value and render-speed port plan. |
+| R2 | Endings research part 2 | RESEARCHING, ten independent samples | Recover 18 missing transcripts and measure last-two-second pitch/energy in ten Shorts where licensed audio is available; report unavailable evidence explicitly. |
+
 | Id | Lane | State | Notes and main files |
 |---|---|---|---|
 | E1 | Endings that land | BUILDING on separate E1a/E1b branches; owner 2026-11-15 16:05 | Script payoff/callback and final voice delivery; music unchanged. E1a skills + planner.js, E1b voice.js + story_tone.py. Cross-family review each; merge only after M4 verdict and zero active jobs, restart once, then 3-video E1 proof before M5/M6/final Opus tests. Plan: ForgeBrain/plans/2026-11-15-E1-endings-that-land.md. Added by codex · gpt-6.1-sol, 2026-11-15 16:06 +02:00. |
