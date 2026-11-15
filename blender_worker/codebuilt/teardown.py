@@ -321,7 +321,7 @@ PARTS: Dict[str, PartSpec] = {
         source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(-1.8, -0.2, -1.8),
-        base_loc=(-0.65, -0.4, -0.45),
+        base_loc=(-0.90, -0.4, -0.44),  # pivot = outer hinge edge
         color=(0.12, 0.13, 0.15),
         roughness=0.65,
         stage_phase=(0.05, 0.5),
@@ -334,7 +334,7 @@ PARTS: Dict[str, PartSpec] = {
         source="Unverified research lead only; does not substantiate this model detail: USAF National Museum F-117A Fact Sheet",
         source_url=URL_USAF_MUSEUM,
         explode_vec=(1.8, -0.2, -1.8),
-        base_loc=(0.65, -0.4, -0.45),
+        base_loc=(0.90, -0.4, -0.44),  # pivot = outer hinge edge
         color=(0.12, 0.13, 0.15),
         roughness=0.65,
         stage_phase=(0.05, 0.5),
@@ -963,27 +963,128 @@ def smootherstep(t: float) -> float:
 
 def calculate_part_pose(part_id: str, t: float, stagger: bool = True) -> Tuple[float, float, float]:
     """Computes animated 3D translation offset for a part at progress t (0.0 to 1.0)."""
-    spec = PARTS[part_id]
-    if not stagger:
-        factor = smoothstep(t)
-    else:
-        p0, p1 = spec.stage_phase
-        if t <= p0:
-            factor = 0.0
-        elif t >= p1:
-            factor = 1.0
-        else:
-            factor = smoothstep((t - p0) / (p1 - p0))
-    ex = spec.explode_vec
+    factor = stage_factor(part_id, t, stagger)
+    ex = PARTS[part_id].explode_vec
     return (ex[0] * factor, ex[1] * factor, ex[2] * factor)
+
+
+def local_geometry(part_id: str) -> Tuple[np.ndarray, List[Tuple[int, ...]]]:
+    """Part mesh around its pivot. Part builders write absolute aircraft coordinates (the wing root meets the fuselage chine
+    only there); the pivot is PartSpec.base_loc, so the mesh is moved by -base_loc and the object sits at base_loc. The
+    assembled part then lands exactly on its authored coordinates (before this, base_loc was added a second time)."""
+    v, f = build_part_geometry(part_id)
+    return v - np.array(PARTS[part_id].base_loc, float), f
+
+
+def stage_factor(part_id: str, t: float, stagger: bool = True) -> float:
+    """0..1 progress of one part: its own stagger window, or smoothstep over the whole timeline."""
+    t = max(0.0, min(1.0, float(t)))
+    if not stagger:
+        return smoothstep(t)
+    p0, p1 = PARTS[part_id].stage_phase
+    if t <= p0:
+        return 0.0
+    if t >= p1:
+        return 1.0
+    return smoothstep((t - p0) / (p1 - p0))
+
+
+# Hinged parts: (axis index, degrees at full opening). Bay doors hinge on their OUTER edge and swing down and out.
+HINGES: Dict[str, Tuple[int, float]] = {
+    "canopy": (0, 22.0),
+    "bay_door_left": (1, 55.0),
+    "bay_door_right": (1, -55.0),
+}
+
+
+def part_location(part_id: str, t: float, stagger: bool = True, scale: float = 1.0) -> Tuple[float, float, float]:
+    """Object location of a part RELATIVE to the jet root empty (which sits at the set origin): pivot + explode offset."""
+    dx, dy, dz = calculate_part_pose(part_id, t, stagger=stagger)
+    bx, by, bz = PARTS[part_id].base_loc
+    return ((bx + dx) * scale, (by + dy) * scale, (bz + dz) * scale)
+
+
+def part_rotation(part_id: str, t: float, stagger: bool = True) -> Tuple[float, float, float]:
+    """Euler rotation (radians) of a part at progress t; hinged parts open within their own stagger window."""
+    rot = [0.0, 0.0, 0.0]
+    if part_id in HINGES:
+        axis, degrees = HINGES[part_id]
+        rot[axis] = math.radians(degrees) * stage_factor(part_id, t, stagger)
+    return tuple(rot)
+
+
+def lowest_point_z(stagger: bool = True) -> float:
+    """Lowest z any part reaches over the whole teardown (pure geometry, meters, jet datum). The set puts its pedestal below it."""
+    low = 0.0
+    for pid in PARTS:
+        v, _ = local_geometry(pid)
+        base = PARTS[pid].base_loc[2] + PARTS[pid].explode_vec[2]
+        rot_z = 0.0
+        if pid in HINGES and HINGES[pid][0] == 1:
+            # a door swung 55 degrees about Y moves its inner edge down by |x| * sin(55)
+            rot_z = float(np.max(np.abs(v[:, 0]))) * math.sin(math.radians(abs(HINGES[pid][1])))
+        low = min(low, float(v[:, 2].min()) + base - rot_z)
+    return low
 
 
 # ==============================================================================
 # BLENDER MODEL & TEARDOWN RUNTIME
 # ==============================================================================
 
+XRAY_SHELL_PARTS = ("fuselage_upper", "fuselage_lower", "ram_coating", "wing_left", "wing_right")
+CALLOUT_SHARE = 0.55  # a callout is sized to this share of the frame width (shotcheck.MAX_READOUT_FRAME_SHARE is 0.70)
+CALLOUT_LINE_CHARS = 18
+
+
+def callout_lines(text: str, width: int = CALLOUT_LINE_CHARS) -> List[str]:
+    """Callout text broken into short lines (one line of 35 letters is wider than a vertical frame can hold)."""
+    import textwrap
+    lines: List[str] = []
+    for raw in str(text).split("\n"):
+        lines.extend(textwrap.wrap(raw, width=width, break_long_words=False) or [""])
+    return lines
+
+
+def callout_size(text: str, depth: float, lens: float, aspect: float = 9 / 16, share: float = CALLOUT_SHARE) -> float:
+    """Text size (world units) that makes the longest callout line `share` of the frame width at `depth` meters from a
+    camera with `lens` mm (36 mm sensor on the longer frame side, as shotcheck.project_point). Pure."""
+    from . import shotcheck
+    frame_width = depth * shotcheck.SENSOR_MM * min(aspect, 1.0) / float(lens)
+    longest = max((len(line) for line in callout_lines(text)), default=1)
+    return max(0.05, share * frame_width / (max(longest, 1) * shotcheck.CHAR_W))
+
+
+def callout_layout(text: str, part_world: Tuple[float, float, float], pos: Tuple[float, float, float],
+                   target: Tuple[float, float, float], lens: float, aspect: float = 9 / 16,
+                   share: float = CALLOUT_SHARE, margin: float = 0.02) -> Dict[str, Any]:
+    """Where a callout goes for one shot (pure). The label is sized by callout_size, turned to the camera, kept at the part's
+    depth, put just above the part on screen (below when there is no room) and shifted sideways until its whole box is
+    inside shotcheck.TEXT_SAFE. Returns {body, size, center (world), box (xmin, xmax, ymin, ymax in frame units)}."""
+    from . import shotcheck
+    safe = shotcheck.TEXT_SAFE
+    body = "\n".join(callout_lines(text))
+    right, up, fwd = shotcheck.camera_basis(pos, target)
+    px, py, depth = shotcheck.project_point(part_world, pos, target, lens, aspect)
+    size = callout_size(body, depth, lens, aspect, share)
+    width_w, height_w = shotcheck.text_extent(body, size)
+    frame_w = depth * shotcheck.SENSOR_MM * min(aspect, 1.0) / float(lens)
+    frame_h = frame_w / min(aspect, 1.0)
+    wf, hf = width_w / frame_w, height_w / frame_h
+    cx = min(max(px, safe[0] + wf / 2 + margin), safe[1] - wf / 2 - margin)
+    cy = py + 0.08 + hf / 2
+    if cy + hf / 2 > safe[3] - margin:
+        cy = py - 0.08 - hf / 2
+    cy = min(max(cy, safe[2] + hf / 2 + margin), safe[3] - hf / 2 - margin)
+    center = tuple(pos[i] + fwd[i] * depth + right[i] * (cx - 0.5) * frame_w + up[i] * (cy - 0.5) * frame_h for i in range(3))
+    return {"body": body, "size": size, "center": center, "box": (cx - wf / 2, cx + wf / 2, cy - hf / 2, cy + hf / 2)}
+
+
 class StealthJet:
-    """Runtime instance of the procedural stealth jet teardown model inside Blender."""
+    """Runtime instance of the procedural stealth jet teardown model inside Blender.
+
+    All parts are children of one root empty placed at `origin`; part locations are relative to that root, so moving the
+    set means moving the root only (the origin used to be added twice).
+    """
 
     def __init__(self, collection: Any, origin: Tuple[float, float, float] = (0.0, 0.0, 0.0),
                  scale: float = 1.0):
@@ -996,6 +1097,7 @@ class StealthJet:
         self.original_materials: Dict[str, Any] = {}
         self.is_xray: bool = False
         self.callout_objs: Dict[str, Any] = {}
+        self._highlight: Optional[Tuple[str, Tuple[float, float, float], float]] = None
 
     def pose(self, t: float, mode: str = "exploded", stagger: bool = True) -> None:
         """Positions all teardown parts as a pure function of time t (0.0 = assembled, 1.0 = exploded)."""
@@ -1003,74 +1105,110 @@ class StealthJet:
             return
         t_val = 0.0 if mode == "assembled" else max(0.0, min(1.0, float(t)))
         for pid, obj in self.parts.items():
-            dx, dy, dz = calculate_part_pose(pid, t_val, stagger=stagger)
-            spec = PARTS[pid]
-            bx, by, bz = spec.base_loc
-            obj.location = (
-                self.origin[0] + (bx + dx) * self.scale,
-                self.origin[1] + (by + dy) * self.scale,
-                self.origin[2] + (bz + dz) * self.scale,
-            )
-            factor = smoothstep(t_val)
-            if pid == "canopy":
-                obj.rotation_euler = (math.radians(22.0) * factor, 0.0, 0.0)
-            elif pid == "bay_door_left":
-                obj.rotation_euler = (0.0, math.radians(-55.0) * factor, 0.0)
-            elif pid == "bay_door_right":
-                obj.rotation_euler = (0.0, math.radians(55.0) * factor, 0.0)
+            obj.location = part_location(pid, t_val, stagger=stagger, scale=self.scale)
+            obj.rotation_euler = part_rotation(pid, t_val, stagger=stagger)
+
+    # --- materials: one rule decides what every part wears, so x-ray and highlight can be combined in any order
+    def _apply_materials(self) -> None:
+        hl_mat = dim_mat = None
+        if self._highlight is not None:
+            target, color, strength = self._highlight
+            key_h, key_d = f"hl_{color}_{strength}", "dimmed"
+            hl_mat = self.materials.get(key_h) or self.materials.setdefault(key_h, _make_emit_material("hl_glow", color, strength))
+            dim_mat = self.materials.get(key_d) or self.materials.setdefault(key_d, _make_pbr_material("dimmed", (0.06, 0.06, 0.08), rough=0.9))
+        for pid, obj in self.parts.items():
+            mat = self.original_materials.get(pid)
+            shell = self.is_xray and pid in XRAY_SHELL_PARTS and self.materials.get("xray_shell")
+            if shell:
+                mat = self.materials["xray_shell"]
+            if self._highlight is not None:
+                target = self._highlight[0]
+                if pid == target or PARTS[pid].subsystem == target:
+                    mat = hl_mat
+                elif not shell:
+                    mat = dim_mat
+            if mat:
+                obj.data.materials.clear()
+                obj.data.materials.append(mat)
 
     def set_xray(self, enabled: bool = True) -> None:
         """Toggles semi-transparent X-ray shell mode to reveal internal subsystems."""
         if not HAS_BPY:
             return
-        self.is_xray = enabled
-        xray_parts = ("fuselage_upper", "fuselage_lower", "ram_coating", "wing_left", "wing_right")
-        xray_mat = self.materials.get("xray_shell")
-        for pid in xray_parts:
-            obj = self.parts.get(pid)
-            if not obj:
-                continue
-            if enabled and xray_mat:
-                obj.data.materials.clear()
-                obj.data.materials.append(xray_mat)
-            else:
-                orig_mat = self.original_materials.get(pid)
-                if orig_mat:
-                    obj.data.materials.clear()
-                    obj.data.materials.append(orig_mat)
+        self.is_xray = bool(enabled)
+        self._apply_materials()
 
     def highlight(self, target: str, color: Tuple[float, float, float] = (0.2, 0.9, 1.0),
                   strength: float = 3.5) -> None:
-        """Highlights a specific part_id or subsystem category with an emissive callout shader."""
+        """Highlights a part id or subsystem (the rest is dimmed; with X-ray on, the transparent shell stays transparent)."""
+        if target not in PARTS and target not in subsystems():
+            raise KeyError(f"unknown highlight target {target!r}; part ids: {sorted(PARTS)}; subsystems: {subsystems()}")
         if not HAS_BPY:
             return
-        hl_mat = _make_emit_material("hl_glow", color, strength)
-        dim_mat = _make_pbr_material("dimmed", (0.06, 0.06, 0.08), rough=0.9)
-        for pid, obj in self.parts.items():
-            spec = PARTS[pid]
-            is_match = (pid == target or spec.subsystem == target)
-            obj.data.materials.clear()
-            obj.data.materials.append(hl_mat if is_match else dim_mat)
+        self._highlight = (target, tuple(color), float(strength))
+        self._apply_materials()
 
     def reset_highlight(self) -> None:
-        """Restores original materials to all parts."""
+        """Ends the highlight; X-ray, if on, stays on."""
         if not HAS_BPY:
             return
-        for pid, obj in self.parts.items():
-            orig_mat = self.original_materials.get(pid)
-            if orig_mat:
-                obj.data.materials.clear()
-                obj.data.materials.append(orig_mat)
+        self._highlight = None
+        self._apply_materials()
 
-    def callout(self, part_id: str, text: Optional[str] = None, span: float = 3.0) -> Optional[Any]:
-        """Creates or reveals an emissive 3D readout card pointing to the given part."""
+    def callout(self, part_id: str, text: Optional[str] = None, pose: Any = None, t: Optional[float] = None,
+                share: float = CALLOUT_SHARE) -> Optional[Any]:
+        """A readout for one shot: short lines of glowing text turned to that shot's camera and placed (callout_layout) just
+        above the part on screen, fully inside the text safe area.
+
+        `pose` is the camera of the shot (a CAMERA_POSES name or {pos, target, lens}); `t` is the teardown time of that shot
+        (default: the pose's beat in CAMERA_BEATS). Without `pose` the scene camera and the part's current position are used.
+        The label is static: it is right for that camera and time only. Create one per shot and show it only there with
+        set_callout_visible(part_id, True/False); the text QA checks every visible text object at every frame.
+        Calling it again for a part updates its label. Unknown part ids raise KeyError (the skill's fact keys are not part ids).
+        """
+        if part_id not in PARTS:
+            raise KeyError(f"unknown teardown part {part_id!r}; valid ids: {sorted(PARTS)}")
         if not HAS_BPY or part_id not in self.parts:
             return None
-        spec = PARTS[part_id]
-        body = text or f"{spec.name}\n{spec.function}"
-        label_obj = _make_callout_label(self.collection, f"lbl_{part_id}", body, self.parts[part_id].location)
-        self.callout_objs[part_id] = label_obj
-        return label_obj
+        scene = bpy.context.scene
+        res = scene.render
+        aspect = res.resolution_x / res.resolution_y if res.resolution_y else 9 / 16
+        if isinstance(pose, str):
+            t = CAMERA_BEATS[pose][0] if t is None and pose in CAMERA_BEATS else t
+            pose = CAMERA_POSES[pose]
+        if pose is not None:
+            pos, target, lens = tuple(pose["pos"]), tuple(pose["target"]), float(pose["lens"])
+        else:
+            cam = scene.camera
+            if cam is None:
+                raise RuntimeError("callout needs a pose or a scene camera (call cam.set first)")
+            bpy.context.view_layer.update()
+            pos = tuple(cam.matrix_world.translation)
+            target = tuple(cam.matrix_world @ Vector((0.0, 0.0, -10.0)))
+            lens = float(cam.data.lens)
+        if t is not None:
+            loc = part_location(part_id, t, scale=self.scale)
+            part_world = tuple(self.origin[i] + loc[i] for i in range(3))
+        else:
+            bpy.context.view_layer.update()
+            part_world = tuple(self.parts[part_id].matrix_world.translation)
+        layout = callout_layout(text if text else PARTS[part_id].name, part_world, pos, target, lens, aspect, share)
+        label = self.callout_objs.get(part_id)
+        if label is None:
+            label = _make_callout_label(self.collection, f"lbl_{part_id}", layout["body"], layout["size"])
+            self.callout_objs[part_id] = label
+        else:
+            label.data.body, label.data.size = layout["body"], layout["size"]
+        label.location = layout["center"]
+        label.rotation_mode = 'QUATERNION'
+        label.rotation_quaternion = (Vector(target) - Vector(pos)).to_track_quat('-Z', 'Y')
+        return label
+
+    def set_callout_visible(self, part_id: str, visible: bool) -> None:
+        """Shows or hides one callout in render and viewport (hidden labels are skipped by the text QA)."""
+        label = self.callout_objs.get(part_id)
+        if label is not None:
+            label.hide_render = label.hide_viewport = not visible
 
 
 # ==============================================================================
@@ -1146,22 +1284,19 @@ def _make_xray_shell_material(name: str = "xray_shell", color: Tuple[float, floa
     return m
 
 
-def _make_callout_label(collection: Any, name: str, body: str, target_pos: Tuple[float, float, float]) -> Any:
-    """Creates a 3D technical callout text with leader line."""
+def _make_callout_label(collection: Any, name: str, body: str, size: float) -> Any:
+    """Creates the emissive text object of a technical callout (placed and parented by StealthJet.callout)."""
     if not HAS_BPY:
         return None
     cu = bpy.data.curves.new(name, 'FONT')
-    cu.body = body.split("\n")[0]
-    cu.size = 0.32
+    cu.body = body
+    cu.size = size
     cu.align_x = 'CENTER'
     cu.align_y = 'CENTER'
-    cu.extrude = 0.02
+    cu.extrude = 0.02 * size / 0.32
     txt_obj = bpy.data.objects.new(name, cu)
     txt_mat = _make_emit_material(f"{name}_mat", (1.0, 0.9, 0.1), 2.5)
     cu.materials.append(txt_mat)
-    offset_loc = (target_pos[0], target_pos[1], target_pos[2] + 1.2)
-    txt_obj.location = offset_loc
-    txt_obj.rotation_euler = (math.pi / 2, 0.0, 0.0)
     collection.objects.link(txt_obj)
     return txt_obj
 
@@ -1182,18 +1317,13 @@ def build(collection: Any, origin: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     jet.materials["hud_glow"] = _make_emit_material("hud_glow", (0.2, 1.0, 0.4), 3.0)
 
     for pid, spec in PARTS.items():
-        v, f = build_part_geometry(pid)
-        v_scaled = v * scale
+        v, f = local_geometry(pid)
         me = bpy.data.meshes.new(f"me_{pid}")
-        me.from_pydata(v_scaled.tolist(), [], f)
+        me.from_pydata((v * scale).tolist(), [], f)
         me.update()
         ob = bpy.data.objects.new(f"jet_{pid}", me)
-        ob.location = (
-            origin[0] + spec.base_loc[0] * scale,
-            origin[1] + spec.base_loc[1] * scale,
-            origin[2] + spec.base_loc[2] * scale,
-        )
         ob.parent = root
+        ob.location = part_location(pid, 0.0, scale=scale)
         mat = _make_pbr_material(f"mat_{pid}", spec.color, rough=spec.roughness,
                                  metallic=spec.metallic, alpha=spec.alpha)
         me.materials.append(mat)
@@ -1208,30 +1338,40 @@ def build(collection: Any, origin: Tuple[float, float, float] = (0.0, 0.0, 0.0),
 # TESTED CAMERA POSES & STUDIO SET
 # ==============================================================================
 
+# The animation time t of the beat each pose is meant for, and the parts that must be in frame then (None = every part).
+CAMERA_BEATS: Dict[str, Tuple[float, Optional[Tuple[str, ...]]]] = {
+    "exploded_wide": (1.0, None),
+    "cockpit_avionics": (1.0, ("canopy", "cockpit_interior", "avionics_bay")),
+    "propulsion_rear": (0.75, ("engine_left", "engine_right", "exhaust_nozzle", "intake_left", "intake_right")),
+    "weapons_bay_low": (0.95, ("weapons_bay", "bay_door_left", "bay_door_right", "weapon_rack_left", "weapon_rack_right",
+                               "ordnance_left", "ordnance_right")),
+    "facets_stealth": (0.0, ("fuselage_upper", "canopy")),
+}
+
 CAMERA_POSES: Dict[str, Dict[str, Any]] = {
     "exploded_wide": {
-        "pos": (9.5, -16.0, 11.0),
-        "target": (0.0, 0.0, 0.5),
+        "pos": (9.9, -20.1, 30.1),
+        "target": (-1.0, -1.8, -0.4),
         "lens": 35,
-        "description": "High isometric 3/4 view framing the full exploded aircraft with all parts separated.",
+        "description": "High 3/4 view (55 degrees up) framing the whole exploded aircraft, wing tip to wing tip, at t=1.",
     },
     "cockpit_avionics": {
-        "pos": (2.2, 5.5, 4.0),
-        "target": (0.0, 2.0, 1.5),
+        "pos": (3.4, 10.3, 8.5),
+        "target": (0.0, 4.8, 2.0),
         "lens": 50,
-        "description": "Close-up on the lifted canopy, ACES II seat, and forward fly-by-wire avionics bay.",
+        "description": "Front 3/4 close-up on the lifted canopy, cockpit station and forward flight-control computers at t=1.",
     },
     "propulsion_rear": {
-        "pos": (-3.5, -10.0, 3.5),
-        "target": (0.0, -2.5, 0.5),
+        "pos": (-8.8, -20.4, 16.6),
+        "target": (-0.6, -2.7, 0.2),
         "lens": 45,
-        "description": "Rear 3/4 view focusing on twin turbofans and 2D platypus heat-shield nozzle.",
+        "description": "Rear 3/4 view from above focusing on the twin turbofans, intakes and flat nozzle at t=0.75.",
     },
     "weapons_bay_low": {
-        "pos": (3.0, -4.5, 1.5),
-        "target": (0.0, -0.5, 0.5),
+        "pos": (8.0, -12.5, -5.1),
+        "target": (0.0, -0.5, -2.6),
         "lens": 40,
-        "description": "Low dramatic angle looking up into the open serrated bay and lowered trapeze bomb racks.",
+        "description": "Low angle just above the pedestal looking up at the open serrated bay doors, trapeze racks and lowered bombs at t=0.95.",
     },
     "facets_stealth": {
         "pos": (0.0, 12.0, 2.5),
