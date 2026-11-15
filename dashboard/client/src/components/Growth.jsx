@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   TrendingUp,
   RefreshCw,
@@ -51,8 +51,33 @@ const impactTone = (impact) => {
   return 'neutral';
 };
 
+const ageViews = (video, days) => {
+  const snapshot = video.analytics_history?.find((item) => item.age_days === days);
+  return Number.isFinite(snapshot?.views) && snapshot.views >= 0 ? snapshot.views : null;
+};
+
+const median = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+};
+
+const stopRuleFor = (videos, format) => {
+  if (format !== 'short') return { state: 'Not defined for long videos' };
+  if (!videos) return { state: 'Unavailable' };
+  const uploads = videos.filter((video) => video.format === format);
+  const judged = uploads.map((video) => ageViews(video, 7)).filter((views) => views != null);
+  if (judged.length < 20) return { state: 'Collecting data', judged: judged.length, uploads: uploads.length };
+  const typical = median(judged);
+  const best = Math.max(...judged);
+  const triggered = typical < 300 && best <= 10000;
+  return { state: triggered ? 'Stop rule reached' : 'Stop rule not reached', judged: judged.length, uploads: uploads.length, typical, best };
+};
+
 export default function Growth({ activeChannel }) {
   const [report, setReport] = useState(null);
+  const [channelStats, setChannelStats] = useState(null);
   const [strategy, setStrategy] = useState(null);
   const [ideas, setIdeas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -75,6 +100,9 @@ export default function Growth({ activeChannel }) {
   const [savingAbChannel, setSavingAbChannel] = useState(false);
 
   const channelId = activeChannel?.id || 'default';
+  const currentChannel = useRef(channelId);
+  currentChannel.current = channelId;
+  const loadVersion = useRef(0);
   const channelName = activeChannel?.name || 'ForgeAI (Primary)';
   const isTopicPickingOn = activeChannel?.growth_topic_picking === true;
 
@@ -83,22 +111,29 @@ export default function Growth({ activeChannel }) {
   const boundAccountId = boundAccount?.channel_id;
 
   const loadData = async () => {
+    const version = ++loadVersion.current;
+    const isCurrent = () => currentChannel.current === channelId && loadVersion.current === version;
     try {
       setLoading(true);
+      setRefreshing(false);
+      setChannelStats(null);
       setError(null);
-      const [reportData, stratData, ideasData, abChannelData] = await Promise.all([
+      const [reportData, stratData, ideasData, abChannelData, channelData] = await Promise.all([
         api.getGrowthReport(channelId).catch(() => null),
         api.getGrowthStrategy(channelId).catch(() => null),
         api.getGrowthIdeas(channelId).catch(() => null),
         api.getGrowthABChannel(channelId).catch(() => null),
+        api.getChannel(channelId).catch(() => null),
       ]);
+      if (!isCurrent()) return;
 
-      // Each call falls back to null so one failure keeps the rest; all four failing means the API is down.
-      if (!reportData && !stratData && !ideasData && !abChannelData) {
+      // Each call falls back to null so one failure keeps the rest; all five failing means the API is down.
+      if (!reportData && !stratData && !ideasData && !abChannelData && !channelData) {
         setError('Could not load growth data. Check that the dashboard server is running, then use Refresh Report.');
       }
 
       setReport(reportData);
+      setChannelStats(channelData);
 
       const resolvedStrat = stratData?.strategy || reportData?.strategy || null;
       setStrategy(resolvedStrat);
@@ -115,32 +150,41 @@ export default function Growth({ activeChannel }) {
       const currentTarget = abChannelData?.growth_ab_channel || activeChannel?.growth_ab_channel || channelId;
       setSelectedAbChannel(currentTarget);
     } catch (err) {
+      if (!isCurrent()) return;
       console.error('Failed to load growth intelligence:', err);
       setError(err.message || 'Failed to load growth intelligence');
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadData();
+    return () => { loadVersion.current += 1; };
   }, [channelId]);
 
   const handleRefreshReport = async (force = true) => {
+    const version = ++loadVersion.current;
+    const isCurrent = () => currentChannel.current === channelId && loadVersion.current === version;
     try {
       setRefreshing(true);
       setError(null);
       setNotice(null);
       const data = await api.refreshGrowthReport({ channelId, force });
+      if (!isCurrent()) return;
       setReport(data);
+      const freshChannelData = await api.getChannel(channelId).catch(() => null);
+      if (!isCurrent()) return;
+      setChannelStats(freshChannelData);
       if (data?.strategy) setStrategy(data.strategy);
       if (data?.ideas) setIdeas(data.ideas);
       setNotice(data?.cached ? 'Returned recent report (< 1 hour old).' : 'Growth report refreshed successfully.');
     } catch (err) {
+      if (!isCurrent()) return;
       console.error('Failed to refresh growth report:', err);
       setError(err.message || 'Failed to refresh growth report');
     } finally {
-      setRefreshing(false);
+      if (isCurrent()) setRefreshing(false);
     }
   };
 
@@ -710,6 +754,50 @@ export default function Growth({ activeChannel }) {
       </Panel>
 
       {/* Report & Audit Telemetry */}
+      <Panel className="p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 border-b border-ink-800/80 pb-3">
+          <div>
+            <h3 className="text-sm font-semibold text-ink-50">Growth over time</h3>
+            <p className="text-xs text-ink-400">Views recorded at the same video age and views gained in the latest 24 hours.</p>
+          </div>
+          <span className="text-[11px] text-ink-500">{channelStats?.scanned_at ? `Last scan ${timeAgo(channelStats.scanned_at)}` : 'Scan history unavailable'}</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {['short', 'video'].map((format) => {
+            const rule = stopRuleFor(channelStats?.scanned_at ? channelStats.videos || [] : null, format);
+            const tone = rule.state === 'Stop rule reached' ? 'error' : rule.state === 'Stop rule not reached' ? 'success' : 'warn';
+            return (
+              <div key={format} className="p-3 rounded-xl bg-ink-900/50 border border-ink-800/80 flex items-start justify-between gap-3">
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-ink-400">{format === 'short' ? 'Shorts' : 'Videos'} stop rule</span>
+                  <p className="text-xs text-ink-300 mt-1">{format !== 'short' ? 'Pilot thresholds apply to Shorts only' : rule.judged == null ? 'No channel scan data' : `${rule.judged}/20 videos with 7-day views`}{rule.typical != null ? ` · median ${formatNumber(rule.typical)} · best ${formatNumber(rule.best)}` : ''}</p>
+                </div>
+                <Badge tone={tone}>{rule.state}</Badge>
+              </div>
+            );
+          })}
+        </div>
+        {Array.isArray(channelStats?.videos) && channelStats.videos.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-xs">
+              <thead><tr className="text-left text-[10px] uppercase tracking-wider text-ink-500 border-b border-ink-800">
+                <th className="py-2 pr-3 font-medium">Video</th><th className="py-2 px-3 font-medium text-right">1 day</th><th className="py-2 px-3 font-medium text-right">2 days</th><th className="py-2 px-3 font-medium text-right">7 days</th><th className="py-2 pl-3 font-medium text-right">Last 24 h</th>
+              </tr></thead>
+              <tbody>{channelStats.videos.map((video) => (
+                <tr key={video.video_id} className="border-b border-ink-800/50 last:border-0">
+                  <td className="py-2.5 pr-3 max-w-[320px]"><a href={video.url} target="_blank" rel="noreferrer" className="text-ink-200 hover:text-ember-300 truncate block">{video.title || video.video_id}</a><span className="text-[10px] text-ink-500">{video.format === 'short' ? 'Short' : 'Video'}</span></td>
+                  {[1, 2, 7].map((days) => { const value = ageViews(video, days); return <td key={days} className="py-2.5 px-3 text-right font-mono text-ink-300">{value == null ? <span className="text-ink-500">Unavailable</span> : formatNumber(value)}</td>; })}
+                  <td className="py-2.5 pl-3 text-right font-mono text-ink-300">{video.views_24h == null ? <span className="text-ink-500">Unavailable</span> : formatNumber(video.views_24h)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="py-4 text-center text-xs text-ink-500">Per-video growth data unavailable. Run a channel scan to start collecting snapshots.</p>
+        )}
+        <p className="text-[10px] text-ink-500">Shorts stop rule: after 20 Shorts have 7-day data, it is reached when the median is below 300 views and none passed 10,000.</p>
+      </Panel>
+
       {isEmpty ? (
         <Panel className="p-8">
           <EmptyState

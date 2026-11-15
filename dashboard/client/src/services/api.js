@@ -228,8 +228,8 @@ export async function suggestYoutubeTags(draftId) {
   return request(`/api/youtube/tags/${encodeURIComponent(draftId)}`, { method: 'POST' });
 }
 
-export async function getChannel() {
-  return request('/api/channel');
+export async function getChannel(channelId) {
+  return request('/api/channel', { channelId });
 }
 
 export async function scanChannel() {
