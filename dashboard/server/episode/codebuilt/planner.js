@@ -308,19 +308,32 @@ function checkScript(duration, voice, pace) {
 }
 
 function endingSentences(script) {
-  const matches = [...script.matchAll(/[^.!?]+[.!?]+["')\]]*/g)];
-  return matches.slice(-1).map((m) => m[0].trim()).join(' ');
+  const text = script.trimEnd();
+  const re = /[.!?](?:["')\]]*)?(?=\s|$)/g;
+  const cuts = [];
+  let m;
+  while ((m = re.exec(text))) {
+    const prefix = text.slice(0, m.index + 1);
+    if (/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|U\.S)\.$/i.test(prefix)) continue;
+    if (/\d\.$/.test(prefix) && /\d\.$/.test(prefix)) {
+      const after = text.slice(re.lastIndex).trimStart();
+      if (/^\d/.test(after)) continue;
+    }
+    cuts.push(re.lastIndex);
+  }
+  const start = cuts.length > 1 ? cuts.at(-2) : 0;
+  return text.slice(start).trim();
 }
 
 function replaceEnding(script, shots, replacement) {
   const old = endingSentences(script);
   const next = String(replacement ?? '').trim();
   if (!next || /[#*`]|\[[^\]]*\]/.test(next) || /[.!?][^.!?\s]/.test(next)) throw new PlannerError('BAD_SCRIPT', 'ending rewrite must be plain complete sentences');
-  const updatedScript = script.replace(old, next);
+  const updatedScript = script.slice(0, script.length - old.length) + next;
   if (updatedScript === script) throw new PlannerError('BAD_SCRIPT', 'ending rewrite could not be applied');
   const last = shots.at(-1);
-  if (!last.narration.includes(old)) throw new PlannerError('BAD_SCRIPT', 'ending rewrite does not align with the final shot narration');
-  return { script: updatedScript, shots: [...shots.slice(0, -1), { ...last, narration: last.narration.replace(old, next), feel: ['amazed', 'playful', 'satisfied'].includes(last.feel) ? last.feel : 'amazed' }] };
+  if (!last.narration.endsWith(old)) throw new PlannerError('BAD_SCRIPT', 'ending rewrite does not align with the final shot narration');
+  return { script: updatedScript, shots: [...shots.slice(0, -1), { ...last, narration: last.narration.slice(0, -old.length) + next, feel: ['amazed', 'playful', 'satisfied'].includes(last.feel) ? last.feel : 'amazed' }] };
 }
 
 async function landEnding(v, context, askRoleFn, onCallRecord) {
@@ -338,15 +351,27 @@ async function landEnding(v, context, askRoleFn, onCallRecord) {
     if (typeof onCallRecord === 'function') onCallRecord(call);
   };
   const schema = (value) => value && typeof value === 'object' && typeof value.ok === 'boolean' && (value.ok || Array.isArray(value.reasons));
-  const verdict = await askRoleFn('writer', `Check this ending for a factual short. Topic: ${JSON.stringify(topic)}. Promise/payoff context: ${JSON.stringify(premise ? { hook: premise.hook, payoff: premise.payoff } : null)}. Hook: ${JSON.stringify(hook)}. Final line: ${JSON.stringify(ending)}. Judge whether it keeps the hook's promise, echoes a hook word or image, lands with energy, and avoids a correction, caveat, limitation, bare data point, summary triplet, moral or CTA. Return JSON {"ok": boolean, "reasons": [short strings]}.`, { step: 'titles', validate: schema, onCallRecord: recordCall });
-  if (verdict.ok) return { value: v, calls };
-  const rewritten = await askRoleFn('writer', `Rewrite only the final one or two sentences of this script so the ending keeps its hook promise, echoes the hook, lands with energy, and avoids corrections, caveats, limitations, bare data, summary, morals and CTAs. Preserve the rest of the script and its facts. Return JSON {"ending": string} with replacement sentences only. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Current ending: ${JSON.stringify(ending)}. Reasons: ${JSON.stringify(verdict.reasons)}.`, { step: 'titles', validate: (value) => value && typeof value.ending === 'string' && Boolean(value.ending.trim()), onCallRecord: recordCall });
-  const revised = replaceEnding(script, v.shots, rewritten.ending);
+  const evidence = (status, reason) => ({ value: v, calls, evidence: { status, reason } });
+  let verdict;
+  try {
+    if (context.signal?.aborted) throw abortError();
+    verdict = await askRoleFn('writer', `Check this ending. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Final line: ${JSON.stringify(ending)}. Judge whether it keeps the hook's promise, echoes a hook word or image, lands with energy, and avoids a correction, caveat, limitation, bare data point, summary triplet, moral or CTA. Return JSON {"ok": boolean, "reasons": [short strings]}.`, { step: 'script_ending', validate: schema, onCallRecord: recordCall });
+    if (context.signal?.aborted) throw abortError();
+  } catch (error) { if (context.signal?.aborted || error?.name === 'AbortError') throw error; return evidence('degraded', `checker failed: ${error.message}`); }
+  if (verdict.ok) return { value: v, calls, evidence: { status: 'approved' } };
+  let rewritten;
+  try {
+  if (context.signal?.aborted) throw abortError();
+  rewritten = await askRoleFn('writer', `Rewrite only the final one or two sentences so the ending keeps its hook promise, echoes the hook, lands with energy, and avoids corrections, caveats, limitations, bare data, summary, morals and CTAs. Do not add facts. Preserve the rest exactly. Return JSON {"ending": string}. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Current ending: ${JSON.stringify(ending)}. Reasons: ${JSON.stringify(verdict.reasons)}.`, { step: 'script_ending', validate: (value) => value && typeof value.ending === 'string' && Boolean(value.ending.trim()), onCallRecord: recordCall });
+  if (context.signal?.aborted) throw abortError();
+  } catch (error) { if (context.signal?.aborted || error?.name === 'AbortError') throw error; return evidence('degraded', `rewrite failed: ${error.message}`); }
+  let revised;
+  try { revised = replaceEnding(script, v.shots, rewritten.ending); } catch (error) { return evidence('degraded', `rewrite rejected: ${error.message}`); }
   const revisedValue = { ...v, ...revised };
   const { min, max } = wordWindow(context.duration, context.voice, context.pace);
   const n = wordCount(revisedValue.script);
-  if (n < min || n > max) throw new PlannerError('BAD_SCRIPT', `ending rewrite has ${n} words; required range is ${min} to ${max}`);
-  return { value: revisedValue, calls };
+  if (n < min || n > max) return evidence('degraded', `rewrite rejected: ending has ${n} words; required range is ${min} to ${max}`);
+  return { value: revisedValue, calls, evidence: { status: 'rewritten' } };
 }
 
 export function briefMarkdown(topic, duration, v, choices = null) {
@@ -371,9 +396,9 @@ export async function planCodebuiltScript(input = {}, deps = {}) {
   const asker = makeAsker(deps, 'script', deps.onCall, SCRIPT_MAX_ATTEMPTS);
   const voice = typeof input.voice === 'string' ? input.voice : undefined;
   let v = await asker.run(scriptPrompt({ topic, duration, pack: pathPack, choices, voice, pace: input.pace, premise: input.premise, corrections: input.corrections }), checkScript(duration, voice, input.pace), input.signal);
-  const ending = await landEnding(v, { topic, duration, voice, pace: input.pace, premise: input.premise, script: v.script }, deps.askRoleFn ?? askRole, deps.onCallRecord ?? deps.onCall);
+  const ending = await landEnding(v, { topic, duration, voice, pace: input.pace, premise: input.premise, script: v.script, signal: input.signal }, deps.askRoleFn ?? askRole, deps.onCallRecord ?? deps.onCall);
   v = ending.value;
-  return { script: v.script.trim(), brief: briefMarkdown(topic, duration, v, choices), shots: v.shots, pathPack, calls: [...asker.calls, ...ending.calls] };
+  return { script: v.script.trim(), brief: briefMarkdown(topic, duration, v, choices), shots: v.shots, pathPack, calls: [...asker.calls, ...ending.calls], endingCheck: ending.evidence };
 }
 
 // ---- build ---------------------------------------------------------------------------------------------------------------------------------------------

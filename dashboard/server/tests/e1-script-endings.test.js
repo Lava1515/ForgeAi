@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planCodebuiltScript } from '../episode/codebuilt/planner.js';
+import { resolveStepTier, lightChain, AGY_FORBIDDEN_STEPS } from '../routes/stepTiers.js';
+
+test('script ending resolves to Haiku and cannot enter the agy light chain', () => {
+  const pick = resolveStepTier('script_ending');
+  assert.equal(pick.tier, 'haiku');
+  assert.throws(() => lightChain(pick), /Not a light step/);
+  assert.equal(AGY_FORBIDDEN_STEPS.has('script_ending'), true);
+});
 
 const script = (ending) => {
   const sentences = [
@@ -37,4 +45,27 @@ test('a flat banned final line triggers one focused ending check and rewrite', a
   assert.equal(result.script.endsWith(replacement), true);
   assert.equal(result.shots.map((shot) => shot.narration).join(' ').split(/\s+/).length, result.script.split(/\s+/).length);
   assert.equal(result.shots.at(-1).feel, 'amazed');
+});
+
+test('checker failure keeps original script and records degraded evidence', async () => {
+  const original = script('Its paper hull still stays soft.');
+  const result = await planCodebuiltScript({ topic: 'paper boats', duration: 30 }, {
+    askFn: async () => reply(original),
+    askRoleFn: async () => { throw new Error('unavailable'); },
+  });
+  assert.equal(result.script, original);
+  assert.equal(result.endingCheck.status, 'degraded');
+  assert.match(result.endingCheck.reason, /checker failed/);
+});
+
+test('passing ending checks make no rewrite call', async () => {
+  const original = script('The gull carries the tiny sail into the sunrise.');
+  let count = 0;
+  const result = await planCodebuiltScript({ topic: 'paper boats', duration: 30 }, {
+    askFn: async () => reply(original),
+    askRoleFn: async () => { count += 1; return { ok: true }; },
+  });
+  assert.equal(count, 1);
+  assert.equal(result.script, original);
+  assert.equal(result.endingCheck.status, 'approved');
 });

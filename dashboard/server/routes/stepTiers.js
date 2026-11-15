@@ -43,6 +43,7 @@ export const STEP_TIERS = Object.freeze({
   topic_dedup: Object.freeze({ default: 'haiku', triggers: HAIKU_TRIGGERS }),
   theme: Object.freeze({ default: 'sonnet', triggers: Object.freeze({}) }),
   script: Object.freeze({ default: 'sonnet', triggers: Object.freeze({ fact_check_rejected_twice: 'opus' }) }),
+  script_ending: Object.freeze({ default: 'haiku', triggers: Object.freeze({}) }),
   // The shot list written after the voice is recorded (codebuilt/direction.js). Same tier as the script; never agy.
   direction: Object.freeze({ default: 'sonnet', triggers: Object.freeze({}) }),
   fact_check: Object.freeze({ default: 'sonnet', triggers: Object.freeze({ number_disagreement_after_round: 'opus' }) }),
