@@ -19,6 +19,11 @@
 // that leaves voice.wav and timing.json (same shape as episode/voice.js writes) in that Episode folder. A Kokoro option is added by registering a stage
 // there; nothing else in this file changes. Only "episode" is registered now.
 //
+// E1b (endings that land): the script gives every shot a `feel`; given the shots as `beats`, the narrations become the scenes of the voice call and the
+// feels their deliveries, same order and count (the factory keeps the hook's and the ending's, see narrative_factory/story_tone.py). voice.json then holds
+// `delivery`: what was sent per beat and what the factory reported per sentence (its own words, never ours). Beats that do not reproduce the script
+// word for word, or carry no feel, are voiced the old way (one scene, no deliveries) and say why.
+//
 // No process is started here. The factory client is injected (postFactoryFn); the default is the existing one, which reads TTS_TOKEN itself
 // and is never given the token by this module. This module never prints or writes the token.
 import fs from 'node:fs';
@@ -66,6 +71,27 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const round3 = (v) => Math.round(v * 1000) / 1000;
 const token = (value) => String(value).replace(/[^\p{L}\p{N}]/gu, '').toLocaleLowerCase('en');
+
+// ---- the script's feel per shot ----
+export const FEELS = Object.freeze(['curious', 'intrigued', 'building', 'surprised', 'amazed', 'playful', 'satisfied']);
+const feelOf = (value) => { const f = typeof value === 'string' ? value.trim().toLowerCase() : ''; return FEELS.includes(f) ? f : ''; };
+
+/**
+ * The scenes and deliveries for a voice call from the script's shots. { mode: 'beats', scenes, deliveries } when every beat has a narration, the
+ * narrations joined are exactly the script, and at least one feel is a known word; otherwise { mode: 'single_scene', reason } and the caller voices the
+ * script as before. A feel that is missing or unknown is sent as '' (the plain narrator): it is never replaced by a guess.
+ */
+export function planBeatDeliveries({ script, beats, ownerWavPath } = {}) {
+  const single = (reason) => ({ mode: 'single_scene', reason });
+  if (ownerWavPath !== undefined && ownerWavPath !== null) return single('owner_recording');
+  if (!Array.isArray(beats) || !beats.length) return single('no_beats');
+  if (!beats.every((b) => isObj(b) && typeof b.narration === 'string' && b.narration.trim())) return single('beat_without_narration');
+  const scenes = beats.map((b) => b.narration.trim());
+  try { if (normaliseScript(scenes).text !== normaliseScript(script).text) return single('beats_do_not_match_script'); } catch { return single('beats_do_not_match_script'); }
+  const deliveries = beats.map((b) => feelOf(b.feel));
+  if (!deliveries.some(Boolean)) return single('no_feel');
+  return { mode: 'beats', scenes, deliveries };
+}
 
 // ---- the seam ----
 export const VOICE_STAGES = Object.freeze({ episode: runVoiceStage });
@@ -420,15 +446,17 @@ export function writeVoiceFiles({ outDir, allowedRoot, result }) {
 /**
  * The callable: approved script text -> vo.wav + words.json in `outDir`.
  *  script       approved script text (string or list of lines, as the stage takes it)
+ *  beats        optional, the script's shots [{ narration, feel }]: see planBeatDeliveries
  *  voice        a voice id the chosen stage accepts (episode stage: one Qwen3 speaker id); or ownerWavPath
  *  outDir       an existing folder under output/agent-jobs (absolute)
  *  episodeDir   the Episode folder the stage writes into (its own scratch place; the stage checks it lives under episodesRoot)
  *  voiceOption  'episode' (default) or a stage function (the seam)
  *  postFactoryFn injected factory client; the default reads TTS_TOKEN from the environment itself
  */
-export async function runCodebuiltVoice({ script, voice, ownerWavPath, outDir, allowedRoot, episodeDir, episodesRoot, voiceOption = 'episode', postFactoryFn = postFactory, runId, onCall, now = Date.now } = {}) {
+export async function runCodebuiltVoice({ script, beats, voice, ownerWavPath, outDir, allowedRoot, episodeDir, episodesRoot, voiceOption = 'episode', postFactoryFn = postFactory, runId, onCall, now = Date.now } = {}) {
   const stage = selectVoiceStage(voiceOption);
   resolveJobDir(outDir, allowedRoot); // refuse a bad destination before any request is made
+  const plan = planBeatDeliveries({ script, beats, ownerWavPath });
   let staged;
   const started = now();
   // KAN-932: the factory TTS and alignment time is a cost line (no tokens). A recorder failure never changes the voice result.
@@ -436,10 +464,17 @@ export async function runCodebuiltVoice({ script, voice, ownerWavPath, outDir, a
     if (typeof onCall !== 'function') return;
     try { onCall({ step: 'voice', provider: 'factory', model: typeof voice === 'string' && voice ? voice : null, wall_s: Math.round(Math.max(0, now() - started)) / 1000, input_tokens: null, output_tokens: null, status }); } catch { /* ignore */ }
   };
-  try { staged = await stage({ episodeDir, episodesRoot, script, voice, ownerWavPath, postFactoryFn, runId }); record('ok'); }
+  try { staged = await stage({ episodeDir, episodesRoot, script: plan.mode === 'beats' ? plan.scenes : script, voice, ownerWavPath, postFactoryFn, runId, ...(plan.mode === 'beats' ? { deliveries: plan.deliveries } : {}) }); record('ok'); }
   catch (error) { record('error'); reject('voice_stage_failed', `voice stage failed: ${error?.message ? error.message : 'unknown error'}`); }
   if (!isObj(staged)) reject('voice_stage_failed', 'voice stage returned nothing');
   const result = convertStageOutput({ voicePath: staged.voicePath, timingPath: staged.timingPath, script });
+  // What the voice was told, as the factory reported it: the stage returns the factory's own per-sentence list (null when it gave none).
+  result.manifest.delivery = {
+    mode: plan.mode, ...(plan.mode === 'single_scene' ? { reason: plan.reason } : {}),
+    scenes: plan.mode === 'beats' ? plan.scenes.length : 1,
+    sent: plan.mode === 'beats' ? plan.deliveries : null,
+    sentences: Array.isArray(staged.sentences) ? staged.sentences : null,
+  };
   const files = writeVoiceFiles({ outDir, allowedRoot, result });
   return { ...files, metrics: result.metrics };
 }

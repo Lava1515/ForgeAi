@@ -135,9 +135,9 @@ SPECS = (
         "Stylized stealth jet on presentation pedestal: radar-deflecting facets, internal weapons bay, twin turbofans, and procedural exploded teardown.",
         ("stealth", "jet", "f117", "f-117", "teardown", "aircraft", "radar", "stealth_jet", "nighthawk", "stealth_jet_teardown"),
         (0.0, 0.0, 0.5),
-        (Angle("exploded", (9.5, -16.0, 11.0), (0.0, 0.0, 0.5), 35),
+        (Angle("exploded", (9.9, -20.1, 30.1), (-1.0, -1.8, -0.4), 35),
          Angle("front", (0.0, 12.0, 2.5), (0.0, 2.0, 0.5), 45),
-         Angle("rear", (-3.5, -10.0, 3.5), (0.0, -2.5, 0.5), 45)),
+         Angle("rear", (-8.8, -20.4, 16.6), (-0.6, -2.7, 0.2), 45)),
         SceneParams(background=(0.04, 0.04, 0.05), note=_STANDARD + " 3-point studio lighting (4.5 kW key, 1.8 kW fill, 6.0 kW rim) on dark turntable pedestal.")),
 )
 

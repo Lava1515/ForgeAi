@@ -35,7 +35,7 @@ jet = h['jet']        # StealthJet instance; h['pedestal'], h['collection'], h['
 jet = teardown.build(c, origin=(x, y, z), scale=1.0)
 ```
 
-`teardown.build` returns a `StealthJet` instance controlling 17+ distinct subsystems organized as child objects under a root empty. All parts are centered around the aircraft datum (length ~14 m, wingspan ~10 m, height ~3 m).
+`teardown.build` returns a `StealthJet` instance controlling 24 parts in 7 subsystems, all children of one root empty placed at `origin` (the origin moves the whole set once; part locations are relative to that root). The assembled aircraft sits on its authored coordinates around the datum: about 10 m long, 11.6 m wingspan, about 4 m tall with the gear down. Exploded it reaches about 20 m across (wing tip to wing tip) and the gear and bombs drop about 5 m, so the set's pedestal top sits below that (`stealth_jet_teardown.pedestal_top_z()`); when assembled the jet floats above the disc.
 
 ## Illustrative parts and mechanism notes
 
@@ -76,7 +76,7 @@ jet.pose(t, mode="exploded", stagger=True)
 ```
 
 With `stagger=True` (default), the teardown follows a illustrative 3-phase separation:
-1. **Phase 1 (t = 0.0 to 0.45):** Outer airframe shell lifts up, lower hull drops down, canopy opens upward, and bay doors swing open 55 degrees.
+1. **Phase 1 (t = 0.0 to 0.5):** Outer airframe shell lifts up, lower hull drops down, the canopy lifts its front 22 degrees (done by t = 0.4), and the bay doors swing down and out 55 degrees about their outer hinge edge (done by t = 0.5). Hinged parts follow their own stagger window.
 2. **Phase 2 (t = 0.25 to 0.75):** Internal subsystems separate laterally—turbofan engines slide out, S-duct intakes pull outward, platypus nozzle slides aft, and fly-by-wire avionics rack glides forward.
 3. **Phase 3 (t = 0.45 to 1.0):** Hydraulic trapeze racks extend downward out of the weapons bay, guided bombs lower, and landing gear deploys.
 
@@ -100,6 +100,8 @@ jet.reset_highlight()
 jet.set_xray(False)
 ```
 
+With X-ray on, `highlight()` keeps the shell transparent (only non-shell parts are dimmed), and `reset_highlight()` leaves X-ray on. A target that is not a part id or subsystem raises `KeyError`.
+
 Available subsystem categories for `highlight()`:
 - `"airframe"` (faceted upper and lower hulls, landing gear)
 - `"stealth"` (RAM coating layer)
@@ -111,36 +113,39 @@ Available subsystem categories for `highlight()`:
 
 ## Technical callouts & labels
 
-Highlight a part with a floating 3D readout banner:
+Highlight a part with a floating readout. Give it the camera pose of the shot that shows it:
 
 ```python
-jet.callout("platypus_exhaust", "PLATYPUS 2D NOZZLE: IR SUPPRESSION")
+jet.callout("exhaust_nozzle", "PLATYPUS 2D NOZZLE: IR SUPPRESSION", pose="propulsion_rear")  # t defaults to that pose's beat
+jet.set_callout_visible("exhaust_nozzle", False)   # hide it outside its own shot
 ```
 
-Place callouts only during the shot in which the narration names that part. Show at most one callout banner at a time; remove or hide it when transitioning to the next beat.
+The first argument must be a **part id** from the table above (not a `teardown.facts()` key such as `platypus_exhaust`; an unknown id raises `KeyError`). The text is broken into short lines (18 letters), sized to about 55 percent of the frame width at that camera, turned to the camera and placed just above the part on screen, inside the text safe area. It is static: right for that pose and that `t` only (pass `t=` for a different beat, or a `{pos, target, lens}` dict for a custom camera). Create one per shot and switch it on only during the shot in which the narration names that part; show at most one callout banner at a time. The text QA checks every visible text object at every frame, so hidden labels must be hidden with `set_callout_visible`, not left in view.
 
 ## Suggested camera poses for vertical 1080x1920
 
-Vertical 1080x1920 frame requires steep perspective and generous vertical clearance so exploded pieces do not clip off-screen. Suggested poses; verify visibility and framing in preview:
+The vertical frame is narrow and the exploded jet is wide, so these poses look down from above or from a low side angle. Each was measured with every vertex of the parts in its beat inside the frame (safe margin 4 percent), the camera outside every part and above the pedestal (fenced CPU probe `tools/codebuilt/probe-stealth-jet-teardown.py`). Use them with the beat time `t` listed in `teardown.CAMERA_BEATS`; change a pose and the parts will leave the frame.
 
 ```python
-from blender_worker.codebuilt.teardown import CAMERA_POSES
+from blender_worker.codebuilt.teardown import CAMERA_POSES, CAMERA_BEATS
 
-# 1. High isometric 3/4 view framing the complete exploded aircraft:
-cam.set(pos=(9.5, -16.0, 11.0), target=(0.0, 0.0, 0.5), lens=35)
+# 1. `exploded_wide` (t = 1.0): high 3/4 view, 55 degrees up, whole exploded aircraft wing tip to wing tip:
+cam.set(pos=(9.9, -20.1, 30.1), target=(-1.0, -1.8, -0.4), lens=35)
 
-# 2. Close-up on the cockpit canopy, ACES II seat, and fly-by-wire avionics:
-cam.set(pos=(2.2, 5.5, 4.0), target=(0.0, 2.0, 1.5), lens=50)
+# 2. `cockpit_avionics` (t = 1.0): front 3/4 close-up on the lifted canopy, cockpit station and flight-control computers:
+cam.set(pos=(3.4, 10.3, 8.5), target=(0.0, 4.8, 2.0), lens=50)
 
-# 3. Rear 3/4 look at twin turbofans and flat platypus heat-shield nozzle:
-cam.set(pos=(-3.5, -10.0, 3.5), target=(0.0, -2.5, 0.5), lens=45)
+# 3. `propulsion_rear` (t = 0.75): rear 3/4 from above on the turbofans, intakes and flat nozzle:
+cam.set(pos=(-8.8, -20.4, 16.6), target=(-0.6, -2.7, 0.2), lens=45)
 
-# 4. Low dramatic angle looking up into the serrated weapons bay and lowered bombs:
-cam.set(pos=(3.0, -4.5, 1.5), target=(0.0, -0.5, 0.5), lens=40)
+# 4. `weapons_bay_low` (t = 0.95): low angle just above the pedestal looking up at the open bay doors, racks and lowered bombs:
+cam.set(pos=(8.0, -12.5, -5.1), target=(0.0, -0.5, -2.6), lens=40)
 
-# 5. Direct head-on view of the radar-deflecting faceted nose angles:
+# 5. `facets_stealth` (t = 0.0): head-on view of the faceted nose and canopy:
 cam.set(pos=(0.0, 12.0, 2.5), target=(0.0, 2.0, 0.5), lens=45)
 ```
+
+Never put the camera below the pedestal top (about -5.6 m): the disc is opaque.
 
 ## Shot rhythm & direction playbook
 
@@ -157,6 +162,7 @@ A strong 30–45 second teardown explainer short follows this structure:
 
 - **No external downloads:** Built 100% from procedural NumPy/Blender meshes.
 - **Keep subject above captions:** Keep the main action in the upper 60% of the frame; captions sit low in the bottom 25%.
-- **Render cost:** The complete model has 24 parts, 937 vertices, and 1,134 faces—extremely fast to render in Blender EEVEE and Cycles (render time depends on the scene and hardware).
+- **Render cost:** The complete model has 24 parts, 937 vertices, and 1134 faces, extremely fast to render in Blender EEVEE and Cycles (render time depends on the scene and hardware).
+- **Framing:** Exploded, the jet is about 20 m wide, so in a 9:16 frame it fills the width and about 40 percent of the height at `exploded_wide`. Do not zoom in on the whole exploded jet; cut to a close pose instead.
 
 Narration constraint: the example shot beats above illustrate generic mechanisms only. Never infer a real F-117 configuration from this geometry. Fact-check every specific assertion independently; omit unsupported details.

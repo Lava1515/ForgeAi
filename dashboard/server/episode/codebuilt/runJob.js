@@ -15,6 +15,7 @@ import { snapshotTrees, diffSnapshots, scanJobForViolations, findSecretLeaks } f
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const MAX_GPU_WAIT_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_GPU_WAIT_MS = 30 * 60 * 1000;
+const SIBLING_DETAIL_BUDGET = 20000; // entries spent listing inside other job folders, per snapshot (about 2 s)
 
 // GPU leases kept because a container could not be confirmed gone. Keyed by the run token of the quarantined lock.
 // They are given back by reapOrphans once the container is confirmed gone. If this process dies, the GPU queue
@@ -24,7 +25,11 @@ const retainedLeases = new Map();
 
 export function defaultWatchRoots({ jobRoot, jobDir, repoRoot = REPO_ROOT }) {
   return [
-    { root: jobRoot, depth: 4, exclude: [jobDir, locksDir(jobRoot)] }, // other jobs (jobs with a lock are left out at diff time)
+    // Other jobs (jobs with a lock are left out at diff time). Cost must not grow with the number of finished jobs, so:
+    // every top-level entry is listed (a new, removed or changed folder is seen), the newest folders are listed one level
+    // deep up to SIBLING_DETAIL_BUDGET entries, and each folder's own mtime catches an added/removed/renamed child of the
+    // rest. Never walks frames. See audit.snapshotTrees.
+    { root: jobRoot, depth: 1, detailBudget: SIBLING_DETAIL_BUDGET, exclude: [jobDir, locksDir(jobRoot)] },
     { root: path.parse(path.resolve(jobRoot)).root, depth: 0 }, // stray C:/prev style folders
     { root: path.dirname(path.resolve(repoRoot)), depth: 0 },
     { root: repoRoot, depth: 0 }, // top level only: .env and new top-level entries. Deeper files change during normal work.
@@ -125,7 +130,7 @@ export async function runIsolatedJob(config, deps = {}) {
     // runFenced returns only after its cleanup check. This combined interval includes
     // image inspection, execution and cleanup; it cannot separate Blender setup/QA/render.
     mark('fenceReturned');
-    after = snapshotTrees(roots, snapOpts);
+    after = snapshotTrees(roots, { ...snapOpts, like: before }); // same folders listed in detail as in the first snapshot
     mark('snapshotAfter');
   } catch (e) {
     // runFenced only throws before it starts anything, so there is no container to account for.
