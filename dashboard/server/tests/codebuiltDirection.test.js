@@ -3,7 +3,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { phrasesOf, checkDirection, directionShotStarts, fallbackDirection, DirectionError, MIN_DIRECTED_SHOT_S, MAX_DIRECTED_SHOT_S } from '../episode/codebuilt/direction.js';
-import { validateBuildScript, parseModelJson } from '../episode/codebuilt/planner.js';
+import { KIT_CONTRACT, validateBuildScript, parseModelJson } from '../episode/codebuilt/planner.js';
+
+test('generated HUD labels reset before every shared-place frame and re-show only after camera setup', () => {
+  assert.match(KIT_CONTRACT, /At the start of apply\(f\), set every generated HUD\/readout handle to scale \(0, 0, 0\), then call timeline\.apply_frame/);
+  assert.match(KIT_CONTRACT, /the active shot function calls cam\.set\(\.\.\.\) and then stage\.hud/);
+  assert.match(KIT_CONTRACT, /Do not reset persistent world subject labels/);
+  assert.match(KIT_CONTRACT, /or move hidden labels to the frame origin/);
+});
 
 // 40 words, one every 0.5 s, a full stop after every fifth: eight phrases of 2.5 s.
 const words = { dur: 20.3, words: Array.from({ length: 40 }, (_, i) => ({ w: `w${i}`, s: i * 0.5, e: i * 0.5 + 0.4, ...(i % 5 === 4 ? { punct: '.' } : {}) })) };
