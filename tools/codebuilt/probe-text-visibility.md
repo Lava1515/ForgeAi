@@ -2,6 +2,20 @@
 
 Author: codex · gpt-6.1-sol. Created: 2026-11-15 13:02 +02:00.
 
+Updated: 2026-11-15 13:06 +02:00 by codex · gpt-6.1-sol.
+
+## Review correction: bounded fitting
+
+Independent Sonnet security review passed; correctness required a lens floor.
+The helper now stops widening at 14 mm, preserving an already wider input lens.
+The CPU probe was rerun after this fix: M2 lens range 14–40 mm with two remaining
+clipped samples; M4 14–70 mm with one remaining clipped sample. These misplaced
+labels correctly remain QA failures for the generator to repair. The original
+zero-clipped results and 4.35/11.90 mm lens ranges below describe the earlier,
+unbounded candidate, not the current implementation. The current visibility.json
+hashes and executor evidence supersede that earlier probe. Cleanup verified again;
+wrapper audit remains incomplete. No visual-composition approval is claimed.
+
 Run `node tools/codebuilt/probe-text-visibility.mjs` from this checkout. Outputs go only to
 `C:/code/ForgeAi/output/agent-jobs/s1-qa-probe-1254`. The runner uses the approved CPU
 generated-code entry through `runIsolatedJob`, including the normal job lock, shared main

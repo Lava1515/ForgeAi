@@ -183,7 +183,10 @@ def fit_text(cam, labels):
     visible = {o.name for o in probe.text_objects()}
     factor = min([1.0] + [text_frame_factor(probe.text_box(o)) for o in labels
                          if o.name in visible and not o.get('codebuilt_readout', False)])
-    cam.obj.data.lens *= factor
+    # Never fix misplaced text by reducing a normal lens to a pinhole subject.
+    # Preserve an explicitly wider input lens, but do not widen it further.
+    lens = cam.obj.data.lens
+    cam.obj.data.lens = max(min(lens, 14.0), lens * factor)
 
 
 def hud_text(c, name, body, size, mat, w, h, plate_mat):

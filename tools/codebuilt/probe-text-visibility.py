@@ -104,4 +104,6 @@ for name in ('m2', 'm4'):
     out[name] = {'source_sha256': hashlib.sha256(source.encode()).hexdigest(), 'failures': rows,
                  'after_fit_failures': fitted, 'lens_range': [min(lenses), max(lenses)]}
     Path('/job/work/visibility.json').write_text(json.dumps(out, indent=2))
-    assert not fitted, (name, fitted)
+    assert min(lenses) >= 14, (name, lenses)
+    if name == 'm2':
+        assert fitted, 'Misplaced M2 labels must still fail at the lens floor'
