@@ -381,6 +381,7 @@ export default function ProductsCatalog() {
                         <p className="text-xs text-ink-400 font-mono">
                           {new Date(product.created_at).toLocaleDateString()} • {product.engine}
                         </p>
+                        {product.visual_check?.approved === false && <Badge tone="error">Visual check failed</Badge>}
                         {product.style === 'viral_v1' && (
                           <Badge tone="accent" className="!text-xs !py-0.5 !px-2">viral_v1</Badge>
                         )}
