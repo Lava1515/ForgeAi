@@ -54,12 +54,13 @@ function promptFor({ genre, theme, type, inspiration, previousTopics, profile })
   return [
     `Propose ${MAX_CANDIDATES_ASKED} different topics for one vertical educational short on a faceless 3D channel. Each must be explainable with simple 3D scenes and real, checkable numbers.`,
     whatif ? 'Every topic must be a "What if ...?" question about real physics or science.' : type === 'history' ? 'Every topic is a true historical question or claim about a real period, with documented people and places, named dates and numbers that a source states. Never a "What if ...?" question and never invented events.' : 'Every topic is a factual question or claim with a true, checkable answer. Never a "What if ...?" question.',
+    'Each topic is a full question or claim of about 6 to 10 words (guidance, not a limit) that names one concrete subject and the stake for it, shows a visible payoff the video can picture, and has no hashtags, no lists and no "things that..." wording.',
     storyDirection(type),
     genre ? `Genre: ${JSON.stringify(genre)}` : 'Genre: any',
     theme ? `Theme to stay inside: ${JSON.stringify(theme)}` : 'Theme: your choice',
     inspiration ? `The channel's own current idea (optional inspiration): ${JSON.stringify(inspiration)}` : '',
     previousTopics.length ? `Already made or chosen, do not repeat or paraphrase: ${JSON.stringify(previousTopics.slice(-20))}` : '',
-    `Reply with ONE JSON object and nothing else: {"candidates":[{"topic": string (at most ${TOPIC_MAX} characters), "answer": string, "hook": string (a number, a question or a point of view, at most 12 words), "facts":[{"value": number, "source": string}, at least 3], "shots":[{"visual": string, "location": string}, 7 to 9, visually different, at least 3 locations], "main_setting": string, "tags":[string]}]}`,
+    `Reply with ONE JSON object and nothing else: {"candidates":[{"topic": string (at most ${TOPIC_MAX} characters), "answer": string, "hook": string (names the subject and one concrete stake, or a number, a question or a point of view; at most 12 words), "facts":[{"value": number, "source": string}, at least 3], "shots":[{"visual": string, "location": string}, 7 to 9, visually different, at least 3 locations], "main_setting": string, "tags":[string]}]}`,
   ].filter(Boolean).join('\n');
 }
 
