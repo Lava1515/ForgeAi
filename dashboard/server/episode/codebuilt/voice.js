@@ -51,7 +51,7 @@ export const LIMITS = Object.freeze({
   tailKeepSeconds: 0.3, // trailing silence kept after the last word when the tail is trimmed
   tailGuardSeconds: 0.1, // the trim never ends closer than this to the last audible sample
   firstWordExtendMaxSeconds: 0.5, // the aligner may have collapsed the first word: its start is moved back to the audible start by at most this much
-  collapsedWordMaxSeconds: 0.05, // a first word shorter than this counts as collapsed by the aligner
+  collapsedWordMaxSeconds: 0.06, // includes the diagnosed 60 ms first-word boundary
   leadSoundGapMaxSeconds: 0.1, // the sound before a collapsed first word must run up to it with no silent gap longer than this
   lastWordExtendMaxSeconds: 1.0, // the aligner may have clipped the last word: it is extended to the audible end by at most this much
   tailTrimMinSeconds: 0.1, // a tail is only cut when at least this much would go (a shorter tail is left byte for byte)
@@ -252,7 +252,7 @@ export function extendClippedLastWord({ wav, timing }) {
 export function extendClippedFirstWord({ wav, timing }) {
   if (!Buffer.isBuffer(wav) || !isObj(timing) || !Array.isArray(timing.words) || !timing.words.length) return { timing, extendedSeconds: 0 };
   const first = timing.words[0];
-  if (!isObj(first) || !isNum(first.start) || !isNum(first.end) || first.end - first.start >= LIMITS.collapsedWordMaxSeconds) return { timing, extendedSeconds: 0 };
+  if (!isObj(first) || !isNum(first.start) || !isNum(first.end) || first.end - first.start > LIMITS.collapsedWordMaxSeconds + 1e-9) return { timing, extendedSeconds: 0 };
   let span; let peaks; let windowSeconds;
   try { ({ peaks, windowSeconds } = windowPeaks(wav)); span = audibleSpan(peaks, windowSeconds, LIMITS.audibleFloor); } catch { return { timing, extendedSeconds: 0 }; }
   if (!span) return { timing, extendedSeconds: 0 };
