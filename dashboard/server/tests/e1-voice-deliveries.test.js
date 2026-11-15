@@ -140,7 +140,7 @@ test('a job hands the script shots to the voice step', async () => {
   try {
     const starter = createCodebuiltStarter({
       jobsDir: s.root, episodesRoot: path.join(s.root, 'episodes'), draftsDir: path.join(s.root, 'drafts'),
-      scriptStage: async () => ({ script: SCRIPT, brief: '# brief', shots: BEATS, pathPack: { id: 'codebuilt', skills: [] }, calls: [] }),
+      scriptStage: async () => ({ script: SCRIPT, brief: '# brief', shots: BEATS, endingCheck: { status: 'degraded', reason: 'checker unavailable' }, pathPack: { id: 'codebuilt', skills: [] }, calls: [] }),
       composeRunner: async () => ({ runner: { run: async () => ({}) } }), visualLoop: false, // false: no Claude CLI probe in a test
       voiceStage: async (input) => { seen = input; throw new Error('stop here'); },
     });
@@ -148,5 +148,7 @@ test('a job hands the script shots to the voice step', async () => {
     await starter.idle();
     assert.equal(seen.script, SCRIPT);
     assert.deepEqual(seen.beats.map((b) => [b.narration, b.feel]), BEATS.map((b) => [b.narration, b.feel]));
+    const staged = JSON.parse(fs.readFileSync(path.join(seen.outDir, 'script-meta.json'), 'utf8'));
+    assert.deepEqual(staged.endingCheck, { status: 'degraded', reason: 'checker unavailable' });
   } finally { fs.rmSync(s.root, { recursive: true, force: true }); }
 });
