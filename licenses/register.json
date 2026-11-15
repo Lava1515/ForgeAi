@@ -307,6 +307,42 @@
       "checked": "2026-11-13",
       "checked_how": "from memory",
       "reverify": true
+    },
+    {
+      "id": "skill-ref:kostja94/marketing-skills",
+      "kind": "asset",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/kostja94/marketing-skills",
+      "checked": "2026-11-15",
+      "checked_how": "LICENSE file in a shallow clone and the GitHub API licence field (output/temp/skill-search/VETTING.md); read as background only for dashboard/server/growth/knowledge and .claude/skills/codebuilt-publish, codebuilt-growth; no text copied, nothing installed or run"
+    },
+    {
+      "id": "skill-ref:social-media-skills/skills",
+      "kind": "asset",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/social-media-skills/skills",
+      "checked": "2026-11-15",
+      "checked_how": "LICENSE file in a shallow clone and the GitHub API licence field (output/temp/skill-search/VETTING.md); read as background only for dashboard/server/growth/knowledge and .claude/skills/codebuilt-publish, codebuilt-growth; no text copied, nothing installed or run"
+    },
+    {
+      "id": "skill-ref:anthropics/knowledge-work-plugins",
+      "kind": "asset",
+      "licence": "Apache-2.0",
+      "allowed": true,
+      "source": "https://github.com/anthropics/knowledge-work-plugins",
+      "checked": "2026-11-15",
+      "checked_how": "LICENSE file in a shallow clone and the GitHub API licence field (output/temp/skill-search/VETTING.md); read as background only for dashboard/server/growth/knowledge and .claude/skills/codebuilt-publish, codebuilt-growth; no text copied, nothing installed or run"
+    },
+    {
+      "id": "skill-ref:coreyhaines31/marketingskills",
+      "kind": "asset",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://github.com/coreyhaines31/marketingskills",
+      "checked": "2026-11-15",
+      "checked_how": "LICENSE file in a shallow clone and the GitHub API licence field (output/temp/skill-search/VETTING.md); read as background only for dashboard/server/growth/knowledge and .claude/skills/codebuilt-publish, codebuilt-growth; no text copied, nothing installed or run"
     }
   ]
 }

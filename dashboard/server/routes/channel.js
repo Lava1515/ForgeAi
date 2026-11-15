@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getActiveChannel, isSafeId } from './channelsManager.js';
+import { getActiveChannel, getAllChannels, isSafeId } from './channelsManager.js';
+import { recordAndAttach, snapshotFile } from '../growth/snapshots.js';
 import { parseIsoDuration } from './trends.js';
 
 // Reads YouTube Analytics / Data API for our channel to rank what actually performed.
@@ -282,6 +283,8 @@ export async function scanChannel(channelOrReq = null) {
     channel_name: targetChannel?.name || 'Default Channel',
     ...rankChannel(drafts, ytVideos),
   };
+  // G3: keep the numbers over time, so videos can be compared at the same age (1, 2, 7, 28 days).
+  report.videos = recordAndAttach(snapshotFile(TRENDS_DIR, channelId), report.videos);
 
   const cacheFile = getChannelCacheFile(channelId);
   fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
@@ -294,6 +297,22 @@ export async function scanChannel(channelOrReq = null) {
   }
 
   return report;
+}
+
+// G3 stats watcher: called from the host dashboard's schedule loop (every minute). Rescans each channel that has its own
+// API key at most once per WATCH_INTERVAL_MS (also after a failed attempt). Reads public numbers only; never uploads.
+export const WATCH_INTERVAL_MS = 3 * 60 * 60 * 1000;
+const lastWatch = new Map();
+export async function channelWatchRun(now = Date.now(), { channels = getAllChannels, scan = scanChannel, cached = readCachedChannel, log = console.warn } = {}) {
+  const done = [];
+  for (const channel of (channels() || []).filter((c) => c?.id && (c.api_key || c.youtube_api_key))) {
+    const scannedAt = Date.parse(cached(channel)?.scanned_at);
+    const last = Math.max(lastWatch.get(channel.id) || 0, Number.isFinite(scannedAt) ? scannedAt : 0);
+    if (now - last < WATCH_INTERVAL_MS) continue;
+    lastWatch.set(channel.id, now);
+    try { await scan(channel); done.push(channel.id); } catch (err) { log(`channel watch ${channel.id} failed: ${err?.message || err}`); }
+  }
+  return done;
 }
 
 export function readCachedChannel(channelOrReq = null, optionsOrTrendsDir = {}) {
