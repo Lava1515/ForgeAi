@@ -29,6 +29,10 @@ test('the Florence 60 ms alignment boundary is corrected while detached sound st
   assert.ok(Math.abs(out.timing.words[0].start - 0.03) <= 0.02);
   assert.equal(out.timing.words[0].end, 0.4);
   assert.ok(out.extendedSeconds > 0.29 && out.extendedSeconds <= 0.32);
+  const offset = extendClippedFirstWord({ wav: wav(2, 0.03), timing: timing(0.344, 0.404) });
+  assert.ok(offset.extendedSeconds > 0.3);
+  const longer = timing(0.344, 0.404001);
+  assert.equal(extendClippedFirstWord({ wav: wav(2, 0.03), timing: longer }).timing, longer);
 
   const detached = timing(0.34, 0.4);
   assert.equal(extendClippedFirstWord({ wav: wav(2, 0.34, 0.03), timing: detached }).timing, detached);

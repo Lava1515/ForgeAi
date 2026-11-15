@@ -252,7 +252,7 @@ export function extendClippedLastWord({ wav, timing }) {
 export function extendClippedFirstWord({ wav, timing }) {
   if (!Buffer.isBuffer(wav) || !isObj(timing) || !Array.isArray(timing.words) || !timing.words.length) return { timing, extendedSeconds: 0 };
   const first = timing.words[0];
-  if (!isObj(first) || !isNum(first.start) || !isNum(first.end) || first.end - first.start > LIMITS.collapsedWordMaxSeconds) return { timing, extendedSeconds: 0 };
+  if (!isObj(first) || !isNum(first.start) || !isNum(first.end) || first.end - first.start > LIMITS.collapsedWordMaxSeconds + 1e-9) return { timing, extendedSeconds: 0 };
   let span; let peaks; let windowSeconds;
   try { ({ peaks, windowSeconds } = windowPeaks(wav)); span = audibleSpan(peaks, windowSeconds, LIMITS.audibleFloor); } catch { return { timing, extendedSeconds: 0 }; }
   if (!span) return { timing, extendedSeconds: 0 };
