@@ -23,16 +23,26 @@ export function readSnapshots(file) {
   } catch { return {}; }
 }
 
-// Thin old points: keep every point of the first 48 h, then at most one per day (the latest of that day), then trim.
+// Thin old points. Kept: every point of the first 48 h, every point of the last 36 h (views_24h needs them), the point
+// nearest each history age (so trimming never deletes a day-1/2/7/28 measurement), and otherwise the latest point per day.
+// Over MAX_POINTS, the oldest unprotected points go first.
 function thin(points) {
-  const out = [];
+  const latest = points.length ? Date.parse(points[points.length - 1].at) : 0;
+  const milestones = new Set(historyFor(points).map((h) => h.at));
+  const protectedAt = (p) => p.age_h <= 48 || latest - Date.parse(p.at) <= 36 * HOUR || milestones.has(p.at);
+  const keep = new Map();
   const lastOfDay = new Map();
   for (const p of points) {
-    if (p.age_h <= 48) out.push(p);
+    if (protectedAt(p)) keep.set(p.at, p);
     else lastOfDay.set(Math.floor(p.age_h / 24), p);
   }
-  const merged = [...out, ...lastOfDay.values()].sort((a, b) => a.at.localeCompare(b.at));
-  return merged.slice(-MAX_POINTS);
+  for (const p of lastOfDay.values()) keep.set(p.at, p);
+  let merged = [...keep.values()].sort((a, b) => a.at.localeCompare(b.at));
+  while (merged.length > MAX_POINTS) {
+    const i = merged.findIndex((p) => !milestones.has(p.at) && latest - Date.parse(p.at) > 36 * HOUR);
+    merged.splice(i === -1 ? 0 : i, 1);
+  }
+  return merged;
 }
 
 /** Pure: add one point per scanned video to `store` ({ video_id: points[] }) and return the new store. */

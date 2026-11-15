@@ -21,7 +21,7 @@ test('the keys report.js, ideas.js and strategy.js read are named in their sub-s
   const has = (subskill, keys) => { const p = buildGrowthPrompt({ subskill }); for (const k of keys) assert.ok(p.includes(`"${k}"`), `${subskill}: "${k}"`); };
   has('analyze', ['top_actions', 'next_subskill', 'priority_actions', 'scores']);
   has('audit', ['scores', 'action_plan', 'seo', 'performance', 'strategy', 'monetization', 'overall']);
-  has('ideate', ['topic', 'score']);
+  has('ideate', ['topic', 'score', 'reason']);
   has('competitor', ['gaps']);
-  has('strategy', ['content_pillar', 'upload_cadence']);
+  has('strategy', ['content_pillar', 'upload_cadence', 'content_pillars']);
 });

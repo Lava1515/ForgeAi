@@ -20,11 +20,20 @@ export const AUTO_RELEASE_INTERVAL_MS = 60_000;
 // it records YouTube's own scheduled publishes once their time has passed, and makes older local (unlisted) schedules public.
 // autoReleaseRun() uploads nothing unless a channel is enabled with a cap. A failure in one part never blocks the other.
 // channel (optional): the channel stats module; channelWatchRun() rescans public numbers at most every 3 h per channel (G3, read-only).
-export async function runScheduleLoop(youtube, log = console.error, channel = null) {
+// It is started, not awaited, so a slow or stalled scan never delays a release. One watcher at a time; a watcher still running
+// after WATCH_DEADLINE_MS no longer blocks the next one.
+export const WATCH_DEADLINE_MS = 10 * 60 * 1000;
+let watchStarted = 0;
+export async function runScheduleLoop(youtube, log = console.error, channel = null, now = Date.now) {
   for (const name of ['releaseDue', 'autoReleaseRun']) {
     try { await youtube[name]?.(); } catch (err) { log(`${name} failed: ${err?.message || err}`); }
   }
-  try { await channel?.channelWatchRun?.(); } catch (err) { log(`channelWatchRun failed: ${err?.message || err}`); }
+  if (typeof channel?.channelWatchRun !== 'function' || (watchStarted && now() - watchStarted < WATCH_DEADLINE_MS)) return;
+  const started = now();
+  watchStarted = started;
+  Promise.resolve().then(() => channel.channelWatchRun())
+    .catch((err) => log(`channelWatchRun failed: ${err?.message || err}`))
+    .finally(() => { if (watchStarted === started) watchStarted = 0; });
 }
 
 // A self-rescheduling loop: the next tick is armed only after the current one has finished, so ticks never overlap. A tick that

@@ -25,3 +25,13 @@ test('views_24h needs a point 18 to 30 hours before the latest', () => {
   store = addSnapshots(store, [video(160)], pub + 26 * H);
   assert.equal(views24h(store.v1), 60);
 });
+
+test('regular 3-hourly scans for 240 days keep every age measurement and a rolling views_24h', () => {
+  let store = {};
+  for (let h = 1; h <= 240 * 24; h += 3) {
+    store = addSnapshots(store, [video(h)], pub + h * H);
+    if (h > 48 && h < 24 * 8) assert.notEqual(views24h(store.v1), null, `views_24h lost at ${h} h`);
+  }
+  assert.ok(store.v1.length <= 200);
+  assert.deepEqual(historyFor(store.v1).map((x) => x.age_days), [1, 2, 7, 28]);
+});

@@ -18,5 +18,5 @@ Each idea is one premise, not a topic area:
 
 Return 8 to 12 ideas, best first, as one JSON object:
 {
-  "ideas": [{"topic": "the premise in one line", "title": "the video title", "why": "why a viewer would stay, tied to the niche or feedback", "visual": "what is on screen in the first frame", "score": 0-100}]
+  "ideas": [{"topic": "the premise in one line", "title": "the video title", "reason": "why a viewer would stay, tied to the pillar, niche or feedback", "on_pillar": true, "hook_form": "claim|question|number|contrast|consequence", "visual": "what is on screen in the first frame", "score": 0-100}]
 }
