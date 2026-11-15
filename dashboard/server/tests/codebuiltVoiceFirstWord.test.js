@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import { extendClippedFirstWord } from '../episode/codebuilt/voice.js';
 
 // A 16-bit mono 16 kHz WAV: silence, then a tone from `soundFrom` seconds to the end; `click` adds a 10 ms tone at that time.
@@ -24,11 +23,9 @@ test('a first word the aligner collapsed after the voice started is moved back t
   assert.deepEqual(out.timing.words[1], { text: 'floods,', start: 0.4, end: 1.2 });
 });
 
-test('the saved Florence 60 ms alignment is corrected while detached sound stays refused', () => {
-  const episode = 'C:/code/ForgeAi/output/episodes/cb-mwiciyuk-846e26';
-  const wavFile = fs.readFileSync(`${episode}/voice.wav`);
-  const savedTiming = JSON.parse(fs.readFileSync(`${episode}/timing.json`, 'utf8'));
-  const out = extendClippedFirstWord({ wav: wavFile, timing: savedTiming });
+// codex · gpt-6.1-sol: reproduce job mwiciyuk-846e26 without depending on retained local outputs.
+test('the Florence 60 ms alignment boundary is corrected while detached sound stays refused', () => {
+  const out = extendClippedFirstWord({ wav: wav(2, 0.03), timing: timing(0.34, 0.4) });
   assert.ok(Math.abs(out.timing.words[0].start - 0.03) <= 0.02);
   assert.equal(out.timing.words[0].end, 0.4);
   assert.ok(out.extendedSeconds > 0.29 && out.extendedSeconds <= 0.32);
