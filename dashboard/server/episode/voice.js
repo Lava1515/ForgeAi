@@ -6,6 +6,9 @@
 //  - the folder is a real direct child of the episodes root (episode/artifacts.js; a symlink or junction is refused),
 //  - files are temp + rename, one chain per folder (a second run waits for the first),
 //  - timing words are what episode/cues.js expects: { text, start, end }, finite, ordered, one per script word.
+// E1b: a local voice may be given `deliveries`, one per script line (scene), in the same order and count. They go to /api/tts-timed untouched
+// (story_tone.py turns a feel word into its narrator hint and keeps only the hook and the ending), and the sentences the factory reports back
+// (text, start, end, tone) are returned as `sentences` so a caller can record how each sentence was really read. Nothing is guessed here.
 // The state machine (KAN-824) has no voice stage yet; createVoiceEngine() is the adapter a later ticket can register.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +27,7 @@ export const LIMITS = Object.freeze({
   scriptChars: 200000,
   scriptLines: 200,
   words: 200000, // the cues.js MAX_TOTAL_WORDS
+  deliveryChars: 200, // the factory keeps this much of one delivery
   timingSlackSeconds: 0.5, // the aligner itself allows this much past the end
 });
 
@@ -63,6 +67,31 @@ export function normaliseScript(script) {
   const words = text.split(/\s+/);
   if (words.length > LIMITS.words) fail('script has too many words');
   return { scenes, text, words };
+}
+
+// ---- deliveries: one per scene, or none ----
+/** null when none are given or all are empty (the request then has no `deliveries`, as before); otherwise one trimmed string per scene. */
+export function normaliseDeliveries(deliveries, sceneCount) {
+  if (deliveries === undefined || deliveries === null) return null;
+  if (!Array.isArray(deliveries) || deliveries.length !== sceneCount) fail('deliveries must be one per scene');
+  const out = deliveries.map((d) => {
+    if (d === undefined || d === null) return '';
+    if (typeof d !== 'string') fail('deliveries must be text');
+    return d.trim();
+  });
+  if (out.some((d) => d.length > LIMITS.deliveryChars)) fail('a delivery is too long');
+  return out.some(Boolean) ? out : null;
+}
+
+/** The factory's own per-sentence report, [{ text, start, end, tone }], or null when it gave none or any entry is malformed (never half a list). */
+export function readSentences(sentences) {
+  if (!Array.isArray(sentences) || !sentences.length || sentences.length > LIMITS.words) return null;
+  const out = [];
+  for (const item of sentences) {
+    if (!isPlainObject(item) || typeof item.text !== 'string' || typeof item.tone !== 'string' || !Number.isFinite(item.start) || !Number.isFinite(item.end)) return null;
+    out.push({ text: item.text, start: Math.round(item.start * 1000) / 1000, end: Math.round(item.end * 1000) / 1000, tone: item.tone.slice(0, 600) });
+  }
+  return out;
 }
 
 // ---- WAV: RIFF/WAVE, PCM, bounded; returns what the stage needs to know ----
@@ -177,24 +206,26 @@ function decodeAudio(b64) {
 
 // ---- the stage ----
 // Exactly one of `voice` (a Qwen3 speaker id) or `ownerWavPath`. Returns where the two files are.
-export async function runVoiceStage({ episodeDir, episodesRoot = episodeRoot(), script, voice, ownerWavPath, postFactoryFn = postFactory, runId, fsApi = fs } = {}) {
+export async function runVoiceStage({ episodeDir, episodesRoot = episodeRoot(), script, voice, ownerWavPath, postFactoryFn = postFactory, runId, fsApi = fs, deliveries } = {}) {
   const hasVoice = voice !== undefined && voice !== null;
   const hasOwner = ownerWavPath !== undefined && ownerWavPath !== null;
   if (hasVoice === hasOwner) fail('give either a voice id or an owner recording');
   if (hasVoice) assertAllowedVoice(voice); // first: nothing else happens for a refused id
   if (typeof postFactoryFn !== 'function') fail('no factory client');
   const { scenes, text, words: expectedWords } = normaliseScript(script);
+  const sceneDeliveries = hasVoice ? normaliseDeliveries(deliveries, scenes.length) : null; // an owner recording has nothing to direct
   const folder = resolveFolder(episodeDir, episodesRoot);
 
   const prior = chains.get(folder) || Promise.resolve();
-  const run = prior.catch(() => {}).then(() => execute({ folder, scenes, text, expectedWords, voice: hasVoice ? voice : null, ownerWavPath: hasOwner ? ownerWavPath : null, postFactoryFn, runId, fsApi }));
+  const run = prior.catch(() => {}).then(() => execute({ folder, scenes, text, expectedWords, voice: hasVoice ? voice : null, ownerWavPath: hasOwner ? ownerWavPath : null, postFactoryFn, runId, fsApi, deliveries: sceneDeliveries }));
   chains.set(folder, run);
   try { return await run; } finally { if (chains.get(folder) === run) chains.delete(folder); }
 }
 
-async function execute({ folder, scenes, text, expectedWords, voice, ownerWavPath, postFactoryFn, runId, fsApi }) {
+async function execute({ folder, scenes, text, expectedWords, voice, ownerWavPath, postFactoryFn, runId, fsApi, deliveries }) {
   let audio;
   let answer;
+  let sentences = null;
   if (ownerWavPath !== null) {
     audio = readOwnerWav(ownerWavPath); // taken as-is: the bytes go to voice.wav untouched and are only ever aligned, never cloned
     inspectWav(audio);
@@ -204,9 +235,10 @@ async function execute({ folder, scenes, text, expectedWords, voice, ownerWavPat
     // second) and keeps the best take. Without it one bad sentence sank the whole job: "Temperatures fall, but the oceans stay warm for
     // days." came out as 17 s with 15.6 s of silence in the middle (job mwg5e6hs-e826b9, 2026-11-14), the same on every try because the
     // seeds are derived from the text.
-    answer = await postFactoryFn('/api/tts-timed', { run_id: runId || `episode_voice_${Date.now()}`, scenes, voice, timing_metadata: true, align_required: true, pace_gate_v1: true });
+    answer = await postFactoryFn('/api/tts-timed', { run_id: runId || `episode_voice_${Date.now()}`, scenes, voice, timing_metadata: true, align_required: true, pace_gate_v1: true, ...(deliveries ? { deliveries } : {}) });
     if (!isPlainObject(answer)) fail('factory answer is invalid');
     audio = decodeAudio(answer.audio_base64);
+    sentences = readSentences(answer.sentences);
   }
   if (!isPlainObject(answer)) fail('factory answer is invalid');
   const info = inspectWav(audio);
@@ -232,6 +264,7 @@ async function execute({ folder, scenes, text, expectedWords, voice, ownerWavPat
   return {
     voicePath: path.join(folder, 'voice.wav'), timingPath: path.join(folder, 'timing.json'),
     source: timing.source, voice, durationSeconds: timing.duration_s, wordCount: words.length, audioSha256: audioSha,
+    deliveries, sentences,
   };
 }
 
