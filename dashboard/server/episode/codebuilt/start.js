@@ -287,7 +287,7 @@ export function createCodebuiltStarter({
     if (build) reused.push('buildScript');
     const resumeFrom = !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : !build ? 'planning' : 'visual_loop';
     let scriptMeta = {}; try { scriptMeta = JSON.parse(readSafe(path.join(stage, 'script-meta.json')) || '{}'); } catch {}
-    return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [] } : null, voice, words, reused, resumeFrom };
+    return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [], ...(scriptMeta.endingCheck ? { endingCheck: scriptMeta.endingCheck } : {}) } : null, voice, words, reused, resumeFrom };
   }
   const load = (id) => {
     if (!JOB_ID.test(id)) throw new StartError('invalid_id');
@@ -520,7 +520,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     // Private stage artifacts remain reviewable even when a later step fails. They contain no CLI output.
     try { fs.mkdirSync(stage, { recursive: true }); } catch { /* audit artifacts are best effort */ }
     const saveScriptArtifacts = () => {
-      for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [] })}\n`]]) {
+      // codex · gpt-6.1-sol, 2026-11-15 16:32 +02:00: retain ending verdict for proof and resume.
+      for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [], ...(scripted.endingCheck ? { endingCheck: scripted.endingCheck } : {}) })}\n`]]) {
         try { fs.writeFileSync(path.join(stage, name), value); } catch { /* one failed audit artifact does not skip the others */ }
       }
     };
@@ -620,7 +621,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         try {
           const basePost = postFactoryFn ?? postFactory;
           const post = attempt === 0 ? postFactoryFn : (route, body, ...rest) => basePost(route, route === '/api/tts-timed' ? { ...body, seed: VOICE_RETRY_SEED + attempt } : body, ...rest);
-          voice = await voiceStage({ script: scripted.script, voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(post ? { postFactoryFn: post } : {}) });
+          voice = await voiceStage({ script: scripted.script, ...(Array.isArray(scripted.shots) && scripted.shots.length ? { beats: scripted.shots } : {}), voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(post ? { postFactoryFn: post } : {}) });
           break;
         } catch (error) {
           if (attempt >= VOICE_RETRIES || signal.aborted || !VOICE_RETRY_REASONS.includes(error?.reason)) throw error;
