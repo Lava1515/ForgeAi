@@ -271,14 +271,14 @@ export function applyScopedEdits(source, reply, {
       if (main.nodes.some((n) => n.name === edit.name || n.names.includes(edit.name))) { reasons.push(`${edit.name} already exists; use replace_def`); return; }
       const anchors = main.nodes.filter((n) => n.name === edit.before || n.names.includes(edit.before));
       if (anchors.length !== 1) { reasons.push(`add_def ${edit.name}: "${edit.before}" is not a unique top-level name`); return; }
-      regions.push({ edit, at: anchors[0].start, from: anchors[0].start, to: anchors[0].start - 1, original: '' });
+      regions.push({ edit, at: anchors[0].start, from: anchors[0].start, to: anchors[0].start - 1, original: '', order: i });
       return;
     }
     if (existing.length !== 1) { reasons.push(`${edit.name} is not a unique top-level ${edit.op === 'replace_assign' ? 'constant' : 'definition'}`); return; }
     const target = existing[0];
     if (edit.op === 'replace_assign' && (target.kind !== 'assign' || target.name !== edit.name)) { reasons.push(`${edit.name} is not a plain single-name assignment`); return; }
     if (target.locked.length) { reasons.push(`${edit.name} contains ${target.locked.join(' / ')}, which is locked`); return; }
-    regions.push({ edit, at: target.start, from: target.start, to: target.end, original: lines.slice(target.start - 1, target.end).join('\n') });
+    regions.push({ edit, at: target.start, from: target.start, to: target.end, original: lines.slice(target.start - 1, target.end).join('\n'), order: i });
   });
   if (reasons.length) refuse();
 
@@ -290,7 +290,13 @@ export function applyScopedEdits(source, reply, {
   }
   // Splice from the bottom up so earlier line numbers stay valid; a replaced region is exactly the lines of its statement.
   const out = [...lines];
-  for (const r of [...regions].sort((a, b) => b.at - a.at)) {
+  for (const r of [...regions].sort((a, b) =>
+    b.at - a.at
+    // At a shared anchor, replace first so a later insertion cannot be consumed by it.
+    || Number(a.edit.op === 'add_def') - Number(b.edit.op === 'add_def')
+    // Apply inserts in reverse reply order; splicing at one index then preserves reply order.
+    || b.order - a.order
+  )) {
     const body = r.edit.source.replace(/\r\n/g, '\n').replace(/\n+$/, '').split('\n').map((l) => (crlf ? `${l}\r` : l));
     const insert = r.edit.op === 'add_def' ? [...body, crlf ? '\r' : '', crlf ? '\r' : ''] : body;
     out.splice(r.from - 1, r.to - r.from + 1, ...insert);
