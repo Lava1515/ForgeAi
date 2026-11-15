@@ -84,6 +84,18 @@ def contrast(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
+def edge_scale(half_width, az, dist):
+    """Least on-screen width of a unit-wide stroke across the drawing area, relative to the same stroke facing the camera at the board centre.
+
+    The camera aims at the board centre from az degrees off the board's normal at dist metres. A point x metres from the centre is
+    projected by a pinhole to u = f * x*cos(az) / (dist - x*sin(az)), so a stroke there is du/dx = f*cos(az)*dist / (dist - x*sin(az))^2 wide:
+    foreshortened by cos(az) at the centre, and further thinned at the far edge, which is both farther away and seen more obliquely.
+    Returns the value at the far edge (the centre value cos(az) when the view is straight on).
+    """
+    a = math.radians(abs(az))
+    return math.cos(a) / (1.0 + half_width * math.sin(a) / dist) ** 2
+
+
 def plan(width, height, lens=35.0, fill=DEFAULT_FILL, az=0.0, el=0.0):
     """Where the camera stands and how big strokes and text must be so a board of width x height metres is legible.
 
@@ -99,7 +111,7 @@ def plan(width, height, lens=35.0, fill=DEFAULT_FILL, az=0.0, el=0.0):
     dist = distance_for_share(w_eff, fill, lens, 'w')
     dist = max(dist, distance_for_share(h_eff, BOARD_BOTTOM - BOARD_TOP, lens, 'h'))
     vh, vw = visible_height(dist, lens), visible_width(dist, lens)
-    stroke = MIN_STROKE * vw / ca     # across the line's width, so the view angle does not thin it
+    stroke = MIN_STROKE * vw / edge_scale(width / 2 * INNER, az, dist)   # across the line's width, at the thinnest place on the board
     cap = MIN_CAP * vh / ce
     return {
         'distance': dist, 'lens': lens, 'fill': w_eff / vw, 'height_share': h_eff / vh,

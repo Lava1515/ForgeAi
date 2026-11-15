@@ -239,3 +239,20 @@ def test_board_refuses_a_label_that_cannot_fit(board_env):
     c.line((0, 0), (1, 1), (0.95, 0.93, 0.85))     # a line the colour of the panel
     with pytest.raises(dg.DiagramError, match='contrast'):
         c.require()
+
+
+@pytest.mark.parametrize('w,h,az', [(34, 28, 18), (24, 20, 18), (12, 9, 18), (12, 9, 25), (10, 8, 0)])
+def test_a_stroke_on_the_far_edge_of_a_slanted_board_still_reaches_the_floor(w, h, az):
+    """The pinhole projection itself (not the plan's own formula): a stroke across the width of the drawing area, at its far edge, with the
+    camera aimed at the board centre from az degrees off the normal, is MIN_STROKE of the frame width (floor 0.97 as the probe uses) even
+    with no push-in."""
+    p = dg.plan(w, h, 35, 0.7, az, 0)
+    a, d, f = math.radians(az), p['distance'], 35.0
+    x = -(w / 2 * dg.INNER)                       # the far side of the board for a camera at +az
+
+    def u(xx):                                    # image x in sensor millimetres, camera aimed at the centre
+        return f * (xx * math.cos(a)) / (d - xx * math.sin(a))
+
+    sensor_w = dg.SENSOR_MM * dg.ASPECT
+    px_wide = (u(x + p['stroke'] / 2) - u(x - p['stroke'] / 2)) / sensor_w * dg.FRAME_PX[0]
+    assert abs(px_wide) >= dg.px(dg.MIN_STROKE, 'w') * 0.97, px_wide

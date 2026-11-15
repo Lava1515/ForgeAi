@@ -64,6 +64,11 @@ BOARDS = {'a': A, 'b': B, 'c': C}
 VIEW = {'a': (-18, 0), 'b': (18, 0), 'c': (0, 14)}
 
 
+def reveal(local, t0, t1):
+    """How far one element is drawn at `local` seconds into its shot (0 hidden .. 1 settled): the single schedule the shots and the measurement share."""
+    return ease(ramp(local, t0 * 1.2, t1 * 1.2 + 0.2))
+
+
 def make_shot(key, items):
     board, (az, el) = BOARDS[key], VIEW[key]
 
@@ -72,7 +77,7 @@ def make_shot(key, items):
         u = ease(local / 2.0)
         board.camera(cam, u, push=0.06, az=az, el=el)
         for item, t0, t1 in items:
-            board.draw(item, ease(ramp(local, t0 * 1.2, t1 * 1.2 + 0.2)))
+            board.draw(item, reveal(local, t0, t1))
     return shot
 
 
@@ -99,34 +104,64 @@ def stroke_px(o, t):
 
 
 probe = shotcheck.BlenderProbe(scene, cam)
+# MEASUREMENT CONTRACT. The size floors (15 px strokes, 50 px capitals, 3-stroke heads, text safe area) apply to an element once it is SETTLED,
+# i.e. its reveal() is 1.0: that is the state a viewer reads. A HIDDEN element (reveal 0) must really show nothing (0 px), and an element
+# that is REVEALING (0 < reveal < 1) is mid-grow and is recorded but not judged against the floors. Every element is measured at the first
+# frame it is settled (the least camera push, so the smallest it ever reads) and again on the shot's last frame, and must be settled on both.
+def settled_frame(shot_i, t0, t1):
+    return int(math.ceil((SHOT_STARTS[shot_i] + t1 * 1.2 + 0.2) * FPS - 1e-9)) + 1
+
+
+def measure(key, item, f, k):
+    state = 'hidden' if k <= 0.0 else 'settled' if k >= 1.0 else 'revealing'
+    row = {'shot': key, 'frame': f, 'state': state, 'reveal': round(k, 4)}
+    if type(item) is dict:
+        head, shaft = item['head'], item['shaft']
+        R = max(abs(v.co.x) for v in head.data.vertices)
+        p1 = world_to_camera_view(scene, cam.obj, head.matrix_world @ Vector((R, 0, 0)))
+        p2 = world_to_camera_view(scene, cam.obj, head.matrix_world @ Vector((-R, 0, 0)))
+        t = max(abs(v.co.z) for v in shaft.data.vertices) * 2
+        row.update({'kind': 'arrow', 'stroke_px': stroke_px(shaft, t), 'head_px': dist(to_px(p1), to_px(p2))})
+    elif 'dg_body' in item.keys():
+        box = probe.text_box(item)
+        row.update({'kind': 'label', 'body': item['dg_body'], 'cap_px': (box[3] - box[2]) * H, 'width_px': (box[1] - box[0]) * W,
+                    'in_safe': shotcheck.box_in_safe(box)})
+    elif item['dg'][4] == 0.0:
+        t = max(abs(v.co.z) for v in item.data.vertices) * 2
+        row.update({'kind': 'line', 'stroke_px': stroke_px(item, t) if item.scale.x > 0 else 0.0})
+    else:
+        return None     # dots are markers, not text or strokes
+    return row
+
+
 rows, ok = [], True
 for shot_i, (key, items) in enumerate((('a', A_items), ('b', B_items), ('c', C_items))):
-    board = BOARDS[key]
-    for f in (int(SHOT_STARTS[shot_i] * FPS) + 2, int(SHOT_STARTS[shot_i] * FPS) + 58):   # start of the push, and the end of the shot
+    first, last = int(SHOT_STARTS[shot_i] * FPS) + 2, int(SHOT_STARTS[shot_i] * FPS) + 58
+    frames = {first, last} | {settled_frame(shot_i, t0, t1) for _, t0, t1 in items}
+    for f in sorted(frames):
+        assert first <= f <= last, (key, f)
         apply(f)
         probe.update()
-        for item, _, _ in items:
-            if type(item) is dict:
-                head, shaft = item['head'], item['shaft']
-                R = max(abs(v.co.x) for v in head.data.vertices)
-                p1 = world_to_camera_view(scene, cam.obj, head.matrix_world @ Vector((R, 0, 0)))
-                p2 = world_to_camera_view(scene, cam.obj, head.matrix_world @ Vector((-R, 0, 0)))
-                t = max(abs(v.co.z) for v in shaft.data.vertices) * 2
-                rows.append({'shot': key, 'frame': f, 'kind': 'arrow', 'stroke_px': stroke_px(shaft, t), 'head_px': dist(to_px(p1), to_px(p2))})
-            elif 'dg_body' in item.keys():
-                box = probe.text_box(item)
-                rows.append({'shot': key, 'frame': f, 'kind': 'label', 'body': item['dg_body'], 'cap_px': (box[3] - box[2]) * H,
-                             'width_px': (box[1] - box[0]) * W, 'in_safe': shotcheck.box_in_safe(box)})
-            elif item['dg'][4] == 0.0 and item.scale.x > 0:
-                t = max(abs(v.co.z) for v in item.data.vertices) * 2
-                rows.append({'shot': key, 'frame': f, 'kind': 'line', 'stroke_px': stroke_px(item, t)})
+        local = f / FPS - SHOT_STARTS[shot_i]
+        for item, t0, t1 in items:
+            k = reveal(local, t0, t1)
+            if f == settled_frame(shot_i, t0, t1) or f == last:
+                assert k >= 1.0, ('element not settled when it must be', key, f, t0, t1, k)
+            row = measure(key, item, f, k)
+            if row is not None:
+                rows.append(row)
 out = {'blender': bpy.app.version_string, 'kit_diagram_sha256': __import__('hashlib').sha256(Path(diagram.__file__).read_bytes()).hexdigest(),
        'minimum_px': {'stroke': diagram.px(diagram.MIN_STROKE, 'w'), 'cap': diagram.px(diagram.MIN_CAP, 'h')},
        'boards': {k: b.report() for k, b in BOARDS.items()}, 'measured': rows}
 Path('/job/work/diagram.json').write_text(json.dumps(out, indent=1, default=str))
-bad = [r for r in rows if (r['kind'] in ('line', 'arrow') and r['stroke_px'] < diagram.px(diagram.MIN_STROKE, 'w') * 0.97)
-       or (r['kind'] == 'arrow' and r['head_px'] < 3 * r['stroke_px'] * 0.97)
-       or (r['kind'] == 'label' and (r['cap_px'] < diagram.px(diagram.MIN_CAP, 'h') * 0.97 or not r['in_safe']))]
+MS, MC = diagram.px(diagram.MIN_STROKE, 'w') * 0.97, diagram.px(diagram.MIN_CAP, 'h') * 0.97
+bad = [r for r in rows if (r['state'] == 'settled' and (
+           (r['kind'] in ('line', 'arrow') and r['stroke_px'] < MS)
+           or (r['kind'] == 'arrow' and r['head_px'] < 3 * r['stroke_px'] * 0.97)
+           or (r['kind'] == 'label' and (r['cap_px'] < MC or not r['in_safe']))))
+       or (r['state'] == 'hidden' and r['kind'] == 'label' and r['cap_px'] > 0.5)           # hidden must show nothing
+       or (r['state'] == 'hidden' and r['kind'] == 'arrow' and (r['stroke_px'] > 0.5 or r['head_px'] > 0.5))]
+out['measured_by_state'] = {st: sum(1 for r in rows if r['state'] == st) for st in ('hidden', 'revealing', 'settled')}
 out['below_minimum'] = bad
 
 # shotcheck's real pass over every rendered frame: text safe area, shot variety, camera targets (no render gate is opened)
