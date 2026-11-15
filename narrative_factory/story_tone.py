@@ -5,7 +5,7 @@ Provides:
 1. Inline tag extraction ([curious], [climax], etc.) and stage direction stripping
 2. Story arc tone progression (Hook -> Intrigue -> Escalation -> Climax -> Resolution)
 3. Themed modulation through base style presets (suspense, enthusiastic, documentary, etc.)
-4. Delivery sanitizing and normalization (at most one tone change per video)
+4. Delivery sanitizing and normalization (at most two tone changes per video: the hook and the ending)
 5. TimedSentence tuple helper preserving backward compatibility with (sentence, start, end).
 """
 
@@ -43,20 +43,45 @@ def sanitize_delivery(delivery: Optional[str]) -> str:
     return cleaned[:200]
 
 
+# E1b (owner order 2026-11-15): the script gives every shot one feel word; the voice call forwards it as that shot's delivery.
+# Mild wording only, positive words only (see NARRATOR). Every hint must survive sanitize_delivery: "punchline" would be cut, so it is not used.
+FEEL_HINTS = {
+    "curious": "curious, interested",
+    "intrigued": "intrigued, interested",
+    "building": "building interest",
+    "surprised": "mildly surprised",
+    "amazed": "bright, impressed, a smile in the voice, landing the final line",
+    "playful": "light, amused",
+    "satisfied": "warm, confident, pleased",
+}
+
+
+def feel_hint(delivery: Optional[str]) -> str:
+    """A feel word (curious, intrigued, building, surprised, amazed, playful, satisfied) becomes its narrator hint.
+    Anything else (a planner's free-text direction, an empty value) is returned unchanged, so older callers behave as before."""
+    if delivery is None:
+        return ""
+    text = str(delivery)
+    return FEEL_HINTS.get(text.strip().lower(), text)
+
+
 def normalize_deliveries(
     directions: Optional[List[Optional[str]]],
     total_scenes: Optional[int] = None,
 ) -> List[str]:
     """
-    Sanitizes planner deliveries and enforces at most ONE deliberate tone change per video
-    (hook or climax). All other scenes receive the plain baseline ("").
+    Sanitizes deliveries (feel words are first turned into their hints) and enforces at most TWO deliberate tone
+    changes per video: the hook and the ending. Everything in between receives the plain baseline ("").
+    - When the LAST sentence carries a delivery, the ending keeps it, and the hook (a delivery that says "hook", else the
+      first sentence's) keeps its own. A delivery anywhere else is dropped.
+    - When the last sentence carries none, the older rule applies unchanged: one change, hook, else climax, else the first one given.
     """
     if not directions:
         n = total_scenes or 0
         return ["" for _ in range(n)]
 
     total = total_scenes or len(directions)
-    cleaned = [sanitize_delivery(d) for d in directions[:total]]
+    cleaned = [sanitize_delivery(feel_hint(d)) for d in directions[:total]]
     while len(cleaned) < total:
         cleaned.append("")
 
@@ -75,21 +100,20 @@ def normalize_deliveries(
         elif first_valid_idx == -1:
             first_valid_idx = idx
 
-    keep_idx = -1
-    if hook_idx != -1:
-        keep_idx = hook_idx
-    elif climax_idx != -1:
-        keep_idx = climax_idx
-    elif first_valid_idx != -1:
-        keep_idx = first_valid_idx
+    keep = set()
+    if total and cleaned[total - 1]:
+        keep.add(total - 1)
+        if hook_idx != -1:
+            keep.add(hook_idx)
+        elif cleaned[0]:
+            keep.add(0)
+    else:
+        for candidate in (hook_idx, climax_idx, first_valid_idx):
+            if candidate != -1:
+                keep.add(candidate)
+                break
 
-    result = []
-    for idx, d in enumerate(cleaned):
-        if idx == keep_idx and d:
-            result.append(d)
-        else:
-            result.append("")
-    return result
+    return [d if idx in keep and d else "" for idx, d in enumerate(cleaned)]
 
 
 def narrator(mood: str) -> str:
@@ -166,7 +190,7 @@ THEMED_ARCS = {
         "curious, interested",
         "building interest, slightly serious",
         "clear emphasis on the key point",
-        "calm, thoughtful close",
+        "bright, confident payoff, a smile in the voice",
     ],
 }
 
@@ -254,8 +278,8 @@ def compute_story_arc_tones(
     """
     Calculates the appropriate vocal tone instruction and temperature for each sentence.
     When directions or inline tags are passed, collects them into a single list and normalizes
-    them so at most ONE deliberate tone change is permitted across the video, with all other
-    scenes using the plain narrator baseline.
+    them so at most TWO deliberate tone changes are permitted across the video (the hook and the
+    ending), with all other scenes using the plain narrator baseline.
     When dynamic story arc fallback is used, instructions vary only slightly and temperatures
     remain uniform at 0.31.
     Returns a list of (cleaned_sentence, instruct_string, temperature).

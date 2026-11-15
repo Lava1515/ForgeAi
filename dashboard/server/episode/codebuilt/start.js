@@ -620,7 +620,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         try {
           const basePost = postFactoryFn ?? postFactory;
           const post = attempt === 0 ? postFactoryFn : (route, body, ...rest) => basePost(route, route === '/api/tts-timed' ? { ...body, seed: VOICE_RETRY_SEED + attempt } : body, ...rest);
-          voice = await voiceStage({ script: scripted.script, voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(post ? { postFactoryFn: post } : {}) });
+          voice = await voiceStage({ script: scripted.script, ...(Array.isArray(scripted.shots) && scripted.shots.length ? { beats: scripted.shots } : {}), voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(post ? { postFactoryFn: post } : {}) });
           break;
         } catch (error) {
           if (attempt >= VOICE_RETRIES || signal.aborted || !VOICE_RETRY_REASONS.includes(error?.reason)) throw error;
