@@ -4,6 +4,13 @@ import math
 from blender_worker.codebuilt import shotcheck as qa
 
 
+def test_readout_width_matches_seventy_percent_contract_and_allows_stricter_callers():
+    assert qa.MAX_READOUT_FRAME_SHARE == 0.70
+    assert not qa.readout_too_wide((0.15, 0.85, 0.4, 0.6, 2))
+    assert qa.readout_too_wide((0.149, 0.851, 0.4, 0.6, 2))
+    assert qa.readout_too_wide((0.1, 0.9, 0.4, 0.6, 2), max_share=0.6)
+
+
 def test_readout_depth_ignores_nearby_content_outside_its_screen_box():
     class Readout(dict):
         name = "hud_70kg"

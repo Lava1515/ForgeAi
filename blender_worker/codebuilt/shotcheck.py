@@ -18,7 +18,7 @@ import os
 from .framing import MIN_DEPTH
 
 TEXT_SAFE = (0.06, 0.94, 0.08, 0.92)  # xmin, xmax, ymin, ymax of the frame a text box must stay inside
-MAX_READOUT_FRAME_SHARE = 0.78
+MAX_READOUT_FRAME_SHARE = 0.70
 SENSOR_MM = 36.0   # Blender default; with sensor_fit AUTO it spans the longer side of the frame
 CHAR_W = 0.6       # glyph advance as a share of text size (wide display fonts; Impact is about 0.5)
 LINE_H = 1.2
