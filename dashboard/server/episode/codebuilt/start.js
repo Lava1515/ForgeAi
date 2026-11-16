@@ -309,7 +309,7 @@ export function createCodebuiltStarter({
                 const looked = JSON.parse(readSafe(path.join(base, `r${n}`, 'look.json')) || 'null');
                 const priorCode = readSafe(path.join(base, `r${n}`, 'build.py'));
                 if (looked?.status === 'complete' && Array.isArray(looked.reply?.findings)) {
-                  history.push({ round: n, findings: looked.reply.findings, ...(looked.crashed !== true && priorCode && !validateReusableBuild(priorCode, { nframes, shotStarts, places }).length && sha(priorCode) === looked.buildSha256 ? { buildScript: priorCode, buildSha256: looked.buildSha256 } : {}) });
+                  history.push({ round: n, findings: looked.reply.findings, ...(looked.crashed !== true && looked.kitFailed !== true && priorCode && !validateReusableBuild(priorCode, { nframes, shotStarts, places }).length && sha(priorCode) === looked.buildSha256 ? { buildScript: priorCode, buildSha256: looked.buildSha256 } : {}) });
                 }
               } catch {}
             }
