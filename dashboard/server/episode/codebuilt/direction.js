@@ -5,10 +5,12 @@
 //
 //   phrasesOf(words)                         -> [{ i, start, end, text }]   speech phrases in VIDEO seconds (lead included)
 //   directionPrompt({...})                   -> the prompt
-//   checkDirection({ phrases, nframes })     -> (replyText) => direction      throws DirectionError with the reasons
+//   checkDirection({ phrases, nframes })     -> (replyText) => direction      throws DirectionError with the reasons; timing slips
+//                                               are repaired on the phrase grid and listed in direction.repairs (direction.json)
 //   directionShotStarts(direction, phrases)  -> start seconds, first 0, one per shot (same grid as cadence.js)
 //   directionMarkdown(direction, starts, s)  -> the "## Direction" block the build model and the look model read
-//   fallbackDirection({ words, shots })      -> a direction made without a model call (arithmetic cuts, the script's own beats)
+//   fallbackDirection({ words, shots })      -> a direction made without a model call (arithmetic cuts, the script's own beats);
+//                                               only for a reply unusable in substance; direction.why says so
 //
 // Pure: no model call, no file, no clock. planner.js makes the call.
 import { startSecondsForFrame, planShotCadence } from './cadence.js';
@@ -113,6 +115,117 @@ ${guides ? `GUIDANCE FOR THIS STEP (project skills):\n${guides}\n\n` : ''}Reply 
 
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
+const shotLengths = (shots, phrases, videoSeconds) => {
+  const starts = shots.map((s) => (s.from === 0 ? 0 : phrases[s.from].start));
+  return starts.map((st, k) => (k + 1 < shots.length ? starts[k + 1] : videoSeconds) - st);
+};
+const fits = (len) => len >= MIN_DIRECTED_SHOT_S - 1e-6 && len <= MAX_DIRECTED_SHOT_S + 1e-6;
+const spanOf = (phrases, videoSeconds, from, to) => (to < phrases.length ? phrases[to].start : videoSeconds) - (from === 0 ? 0 : phrases[from].start);
+
+/**
+ * A shot's "from" as a phrase index. A whole number is the phrase number; "P4" or "4" is read as 4; a number with a fraction is a time
+ * in video seconds and is snapped to the nearest phrase start; a number past the last phrase is clamped to it. null when unusable.
+ */
+function phraseIndexOf(raw, phrases) {
+  const last = phrases.length - 1;
+  let n = raw;
+  if (typeof n === 'string' && /^\s*p?\s*\d+\s*$/i.test(n)) n = Number(n.replace(/[^0-9]/g, ''));
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || last < 0) return null;
+  if (!Number.isInteger(n)) {
+    let best = 0;
+    phrases.forEach((p, i) => { if (Math.abs(p.start - n) < Math.abs(phrases[best].start - n)) best = i; });
+    return { i: best, note: `"from" ${n} read as seconds and snapped to the phrase start P${best} (${phrases[best].start} s)` };
+  }
+  if (n > last) return { i: last, note: `"from" P${n} is past the last phrase; clamped to P${last}` };
+  return { i: n, note: typeof raw === 'number' ? '' : `"from" ${JSON.stringify(raw)} read as P${n}` };
+}
+
+/** Folds shot k into the shot before it (or, for the first shot, the shot after it); the dropped shot's picture becomes the "then" beat. */
+function mergeShot(shots, k, why, repairs) {
+  const into = k > 0 ? k - 1 : 1;
+  const keep = shots[into]; const gone = shots[k];
+  if (!keep.then) keep.then = `${gone.shows} ${gone.action}`.slice(0, 400);
+  if (!keep.text && gone.text) { keep.text = gone.text; keep.text_at = gone.text_at; }
+  if (k === 0) keep.from = 0;
+  shots.splice(k, 1);
+  repairs.push(`${why}: merged into shot ${into < k ? into + 1 : into} (its picture became the "then" beat)`);
+}
+
+/** Repairs the timing of `shots` in place (order kept, cuts only on phrase starts) and returns what was changed, one line each. */
+export function repairShotTiming(shots, { phrases, videoSeconds, range }) {
+  const repairs = [];
+  if (!shots.length) return repairs;
+  const label = (k) => `shot ${k + 1} (from P${shots[k].from})`;
+  if (shots[0].from !== 0) { repairs.push(`shot 1 started at P${shots[0].from}; moved to P0`); shots[0].from = 0; }
+  // Order: a shot on the same phrase as the one before it, or before it, starts on the next phrase; one with no phrase left is merged.
+  for (let k = 1; k < shots.length; k += 1) {
+    if (shots[k].from > shots[k - 1].from) continue;
+    const was = shots[k].from;
+    if (shots[k - 1].from + 1 < phrases.length) { shots[k].from = shots[k - 1].from + 1; repairs.push(`shot ${k + 1} started at P${was}, not after shot ${k} (P${shots[k - 1].from}); moved to P${shots[k].from}`); }
+    else { mergeShot(shots, k, `shot ${k + 1} started at P${was} with no phrase left after shot ${k}`, repairs); k -= 1; }
+  }
+  for (let guard = 0; guard < 4 * (phrases.length + shots.length); guard += 1) {
+    const lens = shotLengths(shots, phrases, videoSeconds);
+    const nextFrom = (k) => (k + 1 < shots.length ? shots[k + 1].from : phrases.length);
+    // Too short: move the next cut later, else its own start earlier, else merge it into a neighbour.
+    const short = lens.findIndex((l) => l < MIN_DIRECTED_SHOT_S - 1e-6);
+    if (short >= 0 && shots.length > 1) {
+      const k = short; const before = `${label(k)} lasted ${lens[k].toFixed(1)} s`;
+      let done = false;
+      if (k + 1 < shots.length) {
+        for (let f = shots[k + 1].from + 1; f < nextFrom(k + 1) && !done; f += 1) {
+          if (fits(spanOf(phrases, videoSeconds, shots[k].from, f)) && fits(spanOf(phrases, videoSeconds, f, nextFrom(k + 1)))) { repairs.push(`${before}; shot ${k + 2} now starts at P${f} instead of P${shots[k + 1].from}`); shots[k + 1].from = f; done = true; }
+        }
+      }
+      if (!done && k > 0) {
+        for (let f = shots[k].from - 1; f > shots[k - 1].from && !done; f -= 1) {
+          if (fits(spanOf(phrases, videoSeconds, f, nextFrom(k))) && fits(spanOf(phrases, videoSeconds, shots[k - 1].from, f))) { repairs.push(`${before}; it now starts at P${f} instead of P${shots[k].from}`); shots[k].from = f; done = true; }
+        }
+      }
+      if (!done) mergeShot(shots, k > 0 && (k + 1 >= shots.length || lens[k - 1] <= lens[k + 1]) ? k : (k + 1 < shots.length ? k + 1 : k), before, repairs);
+      continue;
+    }
+    // Too long, or too few shots: split the longest shot at the inner phrase start nearest its middle that leaves both halves allowed.
+    const longest = lens.indexOf(Math.max(...lens));
+    if (lens[longest] > MAX_DIRECTED_SHOT_S + 1e-6 || (shots.length < range.min && lens[longest] >= 2 * MIN_DIRECTED_SHOT_S)) {
+      const k = longest; const a = shots[k].from; const b = nextFrom(k);
+      const mid = (a === 0 ? 0 : phrases[a].start) + lens[k] / 2;
+      let best = -1;
+      for (let f = a + 1; f < b; f += 1) {
+        if (!fits(spanOf(phrases, videoSeconds, a, f)) || spanOf(phrases, videoSeconds, f, b) < MIN_DIRECTED_SHOT_S - 1e-6) continue;
+        if (best < 0 || Math.abs(phrases[f].start - mid) < Math.abs(phrases[best].start - mid)) best = f;
+      }
+      if (best < 0) break;
+      const s = shots[k];
+      shots.splice(k + 1, 0, { ...s, from: best, action: s.then || s.action, then: '', text: '', text_at: '' });
+      repairs.push(`${label(k)} lasted ${lens[k].toFixed(1)} s; split at P${best}${s.then ? ' (its "then" beat is the second shot)' : ''}`);
+      s.then = '';
+      continue;
+    }
+    // Too many shots: merge the shortest neighbouring pair whose joined length is allowed.
+    if (shots.length > range.max) {
+      let pick = -1;
+      for (let k = 1; k < shots.length; k += 1) if (fits(lens[k - 1] + lens[k]) && (pick < 0 || lens[k - 1] + lens[k] < lens[pick - 1] + lens[pick])) pick = k;
+      if (pick < 0) break;
+      mergeShot(shots, pick, `${shots.length} shots is more than ${range.max}; ${label(pick)}`, repairs);
+      continue;
+    }
+    break;
+  }
+  return repairs;
+}
+
+/** What is still wrong with the timing after repair (empty when the shot list can be built). */
+function timingProblems(shots, { phrases, videoSeconds, range }) {
+  const why = [];
+  if (shots.length < range.min || shots.length > range.max) why.push(`shots must list ${range.min} to ${range.max} shots, about ${range.target} (found ${shots.length})`);
+  shotLengths(shots, phrases, videoSeconds).forEach((len, k) => {
+    if (len < MIN_DIRECTED_SHOT_S - 1e-6) why.push(`shot ${k + 1} (from P${shots[k].from}) lasts ${len.toFixed(1)} s; the shortest allowed is ${MIN_DIRECTED_SHOT_S} s: start it earlier or merge it with a neighbour`);
+    if (len > MAX_DIRECTED_SHOT_S + 1e-6) why.push(`shot ${k + 1} (from P${shots[k].from}) lasts ${len.toFixed(1)} s; the longest allowed is ${MAX_DIRECTED_SHOT_S} s: split it at a phrase inside it`);
+  });
+  return why;
+}
+
 /** The parsed direction with shot windows attached, or a DirectionError that lists every problem. `parse(text)` turns a reply into an object. */
 export function checkDirection({ phrases, videoSeconds, setNames = [], parse }) {
   const range = directedShotRange(videoSeconds);
@@ -139,36 +252,40 @@ export function checkDirection({ phrases, videoSeconds, setNames = [], parse }) 
       places.push({ id, base, what, build });
     }
     const shotsIn = Array.isArray(v.shots) ? v.shots : [];
-    if (shotsIn.length < range.min || shotsIn.length > range.max) why.push(`shots must list ${range.min} to ${range.max} shots, about ${range.target} (found ${shotsIn.length})`);
+    if (!shotsIn.length) why.push(`shots must list ${range.min} to ${range.max} shots, about ${range.target} (found 0)`);
     const shots = [];
-    let prev = -1;
+    const repairs = [];
     shotsIn.forEach((s, k) => {
-      const from = Number.isInteger(s?.from) ? s.from : -1;
-      if (from < 0 || from >= phrases.length) { why.push(`shot ${k + 1}: "from" must be a phrase number 0..${phrases.length - 1}`); return; }
-      if (k === 0 && from !== 0) why.push('the first shot must start at phrase 0');
-      if (from <= prev) { why.push(`shot ${k + 1}: "from" must be larger than the shot before it (shots are in order, one phrase starts at most one shot)`); return; }
-      prev = from;
+      const from = phraseIndexOf(s?.from, phrases);
+      if (from === null) { why.push(`shot ${k + 1}: "from" must be a phrase number 0..${phrases.length - 1}`); return; }
+      if (from.note) repairs.push(`shot ${k + 1}: ${from.note}`);
       const place = str(s?.place, 20).toLowerCase();
       if (!ids.has(place)) why.push(`shot ${k + 1}: place ${JSON.stringify(place)} is not one of the listed places`);
       const shows = str(s?.shows, 500); const action = str(s?.action, 500); const camera = str(s?.camera, 400);
       if (shows.split(/\s+/).length < 5) why.push(`shot ${k + 1}: "shows" must describe what is on screen`);
       if (action.split(/\s+/).length < 4) why.push(`shot ${k + 1}: "action" must say what moves or changes`);
       if (camera.split(/\s+/).length < 3) why.push(`shot ${k + 1}: "camera" must give the framing and the move`);
-      shots.push({ from, place, shows, action, camera, then: str(s?.then, 400), text: str(s?.text, 40), text_at: str(s?.text_at, 40) });
+      shots.push({ from: from.i, place, shows, action, camera, then: str(s?.then, 400), text: str(s?.text, 40), text_at: str(s?.text_at, 40) });
     });
     if (!why.length) {
-      const starts = shots.map((s) => (s.from === 0 ? 0 : phrases[s.from].start));
-      shots.forEach((s, k) => {
-        const end = k + 1 < shots.length ? starts[k + 1] : videoSeconds;
-        const len = end - starts[k];
-        if (len < MIN_DIRECTED_SHOT_S - 1e-6) why.push(`shot ${k + 1} (from P${s.from}) lasts ${len.toFixed(1)} s; the shortest allowed is ${MIN_DIRECTED_SHOT_S} s: start it earlier or merge it with a neighbour`);
-        if (len > MAX_DIRECTED_SHOT_S + 1e-6) why.push(`shot ${k + 1} (from P${s.from}) lasts ${len.toFixed(1)} s; the longest allowed is ${MAX_DIRECTED_SHOT_S} s: split it at a phrase inside it`);
-      });
       const used = new Set(shots.map((s) => s.place));
       for (const p of places) if (!used.has(p.id)) why.push(`place ${p.id} is never used by a shot; remove it or use it`);
     }
+    if (!why.length) {
+      // Only timing is left to judge. A slip there (two shots on one phrase, shots out of order, a shot too short or too long, too
+      // many cuts) is repaired here on the phrase grid instead of throwing the whole direction away (Baarle, job mwj5bu87-0a6f86).
+      repairs.push(...repairShotTiming(shots, { phrases, videoSeconds, range }));
+      why.push(...timingProblems(shots, { phrases, videoSeconds, range }));
+      if (!why.length) {
+        const used = new Set(shots.map((s) => s.place));
+        const orphaned = places.filter((p) => !used.has(p.id));
+        if (orphaned.length && places.length - orphaned.length >= MIN_PLACES) {
+          for (const p of orphaned) { places.splice(places.indexOf(p), 1); repairs.push(`place ${p.id} dropped: its only shot was merged into a neighbour`); }
+        } else if (orphaned.length) why.push(`place ${orphaned[0].id} lost its only shot when the timing was repaired`);
+      }
+    }
     if (why.length) throw new DirectionError(why.slice(0, 12).join('; '), why);
-    const direction = { version: DIRECTION_VERSION, source: 'director', look, places, shots };
+    const direction = { version: DIRECTION_VERSION, source: 'director', look, places, shots, ...(repairs.length ? { repairs } : {}) };
     direction.narrations = shotNarrations(direction, phrases);
     return direction;
   };
@@ -210,7 +327,10 @@ export function directionMarkdown(direction, shotStarts, videoSeconds) {
  * A direction made without a model call, for when the director's reply is refused twice: cuts by arithmetic (cadence.js) and the
  * script's own beats spread over them, one custom place per distinct beat subject up to MAX_PLACES. The video is still made.
  */
-export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5 }) {
+export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5, reasons = null }) {
+  const why = Array.isArray(reasons) && reasons.length
+    ? `the director's reply was refused twice: ${reasons.slice(0, 6).join('; ')}`
+    : "the director's reply was refused twice and could not be repaired (the reasons are under step \"direction\" in cost_calls.json)";
   const starts = planShotCadence(words, lead, { tail, fps: FPS });
   const phrases = phrasesOf(words, lead);
   const n = starts.length;
@@ -231,5 +351,5 @@ export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5 }
     const stop = k + 1 < n ? starts[k + 1] : end;
     return list.filter((w) => w.s + lead >= start - 1e-9 && w.s + lead < stop - 1e-9).map((w) => `${w.w}${typeof w.punct === 'string' ? w.punct : ''}`).join(' ');
   });
-  return { direction: { version: DIRECTION_VERSION, source: 'fallback', look: 'Bright toy-like stylized 3D with saturated colours, a warm key light and a cool fill, the same palette in every place.', places, shots, narrations }, shotStarts: starts, phrases };
+  return { direction: { version: DIRECTION_VERSION, source: 'fallback', why, look: 'Bright toy-like stylized 3D with saturated colours, a warm key light and a cool fill, the same palette in every place.', places, shots, narrations }, shotStarts: starts, phrases };
 }
