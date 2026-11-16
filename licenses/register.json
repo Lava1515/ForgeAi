@@ -343,6 +343,36 @@
       "source": "https://github.com/coreyhaines31/marketingskills",
       "checked": "2026-11-15",
       "checked_how": "LICENSE file in a shallow clone and the GitHub API licence field (output/temp/skill-search/VETTING.md); read as background only for dashboard/server/growth/knowledge and .claude/skills/codebuilt-publish, codebuilt-growth; no text copied, nothing installed or run"
+    },
+    {
+      "id": "naturalearth:raster",
+      "kind": "asset",
+      "use": "Earth relief and shaded relief raster base for the map kit (cross-blended hypso / natural earth raster in mapdata)",
+      "licence": "Public domain (Natural Earth terms of use; personal, educational and commercial use allowed, crediting unnecessary)",
+      "allowed": true,
+      "source": "https://www.naturalearthdata.com/about/terms-of-use/",
+      "checked": "2026-11-16",
+      "checked_how": "terms of use page read: all vector and raster data in the public domain, personal, educational and commercial use allowed, crediting unnecessary"
+    },
+    {
+      "id": "polyhaven:textures",
+      "kind": "asset",
+      "use": "optional CC0 PBR textures for procedural surface enhancement",
+      "licence": "CC0-1.0 (Public Domain)",
+      "allowed": true,
+      "source": "https://polyhaven.com/license",
+      "checked": "2026-11-16",
+      "checked_how": "licence page read: CC0 1.0 Universal public domain dedication, commercial use allowed without credit"
+    },
+    {
+      "id": "ambientcg:textures",
+      "kind": "asset",
+      "use": "optional CC0 PBR textures for procedural surface enhancement",
+      "licence": "CC0-1.0 (Public Domain)",
+      "allowed": true,
+      "source": "https://docs.ambientcg.com/license/",
+      "checked": "2026-11-16",
+      "checked_how": "licence page read: CC0 1.0 Universal public domain dedication, commercial use allowed without credit"
     }
   ]
 }

@@ -319,7 +319,19 @@ def country_color(c, palette):
         return tuple(v * f for v in (0.30, 0.38, 0.47))
     if palette == "flat":
         return (0.34, 0.42, 0.52)
-    raise ValueError("palette must be 'continents', 'muted' or 'flat'")
+    if palette == "relief":
+        _RELIEF_CONTINENT = {
+            "Africa": (0.48, 0.44, 0.28),
+            "Asia": (0.32, 0.42, 0.26),
+            "Europe": (0.28, 0.42, 0.22),
+            "North America": (0.32, 0.40, 0.25),
+            "South America": (0.22, 0.45, 0.20),
+            "Oceania": (0.45, 0.40, 0.25),
+        }
+        base = _RELIEF_CONTINENT.get(c.continent, (0.32, 0.40, 0.26))
+        f = 0.92 + 0.08 * ((sum(ord(ch) for ch in c.iso) * 7) % 4) / 3.0
+        return tuple(min(1.0, v * f) for v in base)
+    raise ValueError("palette must be 'continents', 'muted', 'flat' or 'relief'")
 
 
 # ------------------------------------------------------------------------------------------------ the map
@@ -338,7 +350,7 @@ class WorldMap:
     """
 
     def __init__(self, c, detail="50m", projection="equal_earth", scale=4.0, origin=(0.0, 0.0, 0.0), thickness=0.08, border=None,
-                 sides=True, palette="continents", hide=("ATA",), only=None, bbox=None, sea_color=(0.05, 0.16, 0.30), sea_margin=4.0):
+                 sides=True, palette="relief", hide=("ATA",), only=None, bbox=None, sea_color=(0.05, 0.16, 0.30), sea_margin=4.0, relief=True):
         from . import materials, meshes
         if projection not in PROJECTIONS:
             raise ValueError(f"projection must be one of {PROJECTIONS}")
@@ -361,7 +373,10 @@ class WorldMap:
             self._add(cty, materials, meshes)
         sx0, sy0, sx1, sy1 = self.extent()
         mx, my = (sx1 - sx0) * sea_margin, (sy1 - sy0) * sea_margin
-        sea_mat = materials.pbr("map_sea", sea_color, 0.95, Emission_Color=(*sea_color, 1), Emission_Strength=0.12)
+        if relief:
+            sea_mat = materials.earth_relief("map_earth_relief", relief_type="hypsometric", bump=0.35, scale=self.scale / 4.0)
+        else:
+            sea_mat = materials.pbr("map_sea", sea_color, 0.95, Emission_Color=(*sea_color, 1), Emission_Strength=0.12)
         cx, cy = (sx0 + sx1) / 2, (sy0 + sy1) / 2
         hx, hy = (sx1 - sx0) / 2 + mx, (sy1 - sy0) / 2 + my
         sz = self.origin[2] - 0.02

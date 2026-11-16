@@ -20,8 +20,9 @@ def reset_scene():
     return bpy.context.scene
 
 
-def setup_render(scene, scale=100, samples=24, width=1080, height=1920, background=(0.05, 0.05, 0.06), bg_strength=1.0):
-    """EEVEE, Standard view transform, vertical PNG output, plain dark world."""
+def setup_render(scene, scale=100, samples=24, width=1080, height=1920, background=(0.05, 0.05, 0.06), bg_strength=1.0,
+                 view_transform='AgX', look='Punchy'):
+    """EEVEE, rich AgX view transform, vertical PNG output, plain dark world with contact shadows."""
     world = bpy.data.worlds.new("w")
     scene.world = world
     world.use_nodes = True
@@ -34,14 +35,21 @@ def setup_render(scene, scale=100, samples=24, width=1080, height=1920, backgrou
     r.image_settings.file_format = 'PNG'
     r.image_settings.color_mode = 'RGB'
     r.image_settings.compression = 15
-    for k, v in dict(taa_render_samples=samples, use_raytracing=True, use_shadows=True, use_gtao=True).items():
+    for k, v in dict(taa_render_samples=samples, use_raytracing=True, use_shadows=True, use_gtao=True,
+                     gtao_distance=1.0, gtao_factor=1.0).items():
         try:
             setattr(scene.eevee, k, v)
         except Exception as ex:
             print("eevee option skipped:", k, ex)
-    scene.view_settings.view_transform = 'Standard'
     try:
-        scene.view_settings.look = 'None'
+        scene.view_settings.view_transform = view_transform
+    except Exception:
+        try:
+            scene.view_settings.view_transform = 'Filmic'
+        except Exception:
+            scene.view_settings.view_transform = 'Standard'
+    try:
+        scene.view_settings.look = look
     except Exception as ex:
         print("look skipped:", ex)
     return scene
@@ -54,22 +62,59 @@ def _aim(o, pos, target):
     o.rotation_quaternion = (Vector(target) - Vector(pos)).to_track_quat('-Z', 'Y')
 
 
-def area(c, name, pos, target, energy, size, color=(1, 1, 1)):
+def area(c, name, pos, target, energy, size, color=(1, 1, 1), contact_shadow=True, shadow_distance=0.2):
     l = bpy.data.lights.new(name, 'AREA')
     l.energy, l.size, l.color = energy, size, color
+    if contact_shadow:
+        try:
+            l.use_contact_shadow = True
+            l.contact_shadow_distance = shadow_distance
+        except Exception:
+            pass
     o = bpy.data.objects.new(name, l)
     _aim(o, pos, target)
     c.objects.link(o)
     return o
 
 
-def sun(c, name, pos, target, energy, color=(1, 1, 1), angle=3.0):
+def sun(c, name, pos, target, energy, color=(1, 1, 1), angle=3.0, contact_shadow=True, shadow_distance=0.2):
     l = bpy.data.lights.new(name, 'SUN')
     l.energy, l.color, l.angle = energy, color, math.radians(angle)
+    if contact_shadow:
+        try:
+            l.use_contact_shadow = True
+            l.contact_shadow_distance = shadow_distance
+        except Exception:
+            pass
     o = bpy.data.objects.new(name, l)
     _aim(o, pos, target)
     c.objects.link(o)
     return o
+
+
+def contact_shadows(light, distance=0.2, bias=0.05):
+    """Enable contact shadows on a light data block or object."""
+    ldata = getattr(light, 'data', light)
+    for k, v in [('use_contact_shadow', True), ('contact_shadow_distance', distance), ('contact_shadow_bias', bias)]:
+        try:
+            setattr(ldata, k, v)
+        except Exception:
+            pass
+    return light
+
+
+def round_edges(obj, width=0.02, segments=2):
+    """Add a Bevel modifier to an object for smooth rounded contact edges."""
+    if hasattr(obj, 'modifiers'):
+        try:
+            bv = obj.modifiers.new("round_edges", 'BEVEL')
+            bv.width = width
+            bv.segments = segments
+            if hasattr(bv, 'limit_method'):
+                bv.limit_method = 'ANGLE'
+        except Exception as ex:
+            print("round_edges skipped:", ex)
+    return obj
 
 
 # ---------------------------------------------------------------- camera
