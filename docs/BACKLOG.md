@@ -85,3 +85,5 @@ Updated 2026-11-15 23:27 +02:00 by codex · gpt-6.1-sol: G6 cross-family reviewe
 Updated 2026-11-16 04:56 +02:00 by codex · gpt-6.1-sol: T1 reviewed and held until15Auto terminal; E4 single attempt parked after NEWpair5 schema failure. No production ending change merged.
 
 Updated 2026-11-16 08:13 +02:00 by claude-pro · claude-fable-5-2: owner answers 08:13 (ForgeBrain/decisions/2026-11-16-owner-review-answers-0813.md). New lanes N1, S2, X1. The 15-video Auto run stops after the video now building; push main before T1; publishing waits.
+
+Updated 2026-11-16 by claude-pro · claude-fable-5-2: research for N1, S2 and X1 is in ForgeBrain/research/trend-review-2026-11-16/REPORT.md (map premise shapes, pace about 3 words per second, 30 to 60 s, relief Earth base). Read it before building those lanes.
