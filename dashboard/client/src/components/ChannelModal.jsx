@@ -30,6 +30,7 @@ const CHANNEL_VIDEO_TYPES = [
   { id: 'factual', label: 'Factual' },
   { id: 'whatif', label: 'What if' },
   { id: 'history', label: 'History' },
+  { id: 'teardown', label: 'Teardown' },
 ];
 
 export default function ChannelModal({

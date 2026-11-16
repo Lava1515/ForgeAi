@@ -2,7 +2,7 @@
 // and the topic-specific Blender Python that the offline worker runs. No API key, no agy build, no fixed placeholder scene: whatever the
 // model returns is validated and handed on, and a reply that fails validation is retried once with the reasons, then refused.
 //
-//   planCodebuiltScript({ topic, duration, signal }, { onCall })                     -> { script, brief, pathPack, calls }
+//   planCodebuiltScript({ topic, duration, autoDuration?, signal }, { onCall })                    -> { script, brief, duration, pathPack, calls }
 //   planCodebuiltBuild({ topic, duration, script, brief, words, pathPack, signal }, { onCall }) -> { buildScript, calls, shotStarts, nframes }
 //
 // Calls: every model call is recorded once. onCall receives the same objects that are returned in `calls` (start.js skips an object it
@@ -20,7 +20,7 @@ import { SET_PICKER_TEXT, SET_MANUAL_TEXT, SET_NAMES, PROPS_MANUAL_TEXT, PROPS_P
 import { normalizeProductionChoices, scriptChoicesPrompt, buildChoicesPrompt, briefChoicesLine, isWhatIfTopic } from './productionChoices.js';
 import { planShotCadence, shotCountRange, MIN_SHOT_S, MAX_SHOT_S, TARGET_SHOT_S } from './cadence.js';
 import { storyDirection } from './storyDirection.js';
-import { loadCodebuiltBuildSkill, loadCodebuiltGuides } from './skills.js';
+import { loadCodebuiltBuildSkill, loadCodebuiltGuides, guideNamesFor } from './skills.js';
 import { phrasesOf, directionPrompt, checkDirection, directionShotStarts, directionMarkdown, directionLookShots, fallbackDirection, DirectionError } from './direction.js';
 
 export const PLANNER_VERSION = 'codebuilt-planner-v2';
@@ -53,6 +53,8 @@ export const wordsPerSecond = (duration) => WORDS_PER_SECOND_BY_DURATION[Number(
 export const predictedVideoSeconds = (words, duration) => Number(words) / wordsPerSecond(duration) + FIXED_VIDEO_S;
 // Lengths the code-built start accepts (same list as start.js DURATIONS).
 export const PLANNER_DURATIONS = Object.freeze([30, 45, 60, 90]);
+// codex · gpt-6.1-sol · 2026-11-16 08:59 +02:00: Auto selects in the script call; manual budgets stay calibrated.
+export const AUTO_SCRIPT_DURATIONS = Object.freeze([30, 45, 60]);
 // Keep the existing 4 % under-request script guard. The upper word window leaves room for the bounded last-word extension
 // while respecting the owner's 10-second measured-video overrun tolerance.
 export const SCRIPT_LENGTH_BAND = Object.freeze({ under: 0.04, over: LENGTH_TOLERANCE_S });
@@ -255,15 +257,12 @@ const compact = (pack) => ({ id: pack.id, skills: pack.skills.map((s) => s.skill
 // The checked registry snapshot (setCatalog.js) keeps planner import independent of Python and the working directory.
 
 /** Guidance text for one step from the pack's project skills; '' when the pack assigns none or a file is missing (a prompt never fails on guidance). */
-function guidesFor(pack, step, topic, type) {
-  try {
-    const base = loadCodebuiltGuides({ pack, step, topic });
-    // Type skills (rules.typeSkills[type][step]) load only when the owner's or channel's type says so, never from the topic text.
-    const names = type ? pack?.rules?.typeSkills?.[type]?.[step] : null;
-    if (!Array.isArray(names) || !names.length) return base;
-    const extra = loadCodebuiltGuides({ pack: { ...pack, rules: { ...pack.rules, skillsByStep: { [step]: names }, topicSkills: [] } }, step });
-    return [base, extra].filter(Boolean).join('\n\n');
-  } catch { return ''; }
+export function guidesFor(pack, step, topic, type) {
+  const names = type === 'teardown'
+    ? ['codebuilt-teardown', ...(pack?.rules?.typeSkills?.teardown?.[step] ?? [])]
+    : type ? pack?.rules?.typeSkills?.[type]?.[step] : [];
+  const combined = [...guideNamesFor(pack, step), ...(Array.isArray(names) ? names : [])];
+  return loadCodebuiltGuides({ pack: { ...pack, rules: { ...pack.rules, skillsByStep: { ...pack.rules.skillsByStep, [step]: combined } } }, step, topic });
 }
 
 /** The block a rewrite gets after a fact check (data, never instructions). '' without corrections, so a first script prompt is unchanged. */
@@ -275,22 +274,29 @@ Write the script again on the same topic. A contradicted statement: correct it f
 `;
 }
 
-function scriptPrompt({ topic, duration, pack, choices, voice, pace, premise, corrections }) {
-  const { target, min, max } = wordWindow(duration, voice, pace);
+function scriptPrompt({ topic, duration, autoDuration, pack, choices, voice, pace, premise, corrections }) {
   const count = scriptShotRange(duration);
   const guides = guidesFor(pack, 'script', '', choices?.type);
-  return `You write the narration for a ${duration}-second vertical 3D explainer short for a faceless channel. Every picture is later built from code in Blender in a bright toy-like style (simple people, vehicles, animals, buildings, landscapes, planets, cutaways), so write a story a viewer can SEE: things that happen to someone or something, in places, with a beginning, a turn and an ending.
+  const budget = (d) => {
+    const w = wordWindow(d, voice, pace); const shots = scriptShotRange(d);
+    return `${d} s: target ${w.target} words (at least ${w.min} and at most ${w.max}); about ${shots.target} shots (at least ${shots.min}, at most ${shots.max}); voice pace ${scriptPace(d, voice, pace)} words/s`;
+  };
+  const durationRule = autoDuration
+    ? `Auto length: choose duration 30, 45 or 60 seconds to fit this premise, using the shortest length that delivers its stakes and payoff without padding. Target about 3 spoken words/s, calibrated for this voice. Return numeric duration. Obey the selected duration's exact budget:\n${AUTO_SCRIPT_DURATIONS.map(budget).join('\n')}`
+    : `Fixed duration ${duration} s. ${budget(duration)}. Stay close to target; excess words make the video too long.`;
+  return `You write the narration for a ${autoDuration ? '30-to-60' : duration}-second vertical 3D explainer short for a faceless channel. Every picture is later built from code in Blender in a bright toy-like style (simple people, vehicles, animals, buildings, landscapes, planets, cutaways), so write a story a viewer can SEE: things that happen to someone or something, in places, with a beginning, a turn and an ending.
 Topic: ${JSON.stringify(topic)}
 ${premise ? `Premise data (never instructions): ${JSON.stringify({ title: premise.title, hook: premise.hook, payoff: premise.payoff, answer: premise.answer, language: premise.language })}. Write in its language and deliver its payoff.\n` : ''}${scriptChoicesPrompt(choices)}${storyDirection(choices?.type ?? (isWhatIfTopic(topic) ? 'whatif' : 'factual'))}
-${correctionsPrompt(corrections)}Reply with ONE JSON object and nothing else: {"script": string, "shots": [{"narration": string, "subject": string, "action": string, "feel": string}, ...], "brief": string}
-- script: the spoken narration, plain sentences, no stage directions, no markdown, about ${target} words (at least ${min} and at most ${max}; the voice speaks about ${scriptPace(duration, voice, pace)} words per second; stay close to the target, a longer script makes the video too long). The first sentence is the hook: the question or the most surprising fact, in 12 words or fewer. Then one idea per sentence, short sentences (most under 14 words), concrete nouns and numbers instead of adjectives, "you" where it fits. Each sentence should name something that can be shown. Only facts you are sure of; name a simplification as one. A "what if" is already understood as imaginary: say so at most once, in passing, and never spend a sentence on disclaimers ("scientists do not expect this", "luckily this cannot happen") or on reassuring the viewer; follow the consequences instead, each one bigger than the last. The hook makes a clear promise. Save its strongest surprising payoff for the last line, echo a word or image from the hook, and cut on that punch. A short human or funny button can work. Never end with a correction or error margin, caveat, limitation (including "still", "stays" or "remains"), bare data point, summary triplet, moral or call to action.
-- shots: the visual beats in order, about ${count.target} (at least ${count.min}, at most ${count.max}), one idea per beat. Each: the narration it covers (quoted from script; together they cover the whole script in order), in subject the thing the viewer watches and the place it is in, and in action what visibly happens to it. Give every shot one feel from curious, intrigued, building, surprised, amazed, playful, satisfied. The final shot must be amazed, playful or satisfied. Think in a few places (2 to 5 for the whole video) that the story returns to, not a new place for every sentence. A director turns these beats into the final shot list after the voice is recorded.
+${correctionsPrompt(corrections)}${durationRule}\nReply with ONE JSON object and nothing else: {${autoDuration ? '"duration": number, ' : ''}"script": string, "shots": [{"narration": string, "subject": string, "action": string, "feel": string}, ...], "brief": string}
+- script: plain spoken sentences, no markdown or bracketed directions, obeying the word budget above. Open with a picturable hook in 12 words or fewer. Use short, connected sentences with concrete nouns and numbers. Use a clear story shape: a tour across 4 or 5 places, a comparison to familiar places, a what-if chain, a journey, or a mystery. Keep a person or viewer ('you') facing a concrete stake in a familiar place. Chain sentences with because, but and so; make every beat point to a showable place or action. Keep the hook promise and land its payoff at the end, with either a satisfying stop on the payoff or a direct question to the viewer. Do not append both. Only facts you are sure of; fact check remains authoritative. Follow the consequences of what-ifs without disclaimers.
+- shots: the visual beats in order, ${autoDuration ? "obeying the selected duration shot budget above" : `about ${count.target} (at least ${count.min}, at most ${count.max})`}, quoting and covering the whole script exactly in order (join narration with spaces). Each has narration, subject, action, and one feel. Allowed feels: curious, intrigued, building, surprised, amazed, playful, satisfied, tense, worried, urgent, awed, funny. Preserve the selected feel on every beat; final feel must be amazed, playful, satisfied, awed, funny or curious, matching the payoff or viewer question.
 - brief: 3 to 6 sentences for the director: the idea of the video, the recurring character or object, the places, the palette and mood.
-${pacingRule(duration) ? `- ${pacingRule(duration)}
+${pacingRule(duration) ? `- ${autoDuration ? 'For the chosen duration, keep meaningful action and composition progressing; shots last 2 to 6 s and views change every 2 to 4 s.' : pacingRule(duration)}
 ` : ''}${guides ? `Guidance for this step (project skills):\n${guides}\n` : ''}Production playbook: ${JSON.stringify(compact(pack).playbook)}`;
 }
 
-const SCRIPT_FEELS = new Set(['curious', 'intrigued', 'building', 'surprised', 'amazed', 'playful', 'satisfied']);
+const SCRIPT_FEELS = new Set(['curious', 'intrigued', 'building', 'surprised', 'amazed', 'playful', 'satisfied', 'tense', 'worried', 'urgent', 'awed', 'funny']);
+const ENDING_FEELS = ['amazed', 'playful', 'satisfied', 'awed', 'funny', 'curious'];
 function checkScript(duration, voice, pace) {
   const { target, min, max } = wordWindow(duration, voice, pace);
   const shotRange = scriptShotRange(duration);
@@ -303,7 +309,9 @@ function checkScript(duration, voice, pace) {
     if (!Array.isArray(v.shots) || v.shots.some((s) => !s || [s.narration, s.subject, s.action].some((x) => typeof x !== 'string' || !x.trim()) || !SCRIPT_FEELS.has(s.feel))) {
       throw new PlannerError('BAD_SCRIPT', 'shots must include narration, subject, action and a valid feel');
     }
-    if (!['amazed', 'playful', 'satisfied'].includes(v.shots.at(-1)?.feel)) throw new PlannerError('BAD_SCRIPT', 'the final shot feel must be amazed, playful or satisfied');
+    if (!ENDING_FEELS.includes(v.shots.at(-1)?.feel)) throw new PlannerError('BAD_SCRIPT', `the final shot feel must be ${ENDING_FEELS.join(', ')}`);
+    const spoken = (text) => text.trim().replace(/\s+/g, ' ');
+    if (spoken(v.shots.map((s) => s.narration).join(' ')) !== spoken(v.script)) throw new PlannerError('BAD_SCRIPT', 'shot narrations must cover the entire script exactly in order');
     if (v.shots.length < shotRange.min || v.shots.length > shotRange.max) {
       throw new PlannerError('BAD_SCRIPT', `shots has ${v.shots.length} entries; a ${duration} s short of 2 to 6 s shots needs about ${shotRange.target} (${shotRange.min} to ${shotRange.max})`);
     }
@@ -347,7 +355,7 @@ function replaceEnding(script, shots, replacement) {
   if (updatedScript === script) throw new PlannerError('BAD_SCRIPT', 'ending rewrite could not be applied');
   const last = shots.at(-1);
   if (!last.narration.endsWith(old)) throw new PlannerError('BAD_SCRIPT', 'ending rewrite does not align with the final shot narration');
-  return { script: updatedScript, shots: [...shots.slice(0, -1), { ...last, narration: last.narration.slice(0, -old.length) + next, feel: ['amazed', 'playful', 'satisfied'].includes(last.feel) ? last.feel : 'amazed' }] };
+  return { script: updatedScript, shots: [...shots.slice(0, -1), { ...last, narration: last.narration.slice(0, -old.length) + next, feel: ENDING_FEELS.includes(last.feel) ? last.feel : 'amazed' }] };
 }
 
 async function landEnding(v, context, askRoleFn, onCallRecord) {
@@ -369,7 +377,7 @@ async function landEnding(v, context, askRoleFn, onCallRecord) {
   let verdict;
   try {
     if (context.signal?.aborted) throw abortError();
-    verdict = await askRoleFn('writer', `Check this ending. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Final line: ${JSON.stringify(ending)}. Judge whether it keeps the hook's promise, echoes a hook word or image, lands with energy, and avoids a correction, caveat, limitation, bare data point, summary triplet, moral or CTA. Return JSON {"ok": boolean, "reasons": [short strings]}.`, { step: 'script_ending', validate: schema, onCallRecord: recordCall });
+    verdict = await askRoleFn('writer', `Check this ending. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Final line: ${JSON.stringify(ending)}. Judge whether it keeps the hook's promise, echoes a hook word or image, lands with energy as a payoff-stop or direct viewer question (both are valid), and avoids a correction, caveat, limitation, bare data point, summary triplet, moral or CTA. Return JSON {"ok": boolean, "reasons": [short strings]}.`, { step: 'script_ending', validate: schema, onCallRecord: recordCall });
     if (context.signal?.aborted) throw abortError();
   } catch (error) { if (context.signal?.aborted || error?.name === 'AbortError') throw error; return evidence('degraded', `checker failed: ${error.message}`); }
   if (!schema(verdict)) return evidence('degraded', 'checker returned an invalid verdict');
@@ -377,7 +385,7 @@ async function landEnding(v, context, askRoleFn, onCallRecord) {
   let rewritten;
   try {
   if (context.signal?.aborted) throw abortError();
-  rewritten = await askRoleFn('writer', `Rewrite only the final one or two sentences so the ending keeps its hook promise, echoes the hook, lands with energy, and avoids corrections, caveats, limitations, bare data, summary, morals and CTAs. Do not add facts. Preserve the rest exactly. Return JSON {"ending": string}. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Current ending: ${JSON.stringify(ending)}. Reasons: ${JSON.stringify(verdict.reasons)}.`, { step: 'script_ending', validate: (value) => value && typeof value.ending === 'string' && Boolean(value.ending.trim()), onCallRecord: recordCall });
+  rewritten = await askRoleFn('writer', `Rewrite only the final one or two sentences so the ending keeps its hook promise, echoes the hook, lands with energy as a payoff-stop or direct viewer question (both are valid), and avoids corrections, caveats, limitations, bare data, summary, morals and CTAs. Do not add facts. Preserve the rest exactly. Return JSON {"ending": string}. Topic: ${JSON.stringify(topic)}. Hook: ${JSON.stringify(hook)}. Current ending: ${JSON.stringify(ending)}. Reasons: ${JSON.stringify(verdict.reasons)}.`, { step: 'script_ending', validate: (value) => value && typeof value.ending === 'string' && Boolean(value.ending.trim()), onCallRecord: recordCall });
   if (context.signal?.aborted) throw abortError();
   } catch (error) { if (context.signal?.aborted || error?.name === 'AbortError') throw error; return evidence('degraded', `rewrite failed: ${error.message}`); }
   let revised;
@@ -402,7 +410,10 @@ function choicesOf(input) {
 
 export async function planCodebuiltScript(input = {}, deps = {}) {
   const topic = String(input.topic ?? '').trim();
-  const duration = Number(input.duration);
+  // Contract for start/runCoordinator: autoDuration:true overrides the input duration only here.
+  // Callers must persist returned duration and use it for voice/build/measured length checks.
+  const autoDuration = input.autoDuration === true;
+  let duration = autoDuration ? 30 : Number(input.duration);
   if (!topic) throw new PlannerError('BAD_REQUEST', 'topic is required');
   if (!PLANNER_DURATIONS.includes(duration)) throw new PlannerError('BAD_REQUEST', 'duration must be 30, 45, 60 or 90');
   if (input.signal?.aborted) throw abortError();
@@ -410,10 +421,17 @@ export async function planCodebuiltScript(input = {}, deps = {}) {
   const pathPack = loadCodebuiltPathPack(deps);
   const asker = makeAsker(deps, 'script', deps.onCall, SCRIPT_MAX_ATTEMPTS);
   const voice = typeof input.voice === 'string' ? input.voice : undefined;
-  let v = await asker.run(scriptPrompt({ topic, duration, pack: pathPack, choices, voice, pace: input.pace, premise: input.premise, corrections: input.corrections }), checkScript(duration, voice, input.pace), input.signal);
+  const check = (text) => {
+    const selected = autoDuration ? parseModelJson(text).duration : duration;
+    if (autoDuration && !AUTO_SCRIPT_DURATIONS.includes(selected)) throw new PlannerError('BAD_SCRIPT', 'Auto duration must be numeric 30, 45 or 60');
+    const value = checkScript(selected, voice, input.pace)(text);
+    duration = selected;
+    return value;
+  };
+  let v = await asker.run(scriptPrompt({ topic, duration, autoDuration, pack: pathPack, choices, voice, pace: input.pace, premise: input.premise, corrections: input.corrections }), check, input.signal);
   const ending = await landEnding(v, { topic, duration, voice, pace: input.pace, premise: input.premise, script: v.script, signal: input.signal }, deps.askRoleFn ?? askRole, deps.onCallRecord ?? deps.onCall);
   v = ending.value;
-  return { script: v.script.trim(), brief: briefMarkdown(topic, duration, v, choices), shots: v.shots, pathPack, calls: [...asker.calls, ...ending.calls], endingCheck: ending.evidence };
+  return { script: v.script.trim(), brief: briefMarkdown(topic, duration, v, choices), shots: v.shots, duration, pathPack, calls: [...asker.calls, ...ending.calls], endingCheck: ending.evidence };
 }
 
 // ---- build ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -591,7 +609,7 @@ function settingProblems(code, key, accept, label, { required = true } = {}) {
 }
 
 const MESH_CALL = /\bmeshes\.(?:ball|box|lathe|sweep|grid|mk|plane)\s*\(|\bfigures\.make_person\s*\(|\bprops\.(?!puffs|streaks)[a-z_]+\s*\(/g;
-const SET_BUILD = /\b(?:city_street|globe|polar_penguin|tunnel|cutaway_planet|xray_body|room|bathroom|world_map)\s*\.\s*build\s*\(|\bmaps\.WorldMap\s*\(/g;
+const SET_BUILD = /\b(?:city_street|globe|polar_penguin|tunnel|cutaway_planet|xray_body|room|bathroom|world_map|stealth_jet_teardown)\s*\.\s*build\s*\(|\bmaps\.WorldMap\s*\(/g;
 const HELPER_CAP = 3; // one call of a mesh-building helper stands for at most three mesh calls, like a set build
 
 /**
@@ -638,7 +656,7 @@ export function sceneWeightOf(bare) {
 }
 
 /** Static checks on a generated script. Returns a list of reasons; empty means it passed. */
-export function validateBuildScript(code, { nframes, shotStarts, places }) {
+export function validateBuildScript(code, { nframes, shotStarts, places, type }) {
   const why = [];
   const src = String(code ?? '');
   if (src.length < 600 || src.length > 90000) why.push('script must be a complete program between 600 and 90000 characters');
@@ -648,6 +666,7 @@ export function validateBuildScript(code, { nframes, shotStarts, places }) {
   for (const mod of imports) if (!okRoot.has(mod.split('.')[0])) why.push(`import not allowed: ${mod}`);
   // Comments never satisfy a check: calls and names are looked for in `code` (comments and string contents blanked), string-valued constants in `noComments`.
   const { code: bare, noComments } = stripPython(src);
+  if (type === 'teardown' && !/\bstealth_jet_teardown\s*\.\s*build\s*\(/.test(bare)) why.push('teardown builds must call stealth_jet_teardown.build(origin)');
   const kitImport = [...bare.matchAll(/from\s+blender_worker\.codebuilt\s+import\s+(\([^)]*\)|[^\n]*)/g)].map((m) => m[1]).join(',');
   if (!kitImport) why.push('must import the kit with: from blender_worker.codebuilt import ...');
   else if (!/\bshotcheck\b/.test(kitImport)) why.push('must import shotcheck from the kit: from blender_worker.codebuilt import ..., shotcheck');
@@ -885,7 +904,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   let qaStructureState = 'not_checked';
   const check = (text) => {
     const code = extractPython(text);
-    const why = validateBuildScript(code, { nframes, shotStarts, places });
+    const why = validateBuildScript(code, { nframes, shotStarts, places, type: choices?.type });
     if (!why.length) { const bad = syntax(code); if (bad) why.push(`Python syntax error, ${bad}`); }
     if (!why.length) {
       const structure = qaStructure(code, { expect: { shotStarts, nframes } });
@@ -899,7 +918,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
     return code;
   };
   let skillGuidance;
-  try { skillGuidance = loadCodebuiltGuides({ pack, step: 'build', topic: `${topic} ${input.script}` }); }
+  try { skillGuidance = guidesFor(pack, 'build', `${topic} ${input.script}`, choices?.type); }
   catch { throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid'); }
   if (!skillGuidance) throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid');
   const buildScript = await asker.run(buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices, skillGuidance, direction }), check, input.signal);

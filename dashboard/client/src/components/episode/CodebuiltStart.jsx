@@ -40,7 +40,7 @@ export const isActiveJob = (job) => !!job && ACTIVE_STATUSES.includes(job.status
 
 // KAN-928 (CB16): one Start can run 1..10 videos. Count 1 with a typed topic and no advanced choice keeps using the single-job route.
 export const CODEBUILT_COUNTS = Object.freeze([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-export const CODEBUILT_TYPES = Object.freeze(['Auto', 'factual', 'whatif', 'history']);
+export const CODEBUILT_TYPES = Object.freeze(['Auto', 'factual', 'whatif', 'history', 'teardown']);
 export const CODEBUILT_VOICES = Object.freeze(['Auto', 'aiden', 'dylan', 'eric', 'ono_anna', 'ryan', 'serena', 'sohee', 'uncle_fu', 'vivian']);
 export const RUN_ACTIVE_STATUSES = Object.freeze(['queued', 'running', 'aborting']);
 export const isActiveRun = (run) => !!run && RUN_ACTIVE_STATUSES.includes(run.status);
@@ -68,14 +68,14 @@ const isWhatIfTopic = (t) => /^what if\b/i.test(t) && t.endsWith('?');
  * The reason the current form cannot be started, or null. Shown inline and blocks Start, so a combination the server refuses never has to be sent.
  * A typed topic is one video (a longer run would be the same video again): use a theme for several. The type and a typed topic must agree.
  */
-const SUPPORTED_CHANNEL_TYPES = Object.freeze(['factual', 'whatif', 'history']);
+const SUPPORTED_CHANNEL_TYPES = Object.freeze(['factual', 'whatif', 'history', 'teardown']);
 const typesOfChannel = (channel) => Array.isArray(channel?.video_types)
   ? channel.video_types.filter((type) => SUPPORTED_CHANNEL_TYPES.includes(type))
   : [...SUPPORTED_CHANNEL_TYPES]; // Legacy channels deliberately retain their former all-types behavior.
 
 export function resolveChannelForType({ channels = [], channelId = '', type } = {}) {
   const required = blankOrAuto(type) ? [] : [type];
-  const supports = (channel) => typesOfChannel(channel).length > 0 && required.every((item) => typesOfChannel(channel).includes(item));
+  const supports = (channel) => (blankOrAuto(type) ? typesOfChannel(channel).some((item) => item !== 'teardown') : typesOfChannel(channel).length > 0) && required.every((item) => typesOfChannel(channel).includes(item));
   if (channelId) {
     const channel = channels.find((item) => item.id === channelId);
     if (!channel) return { channel: null, error: 'The selected channel is unavailable.' };
@@ -343,7 +343,7 @@ export default function CodebuiltStart() {
               <span>Video type</span>
               <select value={type} onChange={(e) => setType(e.target.value)} disabled={active} aria-label="Video type" data-codebuilt-type
                 className="rounded bg-ink-900 border border-ink-700 px-2 py-1 text-xs text-ink-100">
-                {CODEBUILT_TYPES.map((t) => (<option key={t} value={t}>{t === 'whatif' ? 'What if' : t === 'factual' ? 'Factual' : t === 'history' ? 'History' : 'Auto'}</option>))}
+                {CODEBUILT_TYPES.map((t) => (<option key={t} value={t}>{t === 'whatif' ? 'What if' : t === 'factual' ? 'Factual' : t === 'history' ? 'History' : t === 'teardown' ? 'Teardown' : 'Auto'}</option>))}
               </select>
             </label>
             <label className="flex flex-col gap-1">

@@ -15,6 +15,11 @@ import { selectEpisodeChannel, EpisodeChannelError } from '../channel.js';
 
 export const THEME_VERSION = 'codebuilt-theme-v1';
 export const MAX_CANDIDATES = 50;
+// codex · gpt-6.1-sol · 2026-11-16 09:14 +02:00: niche data controls map-only rules, never channel id or global defaults.
+export const isMapProfile = (profile) => /\b(?:maps?|geography|cartography|geographic)\b/i.test(text(profile?.niche));
+const premiseText = (c) => [c.topic, c.title, c.subject, c.stake, c.answer, c.hook, c.payoff, c.main_setting,
+  ...(c.shots || []).flatMap(s => [s.visual, s.location]), ...(c.tags || []), ...(c.facts || []).map(f => f.source)].join(' ');
+
 const MAX_STRING = 12000;
 const MAX_FILE_BYTES = 256 * 1024;
 
@@ -23,13 +28,13 @@ export const THEME_RULES = Object.freeze([
   { key: 'numbers_checkable', label: 'A true answer that can be checked, with at least three real numbers', gate: false },
   { key: 'shots_locations', label: 'Seven to nine visually different shots and at least three locations', gate: false },
   { key: 'hook', label: 'A hook that works in the first second (a number, a question or a point of view)', gate: false },
-  { key: 'not_repeat', label: "Not close to the channel's last 20 videos, in topic or in main setting", gate: true },
+  { key: 'not_repeat', label: "Not close to any past draft on the channel, in topic or main setting", gate: true },
   { key: 'set_fit', label: 'Fits sets already in the set library (lower cost), unless the owner asks for something new', gate: false },
   { key: 'fact_safety', label: "Clear of the channel's fact and safety rules", gate: true },
 ]);
 
 export const DEFAULT_OPTIONS = Object.freeze({
-  history_window: 20,            // rule 4: how many of the newest videos count
+  history_window: 0,             // rule 4: zero means every saved video is checked
   topic_similarity_limit: 0.5,   // rule 4: share of the shorter word set that overlaps (needs two shared words) at which a topic counts as a repeat
   setting_window: 3,             // rule 4: the main setting may not match one of this many newest videos
   history_setting_min_hits: 2,   // rule 4: theme words a past video needs to be placed in a set
@@ -178,7 +183,7 @@ function ruleHook(c, o) {
 function prepareHistory(history, o, index) {
   const ordered = history.map((v, i) => ({ v, i, t: Date.parse(v.published_at) }))
     .sort((a, b) => (Number.isNaN(b.t) ? -Infinity : b.t) - (Number.isNaN(a.t) ? -Infinity : a.t) || a.i - b.i)
-    .slice(0, o.history_window).map(({ v }) => v);
+    .slice(0, o.history_window > 0 ? o.history_window : undefined).map(({ v }) => v);
   return ordered.map((v) => {
     const tokens = wordSet(v.title, v.theme, ...(o.profile ? [v.subject, v.topic] : []));
     return { video_id: text(v.video_id), title: text(v.title), ...(o.profile ? { subject: text(v.subject) } : {}), tokens, setting: bestSet(index, tokens, o.history_setting_min_hits) };
@@ -246,6 +251,12 @@ function ruleSetFit(c, o, index) {
 function ruleFactSafety(c, o) {
   const rules = o.safety_rules;
   const reasons = [];
+  // Deterministic textual floor, not a semantic geopolitical classifier. Scope to Auto's map niche.
+  if (o.type !== 'teardown' && isMapProfile(o.profile)) {
+    const premise = normalise(premiseText(c)).replace(/[_-]/g, ' ');
+    if (/\b(?:current|ongoing|active|present day|today|now)\b[^.!?]{0,60}\b(?:wars?|conflicts?|invasions?|fighting)\b|\b(?:wars?|conflicts?|invasions?|fighting)\b[^.!?]{0,60}\b(?:current|ongoing|active|today|now)\b/i.test(premise)) reasons.push('current_wars');
+    if (/\b(?:disputed|contested)\s+(?:\w+\s+){0,2}(?:borders?|boundaries|territor\w*|sovereignty)\b|\b(?:border|boundary|territorial|sovereignty)\s+disputes?\b/i.test(premise)) reasons.push('disputed_borders');
+  }
   const claims = (c.claims || []).filter(object);
   const status = (cl) => normalise(cl.status);
   if (claims.some((cl) => status(cl) === 'false')) reasons.push('false_claim');
@@ -277,7 +288,7 @@ function mentions(textStems, phrase) { const need = [...stems(phrase)]; return n
  * the named subject really in the title, the fields the model must commit to, the channel's avoid list. They are a floor, not a judge of quality.
  * The word lists are English; for another language only the language-neutral checks apply (a question mark counts as a question).
  */
-export function rulePremise(c, avoid = [], language = 'en') {
+export function rulePremise(c, avoid = [], language = 'en', { maps = false } = {}) {
   const title = text(c.title).trim();
   const count = title.split(/\s+/).filter(Boolean).length;
   const subject = text(c.subject).trim();
@@ -285,12 +296,16 @@ export function rulePremise(c, avoid = [], language = 'en') {
   const titleStems = stems(`${title} ${text(c.topic)}`);
   const subjectStems = [...stems(subject)];
   const sentence = title.endsWith('?') || !english || QUESTION_WORD.test(title) || PREDICATE.test(title);
+  const propertyTour = maps && /^(?:4|5|four|five)\s+(?:countries|places|cities|islands|capitals)\b/i.test(title) && /\b(?:share|almost|touch|cross|split|trap|surround|hide|block|force)\b/i.test(title);
   const checks = [
-    ['title_length', count >= 6 && count <= 10 && title.length <= 100, `${count} words, ${title.length} characters; need 6 to 10 words and at most 100 characters`],
+    ['title_length', count >= 4 && count <= 8 && title.length <= 100, `${count} words, ${title.length} characters; need 4 to 8 words and at most 100 characters`],
+    ['title_units', !/\b(?:mm|cm|km|m|inches?|feet|ft|miles?|mi|grams?|kg|kilograms?|pounds?|lb|lbs|seconds?|minutes?|hours?|days?|years?|°[cf]|celsius|fahrenheit)\b/i.test(title), 'Plain title without measurement units'],
     ['hashtag', !title.includes('#'), 'Plain title without hashtags'],
-    ['list', !LIST_START.test(title) && !(english && LIST_WORDS.test(title)), 'One premise, no list'],
+    ['list', propertyTour || (!LIST_START.test(title) && !(english && LIST_WORDS.test(title))), 'One premise; map tours may link four or five places by a concrete property'],
     ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectStems.every((w) => titleStems.has(w)), 'One named subject, present in the title'],
     ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
+    ['person_or_you', !maps || /\b(?:you|your|we|our|people|person|family|travell?er|travell?ers|sailor|driver|builder|worker|child|children|city|country|community|passenger|crew|farmer|soldier|king|queen|emperor|engineer|scientist|explorer|resident|citizen)\b/i.test(`${title} ${subject} ${text(c.stake)}`), 'Name a person, group, place or viewer with something at stake'],
+    ['familiar_place', !maps || /\b(?:home|house|school|street|road|city|town|country|kitchen|classroom|workplace|harbor|port|bridge|river|coast|neighborhood|neighbourhood|map|route|border|canal)\b/i.test(`${title} ${subject} ${text(c.stake)} ${text(c.payoff)}`), 'Anchor it in a recognizable place or route'],
     ['sentence', sentence, 'Full question or claim'],
     ['answer', text(c.answer).trim().length >= 12, text(c.answer) || 'Missing one-sentence answer'],
     ['payoff', text(c.payoff).trim().length >= 12, text(c.payoff) || 'Missing visual payoff'],
@@ -320,7 +335,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
       fact_safety: ruleFactSafety(c, o),
     };
     const reasons = THEME_RULES.filter((r) => r.gate).flatMap((r) => results[r.key].reasons || []);
-    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language) : null;
+    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language, { maps: o.type !== 'teardown' && isMapProfile(o.profile) }) : null;
     if (premise) {
       reasons.push(...premise.reasons);
     }
@@ -351,7 +366,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
 
 // Reads a saved channel report (the shape the channel scan saves: { videos: [{ video_id, title, theme, published_at, ... }] }).
 // The file is only read. Newest first, at most `limit` videos, only the fields the scoring needs.
-export function loadChannelHistory({ file, limit = DEFAULT_OPTIONS.history_window } = {}) {
+export function loadChannelHistory({ file, limit = DEFAULT_OPTIONS.history_window || Infinity } = {}) {
   if (typeof file !== 'string' || !file) fail('history file must be a path string');
   let report;
   try { report = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { fail('channel history cannot be read or is not JSON'); }

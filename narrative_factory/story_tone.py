@@ -5,7 +5,7 @@ Provides:
 1. Inline tag extraction ([curious], [climax], etc.) and stage direction stripping
 2. Story arc tone progression (Hook -> Intrigue -> Escalation -> Climax -> Resolution)
 3. Themed modulation through base style presets (suspense, enthusiastic, documentary, etc.)
-4. Delivery sanitizing and normalization (at most two tone changes per video: the hook and the ending)
+4. Delivery sanitizing and normalization (every explicit beat retains its feeling)
 5. TimedSentence tuple helper preserving backward compatibility with (sentence, start, end).
 """
 
@@ -53,6 +53,11 @@ FEEL_HINTS = {
     "amazed": "bright, impressed, a smile in the voice, landing the final line",
     "playful": "light, amused",
     "satisfied": "warm, confident, pleased",
+    "tense": "focused, suspenseful anticipation",
+    "worried": "concerned, emotionally invested",
+    "urgent": "urgent, focused, brisk emphasis",
+    "awed": "wonder and admiration, impressed",
+    "funny": "light, amused, playful",
 }
 
 
@@ -65,16 +70,13 @@ def feel_hint(delivery: Optional[str]) -> str:
     return FEEL_HINTS.get(text.strip().lower(), text)
 
 
+# codex · gpt-6.1-sol · 2026-11-16 08:59 +02:00: retain middle-beat feelings, not just hook and ending.
 def normalize_deliveries(
     directions: Optional[List[Optional[str]]],
     total_scenes: Optional[int] = None,
 ) -> List[str]:
     """
-    Sanitizes deliveries (feel words are first turned into their hints) and enforces at most TWO deliberate tone
-    changes per video: the hook and the ending. Everything in between receives the plain baseline ("").
-    - When the LAST sentence carries a delivery, the ending keeps it, and the hook (a delivery that says "hook", else the
-      first sentence's) keeps its own. A delivery anywhere else is dropped.
-    - When the last sentence carries none, the older rule applies unchanged: one change, hook, else climax, else the first one given.
+    Sanitizes and retains each beat's delivery so the narration can carry the selected feeling throughout.
     """
     if not directions:
         n = total_scenes or 0
@@ -85,35 +87,7 @@ def normalize_deliveries(
     while len(cleaned) < total:
         cleaned.append("")
 
-    hook_idx = -1
-    climax_idx = -1
-    first_valid_idx = -1
-
-    for idx, d in enumerate(cleaned):
-        if not d:
-            continue
-        d_lower = d.lower()
-        if "hook" in d_lower and hook_idx == -1:
-            hook_idx = idx
-        elif any(k in d_lower for k in ["climax", "resolution", "clear emphasis"]) and climax_idx == -1:
-            climax_idx = idx
-        elif first_valid_idx == -1:
-            first_valid_idx = idx
-
-    keep = set()
-    if total and cleaned[total - 1]:
-        keep.add(total - 1)
-        if hook_idx != -1:
-            keep.add(hook_idx)
-        elif cleaned[0]:
-            keep.add(0)
-    else:
-        for candidate in (hook_idx, climax_idx, first_valid_idx):
-            if candidate != -1:
-                keep.add(candidate)
-                break
-
-    return [d if idx in keep and d else "" for idx, d in enumerate(cleaned)]
+    return cleaned
 
 
 def narrator(mood: str) -> str:
@@ -278,8 +252,7 @@ def compute_story_arc_tones(
     """
     Calculates the appropriate vocal tone instruction and temperature for each sentence.
     When directions or inline tags are passed, collects them into a single list and normalizes
-    them so at most TWO deliberate tone changes are permitted across the video (the hook and the
-    ending), with all other scenes using the plain narrator baseline.
+    them so every sentence retains its beat's sanitized feeling.
     When dynamic story arc fallback is used, instructions vary only slightly and temperatures
     remain uniform at 0.31.
     Returns a list of (cleaned_sentence, instruct_string, temperature).

@@ -5,6 +5,8 @@ export function storyDirection(type = 'factual') {
     ? 'Make the setup explicitly imaginary and label it as hypothetical. The events may be invented, but every real-world number and physical fact must be checked and accurate; do not present the hypothetical as real history.'
     : type === 'history'
       ? 'Use real, documented people and places. Check dates and other physical facts against sources. Do not invent dialogue, events or private thoughts; use documented actions or neutral explanatory narration.'
-      : 'Do not present invented scenes, dialogue or events as fact. Keep every real-world claim checkable.';
+      : type === 'teardown'
+        ? 'Explain the stealth jet through sourced real-world design facts. Treat the procedural stealth jet model as illustrative, not a verified aircraft; do not claim its geometry or every modeled part is an exact replica. Never turn the topic into a hypothetical.'
+        : 'Do not present invented scenes, dialogue or events as fact. Keep every real-world claim checkable.';
   return `Story direction: ${core}\n${guard}`;
 }
