@@ -1,3 +1,4 @@
+// codex · gpt-6.1-sol · 2026-11-16 08:59 +02:00: S2 extends E1 delivery assertions to every beat.
 // E1b (owner order 2026-11-15): the ending of a video is voiced with its own lift.
 // Real damage guarded: the code-built voice call sent the whole script as ONE scene with no deliveries, so the factory could never
 // give the last line its own tone, and voice.json said nothing about how any sentence was read. The factory is a fake here, but it answers
@@ -30,7 +31,7 @@ function wavOf(spans, seconds) { // sound only where the words are
   return Buffer.concat([h, data]);
 }
 
-/** A fake of /api/tts-timed: only the hook and the last sentence carry the told delivery (as story_tone.normalize_deliveries decides); the rest is plain. */
+/** A fake of /api/tts-timed: each sentence carries its beat delivery, as story_tone.normalize_deliveries now decides. */
 function fakeFactory({ withSentences = true, calls = [] } = {}) {
   return async (route, body) => {
     calls.push({ route, body });
@@ -49,7 +50,7 @@ function fakeFactory({ withSentences = true, calls = [] } = {}) {
     });
     sentences.forEach((s, i) => {
       const told = body.deliveries?.[s.sceneIdx];
-      s.tone = told && (i === 0 || i === sentences.length - 1) ? `PLAIN, a touch of: ${told}` : 'PLAIN';
+      s.tone = told ? `PLAIN, a touch of: ${told}` : 'PLAIN';
       delete s.sceneIdx;
     });
     const seconds = words.at(-1).end + 0.4;
@@ -83,7 +84,8 @@ test('the voice gets one feel per beat, same order and count as the scenes, and 
     assert.equal(delivery.sentences[0].tone, 'PLAIN, a touch of: curious');
     assert.equal(delivery.sentences.at(-1).tone, 'PLAIN, a touch of: amazed');
     assert.equal(delivery.sentences.at(-1).text, 'Nobody could believe it.');
-    assert.ok(delivery.sentences.slice(1, -1).every((x) => x.tone === 'PLAIN'));
+    assert.ok(delivery.sentences.slice(1, 4).every((x) => x.tone === 'PLAIN, a touch of: building'));
+    assert.equal(delivery.sentences[4].tone, 'PLAIN, a touch of: amazed');
   } finally { fs.rmSync(s.root, { recursive: true, force: true }); }
 });
 

@@ -73,7 +73,8 @@ const round3 = (v) => Math.round(v * 1000) / 1000;
 const token = (value) => String(value).replace(/[^\p{L}\p{N}]/gu, '').toLocaleLowerCase('en');
 
 // ---- the script's feel per shot ----
-export const FEELS = Object.freeze(['curious', 'intrigued', 'building', 'surprised', 'amazed', 'playful', 'satisfied']);
+// codex · gpt-6.1-sol · 2026-11-16 08:59 +02:00: S2 includes tension, fear, urgency, awe and humour.
+export const FEELS = Object.freeze(['curious', 'intrigued', 'building', 'surprised', 'amazed', 'playful', 'satisfied', 'tense', 'worried', 'urgent', 'awed', 'funny']);
 const feelOf = (value) => { const f = typeof value === 'string' ? value.trim().toLowerCase() : ''; return FEELS.includes(f) ? f : ''; };
 
 /**

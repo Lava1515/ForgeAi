@@ -33,13 +33,14 @@ def voiced_sentences(tmp_path, scenes, deliveries):
     return sentences
 
 
-def test_hook_and_last_sentence_get_their_own_tone_and_the_middle_stays_plain(tmp_path):
+def test_every_beat_keeps_its_tone_on_every_sentence(tmp_path):
     sentences = voiced_sentences(tmp_path, SCENES, FEELS)
     tones = [s.tone for s in sentences]
     assert len(tones) == 6
     assert "curious" in tones[0] and tones[0].startswith(story_tone.NARRATOR)
     assert "bright, impressed, a smile in the voice" in tones[-1]
-    assert all(t == story_tone.NARRATOR for t in tones[1:-1]), tones  # the last scene's first sentence shares the scene's feel but is not the ending
+    assert all("building interest" in t for t in tones[1:4]), tones
+    assert "bright, impressed" in tones[4]
     assert not any(CALM_CLOSE in t for t in tones)
 
 
@@ -55,24 +56,35 @@ def test_the_default_arc_closes_bright_and_not_calm():
     assert not any(CALM_CLOSE in spec[1] for spec in specs)
 
 
-def test_older_planner_directions_still_keep_one_deliberate_change():
+def test_older_planner_directions_are_sanitized_and_retained():
     n = story_tone.normalize_deliveries
     assert n(["", "lively, interested", "", ""]) == ["", "lively, interested", "", ""]
-    assert n(["hook, confident", "", "clear emphasis on the key point", ""]) == ["hook, confident", "", "", ""]
+    assert n(["hook, confident", "", "clear emphasis on the key point", ""]) == ["hook, confident", "", "clear emphasis on the key point", ""]
     assert n(None, 3) == ["", "", ""] and n(["hook, confident"], 3) == ["hook, confident", "", ""]
 
 
-def test_never_more_than_the_hook_and_the_ending_change_tone():
+def test_middle_feelings_are_never_dropped():
     out = story_tone.normalize_deliveries(["curious", "intrigued", "building", "surprised", "playful", "amazed"])
-    assert [bool(x) for x in out] == [True, False, False, False, False, True]
+    assert [bool(x) for x in out] == [True] * 6
     assert len(out) == 6
 
 
 def test_every_feel_maps_to_a_mild_hint_that_survives_the_sanitizer():
     # The sanitizer strips acted-delivery words (for example "punch..."); a hint it would cut is no hint at all.
-    for feel in ["curious", "intrigued", "building", "surprised", "amazed", "playful", "satisfied"]:
+    for feel in story_tone.FEEL_HINTS:
         hint = story_tone.feel_hint(feel)
         assert hint and story_tone.sanitize_delivery(hint) == hint, feel
         assert not any(bad in hint for bad in ["whisper", "slow", "sad", "soft", "quiet"]), hint
     assert story_tone.feel_hint("curious ") == story_tone.feel_hint("Curious")
     assert story_tone.feel_hint("some planner direction") == "some planner direction"  # not a feel word: passes through unchanged
+
+
+# codex · gpt-6.1-sol · 2026-11-16 08:59 +02:00: regression for dropped middle beats.
+def test_expanded_feelings_reach_real_sentence_synthesis(tmp_path):
+    feels = list(story_tone.FEEL_HINTS)
+    scenes = [f"You reach place {i}. But the next road is blocked." for i in range(len(feels))]
+    sentences = voiced_sentences(tmp_path, scenes, feels)
+    for i, feel in enumerate(feels):
+        for sentence in sentences[i * 2:i * 2 + 2]:
+            assert story_tone.feel_hint(feel) in sentence.tone
+            assert sentence.tone.startswith(story_tone.NARRATOR)
