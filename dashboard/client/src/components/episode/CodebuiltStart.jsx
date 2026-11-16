@@ -75,7 +75,7 @@ const typesOfChannel = (channel) => Array.isArray(channel?.video_types)
 
 export function resolveChannelForType({ channels = [], channelId = '', type } = {}) {
   const required = blankOrAuto(type) ? [] : [type];
-  const supports = (channel) => typesOfChannel(channel).length > 0 && required.every((item) => typesOfChannel(channel).includes(item));
+  const supports = (channel) => (blankOrAuto(type) ? typesOfChannel(channel).some((item) => item !== 'teardown') : typesOfChannel(channel).length > 0) && required.every((item) => typesOfChannel(channel).includes(item));
   if (channelId) {
     const channel = channels.find((item) => item.id === channelId);
     if (!channel) return { channel: null, error: 'The selected channel is unavailable.' };

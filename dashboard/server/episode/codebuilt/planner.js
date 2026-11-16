@@ -20,7 +20,7 @@ import { SET_PICKER_TEXT, SET_MANUAL_TEXT, SET_NAMES, PROPS_MANUAL_TEXT, PROPS_P
 import { normalizeProductionChoices, scriptChoicesPrompt, buildChoicesPrompt, briefChoicesLine, isWhatIfTopic } from './productionChoices.js';
 import { planShotCadence, shotCountRange, MIN_SHOT_S, MAX_SHOT_S, TARGET_SHOT_S } from './cadence.js';
 import { storyDirection } from './storyDirection.js';
-import { loadCodebuiltBuildSkill, loadCodebuiltGuides } from './skills.js';
+import { loadCodebuiltBuildSkill, loadCodebuiltGuides, guideNamesFor } from './skills.js';
 import { phrasesOf, directionPrompt, checkDirection, directionShotStarts, directionMarkdown, directionLookShots, fallbackDirection, DirectionError } from './direction.js';
 
 export const PLANNER_VERSION = 'codebuilt-planner-v2';
@@ -256,16 +256,11 @@ const compact = (pack) => ({ id: pack.id, skills: pack.skills.map((s) => s.skill
 
 /** Guidance text for one step from the pack's project skills; '' when the pack assigns none or a file is missing (a prompt never fails on guidance). */
 export function guidesFor(pack, step, topic, type) {
-  try {
-    const base = loadCodebuiltGuides({ pack, step, topic });
-    // Type skills (rules.typeSkills[type][step]) load only when the owner's or channel's type says so, never from the topic text.
-    const names = type === 'teardown'
-      ? ['codebuilt-teardown', ...(pack?.rules?.typeSkills?.teardown?.[step] ?? [])]
-      : type ? pack?.rules?.typeSkills?.[type]?.[step] : null;
-    if (!Array.isArray(names) || !names.length) return base;
-    const extra = loadCodebuiltGuides({ pack: { ...pack, rules: { ...pack.rules, skillsByStep: { [step]: names }, topicSkills: [] } }, step });
-    return [base, extra].filter(Boolean).join('\n\n');
-  } catch { return ''; }
+  const names = type === 'teardown'
+    ? ['codebuilt-teardown', ...(pack?.rules?.typeSkills?.teardown?.[step] ?? [])]
+    : type ? pack?.rules?.typeSkills?.[type]?.[step] : [];
+  const combined = [...guideNamesFor(pack, step), ...(Array.isArray(names) ? names : [])];
+  return loadCodebuiltGuides({ pack: { ...pack, rules: { ...pack.rules, skillsByStep: { ...pack.rules.skillsByStep, [step]: combined } } }, step, topic });
 }
 
 /** The block a rewrite gets after a fact check (data, never instructions). '' without corrections, so a first script prompt is unchanged. */
