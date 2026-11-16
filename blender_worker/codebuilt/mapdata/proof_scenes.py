@@ -80,7 +80,7 @@ def scene_highlight(a):
 
 def scene_moved(a):
     scene, cam = fresh(a)
-    h = world_map.build((0, 0, 0), detail="50m", projection="mercator", palette="muted", hide=("ATA",))
+    h = world_map.build((0, 0, 0), detail="50m", projection="mercator", palette="muted", hide=("ATA",), relief=False)
     wm = h["map"]
     wm.set_color("GRL", (0.75, 0.82, 0.95), emission=0.05)
     mv = wm.moving("COD", to="GRL")

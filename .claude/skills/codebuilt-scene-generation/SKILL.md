@@ -60,8 +60,26 @@ Write small helpers once and reuse them: `ease(u)` (smoothstep), `lerp3(a, b, u)
 ## Look and materials
 
 - One palette for the video, 3 to 5 colours plus neutrals. The subject is the most saturated thing; backgrounds are lighter or greyer versions.
-- `materials.col(rgb, rough)` for most things: roughness 0.5 to 0.8 for matte toy surfaces, 0.2 with `Coat_Weight=0.8` for glossy plastic or car paint, 0.08 with coat for water or glass-like surfaces.
-- Skin `(0.90, 0.62, 0.48)`-like tones at roughness 0.5; grass `(0.36, 0.62, 0.3)`; sand `(0.86, 0.74, 0.5)`; rock grey `(0.45, 0.44, 0.46)`; wood `(0.42, 0.26, 0.13)`; water `(0.05, 0.35, 0.7)` opaque.
+- **Physical hero subjects should have readable surface finish; intentional bright map/flag fills, diagrams and flat clay/kids styles are exempt.** Plain `materials.col()` is reserved for background crowd figures, distant scenery, or diagram elements. For every hero subject, vehicle, character prop, building, terrain, or foreground asset, use the procedural surface kit in `blender_worker.codebuilt.materials`:
+  - `materials.wood(name, color=..., rough=0.55, bump=0.2, bevel=0.015)`: natural grain bands, annular rings, bump, and rounded edges.
+  - `materials.brushed_metal(name, color=..., rough=0.35, bump=0.15, anisotropic=0.8, bevel=0.01)`: micro-scratch bump, anisotropic sheen.
+  - `materials.painted_metal(name, paint_color=..., metal_color=..., wear=0.3, bump=0.2, bevel=0.015)`: painted surface with chipped edges exposing bare metal.
+  - `materials.concrete(name, color=..., rough=0.88, bump=0.3, bevel=0.02)`: weathered concrete, pore noise, aggregate variation.
+  - `materials.rock(name, color=..., rough=0.8, bump=0.6, strata=True, bevel=0.025)`: stratified geological layers, cracks, and deep relief.
+  - `materials.water(name, color=..., rough=0.05, bump=0.25)`: generative ripples, glassy IOR 1.333, high specular gloss.
+  - `materials.ice(name, color=..., rough=0.15, sss=0.35, bump=0.2)`: subsurface scatter, fracture lines, frost texture.
+  - `materials.glass(name, color=..., rough=0.02, ior=1.45, alpha=1.0)`: physical transmission, IOR 1.45, specular sheen.
+  - `materials.rubber(name, color=(0.08, 0.08, 0.09), rough=0.75, bump=0.1, bevel=0.02)`: deep matte finish, micro-pore bump, rounded contact edges.
+  - `materials.fabric(name, color=..., rough=0.82, sheen=0.6, bump=0.15)`: micro-weave bump, edge sheen retro-reflection.
+  - `materials.soil(name, color=..., rough=0.92, bump=0.45, wetness=0.0)`: granular clods, dark loam organic variation, moisture.
+  - `materials.grass(name, color=..., rough=0.75, bump=0.35, sss=0.15)`: blade striations, thatch undertone gradient, foliage translucency.
+  - `materials.earth_relief(name, image_path=None, color=None)`: bundled real Natural Earth pre-shaded colour raster, requiring geographic UVs; no elevation bump or invented fallback.
+- **Rounded edges and contact shadows:**
+  - Round contact edges using the `bevel` parameter in material constructors, `materials.add_rounded_edges(mat)`, or `stage.round_edges(obj)`.
+  - Cycles CPU computes contact shadows by ray tracing; no obsolete EEVEE contact-shadow options.
+  - Production contract: configure Cycles CPU and Standard explicitly, as the planner requires; do not use legacy `stage.setup_render`.
+- **Maps:**
+  - Build maps with `world_map.build(origin, projection="equirectangular", palette="relief", relief=True)` which applies real Natural Earth hillshading through geographic UVs on bright country faces, with blue sea. Highlighted countries pop with saturated colors and emission (`wm.highlight("BRA")`).
 - Emission: readouts and glowing marks 0.5 to 3; a sun disc or lava 4 to 8; never an emissive surface over 3 that fills more than a tenth of the frame (it becomes a white blob).
 - Avoid pure black and pure white surfaces; use `(0.03, 0.03, 0.04)` and `(0.93, 0.93, 0.93)`.
 - No transparent materials for water, glass walls or clouds unless the story needs to see through them.
@@ -105,6 +123,8 @@ A diagram drawn in the landscape at the place's scale (a triangle between a towe
 
 ## Before you finish, check your own script
 
+- The very first frame (tile 0 / frame 1 / t = 0) clearly shows the main subject — never start on empty scenery or delay the reveal.
+- The main subject uses procedural materials with bump, grain, and worn/rounded edges (`materials.wood`, `materials.painted_metal`, etc.) ; intentional bright map/flag fills, diagrams and flat clay/kids styles are exempt.
 - Every shot function calls `cam.set`, and for the whole shot the camera is above the ground, inside the sky dome and outside every solid object.
 - The subject of every shot is at the size the framing arithmetic gives, in the upper middle of the frame.
 - Every place has lights in its own collection, and no place is closer than 600 m to another.

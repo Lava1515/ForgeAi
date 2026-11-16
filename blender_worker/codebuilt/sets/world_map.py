@@ -1,10 +1,11 @@
 """Set: world_map. Runs inside Blender. Optional kit for topics that are about where a country is, how big it is or how it borders.
 
-Flat map of the world made of real country shapes (Natural Earth, public domain), one mesh per country, on a dark sea plate, lit by a low sun that
+Flat map of the world made of real country shapes (Natural Earth, public domain), one mesh per country, with real Natural Earth hillshading on country surfaces and a blue sea, lit by a low sun that
 casts shadows of raised countries. The map is `maps.WorldMap` and sits in the XY plane, north = +Y, camera on the south side. Highlight, lift, colour, label,
 true-size moves and camera flights: see blender_worker/codebuilt/maps.py and the skill codebuilt-maps. Build options: world_map.build(origin, detail="110m"|"50m",
-projection="equal_earth"|"equirectangular"|"mercator", palette="continents"|"muted"|"flat", highlight="BRA", only=[...], bbox=(lon0, lat0, lon1, lat1)).
+projection="equal_earth"|"equirectangular"|"mercator", palette="relief"|"continents"|"muted"|"flat", highlight="BRA", only=[...], bbox=(lon0, lat0, lon1, lat1), relief=True).
 Handles: map (the WorldMap), countries (iso -> object), sea.
+Default projection is equirectangular with relief=True. Equal Earth and Mercator require relief=False; use Equal Earth without relief for area comparisons.
 """
 from .. import maps
 from .common import SetBuilder
@@ -13,9 +14,9 @@ NAME = "world_map"
 SUBJECT_LONLAT = (12.0, 38.0)  # the Mediterranean: stays in frame at every registry angle
 
 
-def build(origin=(0.0, 0.0, 0.0), detail="110m", projection="equal_earth", palette="continents", highlight=None, scale=4.0, **kw):
+def build(origin=(0.0, 0.0, 0.0), detail="110m", projection="equirectangular", palette="relief", highlight=None, scale=4.0, relief=True, **kw):
     b = SetBuilder(NAME, origin, seed=3)
-    wm = maps.WorldMap(b.c, detail=detail, projection=projection, palette=palette, scale=scale, origin=b.origin, **kw)
+    wm = maps.WorldMap(b.c, detail=detail, projection=projection, palette=palette, scale=scale, origin=b.origin, relief=relief, **kw)
     if highlight:
         if isinstance(highlight, dict):
             wm.highlight(**highlight)

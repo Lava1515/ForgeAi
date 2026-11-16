@@ -20,8 +20,9 @@ def reset_scene():
     return bpy.context.scene
 
 
-def setup_render(scene, scale=100, samples=24, width=1080, height=1920, background=(0.05, 0.05, 0.06), bg_strength=1.0):
-    """EEVEE, Standard view transform, vertical PNG output, plain dark world."""
+def setup_render(scene, scale=100, samples=24, width=1080, height=1920, background=(0.05, 0.05, 0.06), bg_strength=1.0,
+                 view_transform='Standard', look='None'):
+    """Legacy EEVEE setup; production uses explicit Cycles CPU + Standard in the planner."""
     world = bpy.data.worlds.new("w")
     scene.world = world
     world.use_nodes = True
@@ -34,16 +35,8 @@ def setup_render(scene, scale=100, samples=24, width=1080, height=1920, backgrou
     r.image_settings.file_format = 'PNG'
     r.image_settings.color_mode = 'RGB'
     r.image_settings.compression = 15
-    for k, v in dict(taa_render_samples=samples, use_raytracing=True, use_shadows=True, use_gtao=True).items():
-        try:
-            setattr(scene.eevee, k, v)
-        except Exception as ex:
-            print("eevee option skipped:", k, ex)
-    scene.view_settings.view_transform = 'Standard'
-    try:
-        scene.view_settings.look = 'None'
-    except Exception as ex:
-        print("look skipped:", ex)
+    scene.view_settings.view_transform = view_transform
+    scene.view_settings.look = look
     return scene
 
 
@@ -54,7 +47,7 @@ def _aim(o, pos, target):
     o.rotation_quaternion = (Vector(target) - Vector(pos)).to_track_quat('-Z', 'Y')
 
 
-def area(c, name, pos, target, energy, size, color=(1, 1, 1)):
+def area(c, name, pos, target, energy, size, color=(1, 1, 1), contact_shadow=True, shadow_distance=0.2):
     l = bpy.data.lights.new(name, 'AREA')
     l.energy, l.size, l.color = energy, size, color
     o = bpy.data.objects.new(name, l)
@@ -63,13 +56,32 @@ def area(c, name, pos, target, energy, size, color=(1, 1, 1)):
     return o
 
 
-def sun(c, name, pos, target, energy, color=(1, 1, 1), angle=3.0):
+def sun(c, name, pos, target, energy, color=(1, 1, 1), angle=3.0, contact_shadow=True, shadow_distance=0.2):
     l = bpy.data.lights.new(name, 'SUN')
     l.energy, l.color, l.angle = energy, color, math.radians(angle)
     o = bpy.data.objects.new(name, l)
     _aim(o, pos, target)
     c.objects.link(o)
     return o
+
+
+def contact_shadows(light, distance=0.2, bias=0.05):
+    """Compatibility shim: Cycles computes contact shadows with ordinary ray tracing."""
+    return light
+
+
+def round_edges(obj, width=0.02, segments=2):
+    """Add a Bevel modifier to an object for smooth rounded contact edges."""
+    if hasattr(obj, 'modifiers'):
+        try:
+            bv = obj.modifiers.new("round_edges", 'BEVEL')
+            bv.width = width
+            bv.segments = segments
+            if hasattr(bv, 'limit_method'):
+                bv.limit_method = 'ANGLE'
+        except Exception as ex:
+            print("round_edges skipped:", ex)
+    return obj
 
 
 # ---------------------------------------------------------------- camera

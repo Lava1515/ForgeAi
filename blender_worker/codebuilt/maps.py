@@ -13,7 +13,7 @@ into a small JSON + int16 file per detail (110m: 177 countries, 50m: 242). Loadi
 
 Units: one world unit is 1/scale of the unit-sphere radius; the default scale 4.0 puts 1 km at 4/6371 unit and the whole Equal Earth world at
 21.7 wide. Every projection returns unit-sphere coordinates, so "true size" means the same thing on every map: km / 6371 * scale.
-Projections: "equal_earth" (default, keeps areas honest), "equirectangular", "mercator" (latitude clipped at 85 degrees; the classic
+Projections: "equal_earth" (keeps areas honest; relief=False), "equirectangular" (default; affine raster UVs), "mercator" (latitude clipped at 85 degrees; the classic
 distortion for a size comparison). True-size moves use a Lambert azimuthal equal-area projection around the country's own centre (area exact,
 shape error small up to a hemisphere), then place that shape at the target in the map plane at the scale above.
 Antarctica is skipped by default (hide=("ATA",)). Natural Earth marks some places as disputed (Country.disputed); do not feature them.
@@ -319,7 +319,19 @@ def country_color(c, palette):
         return tuple(v * f for v in (0.30, 0.38, 0.47))
     if palette == "flat":
         return (0.34, 0.42, 0.52)
-    raise ValueError("palette must be 'continents', 'muted' or 'flat'")
+    if palette == "relief":
+        _RELIEF_CONTINENT = {
+            "Africa": (0.48, 0.44, 0.28),
+            "Asia": (0.32, 0.42, 0.26),
+            "Europe": (0.28, 0.42, 0.22),
+            "North America": (0.32, 0.40, 0.25),
+            "South America": (0.22, 0.45, 0.20),
+            "Oceania": (0.45, 0.40, 0.25),
+        }
+        base = _RELIEF_CONTINENT.get(c.continent, (0.32, 0.40, 0.26))
+        f = 0.92 + 0.08 * ((sum(ord(ch) for ch in c.iso) * 7) % 4) / 3.0
+        return tuple(min(1.0, v * f) for v in base)
+    raise ValueError("palette must be 'continents', 'muted', 'flat' or 'relief'")
 
 
 # ------------------------------------------------------------------------------------------------ the map
@@ -337,11 +349,14 @@ class WorldMap:
     Handles: .objs {iso: object}, .sea, .collection, .scale, .origin, .data.
     """
 
-    def __init__(self, c, detail="50m", projection="equal_earth", scale=4.0, origin=(0.0, 0.0, 0.0), thickness=0.08, border=None,
-                 sides=True, palette="continents", hide=("ATA",), only=None, bbox=None, sea_color=(0.05, 0.16, 0.30), sea_margin=4.0):
+    def __init__(self, c, detail="50m", projection="equirectangular", scale=4.0, origin=(0.0, 0.0, 0.0), thickness=0.08, border=None,
+                 sides=True, palette="relief", hide=("ATA",), only=None, bbox=None, sea_color=(0.05, 0.16, 0.30), sea_margin=4.0, relief=True):
         from . import materials, meshes
         if projection not in PROJECTIONS:
             raise ValueError(f"projection must be one of {PROJECTIONS}")
+        if relief and projection != "equirectangular":
+            raise ValueError("relief requires equirectangular projection; use relief=False for equal_earth/mercator")
+        self.relief = relief
         self.c, self.projection, self.scale = c, projection, float(scale)
         self.origin = tuple(float(v) for v in origin)
         self.thickness = float(thickness)
@@ -414,12 +429,21 @@ class WorldMap:
                                    top_z=self.thickness, rings=rings)
 
     def _mesh(self, name, verts, shape, col, origin, meshes, materials):
-        top = materials.pbr(f"map_{name}", col, 0.6, Emission_Color=(*col, 1), Emission_Strength=0.05)
+        top = (materials.earth_relief(f"map_{name}", color=col) if self.relief else
+               materials.pbr(f"map_{name}", col, 0.6, Emission_Color=(*col, 1), Emission_Strength=0.05))
         side = materials.pbr(f"map_{name}_side", tuple(v * 0.55 for v in col), 0.7)
         ob = meshes.mk(f"map_{name}", verts, shape.faces, top, self.c, smooth=False, origin=origin)
         ob.data.materials.append(side)
         ob.data.materials.append(self._border_mat)
         ob.data.polygons.foreach_set("material_index", shape.mat)
+        if self.relief:
+            # Geographic world coords, never local/object bounds or the sea margin.
+            # Equirectangular is affine so UV interpolation is exact even on large triangles.
+            uv = ob.data.uv_layers.new(name="earth_lonlat")
+            for loop in ob.data.loops:
+                x, y = verts[loop.vertex_index, :2]
+                uv.data[loop.index].uv = ((x-self.origin[0])/(2*math.pi*self.scale)+0.5,
+                                         (y-self.origin[1])/(math.pi*self.scale)+0.5)
         ob.data.update()
         return ob
 
@@ -436,6 +460,9 @@ class WorldMap:
         from . import materials
         ob = self.country(key)
         top, side = ob.data.materials[0], ob.data.materials[1]
+        tint = top.node_tree.nodes.get('country_tint')
+        if tint is not None:
+            tint.outputs[0].default_value = (*rgb, 1)
         materials.set_inputs(next(n for n in top.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'),
                              Base_Color=(*rgb, 1), Emission_Color=(*rgb, 1), Emission_Strength=emission)
         materials.set_inputs(next(n for n in side.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), Base_Color=(*[v * 0.55 for v in rgb], 1))

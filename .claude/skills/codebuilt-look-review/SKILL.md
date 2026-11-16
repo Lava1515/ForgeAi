@@ -10,20 +10,23 @@ Project-authored guidance for the visual check. It restates, for this pipeline, 
 ## How to look
 
 1. Go through the tiles shot by shot and write what is actually visible, not what the script intends. If you cannot tell what a tile shows, that is the finding.
-2. For each shot answer four questions: Is it the place and subject the direction asked for? Is the subject large and in the upper middle of the frame? Is it lit so it can be read? Did something change between this shot's tiles?
-3. Judge as a viewer on a phone who sees each shot for a few seconds. Small, dark or confusing is a fault even if it is technically correct.
-4. Then judge the whole: one palette, a recurring character that stays the same, alternating framings, an ending that is a finished picture.
+2. For each shot answer five questions: Is the subject immediately visible on the very first frame (tile 0 / frame 1 of shot 0)? Is it the place and subject the direction asked for? Is the subject large and in the upper middle of the frame? Is it lit so it can be read? Did something change between this shot's tiles?
+3. Check surface finish: Does the main subject have rich surface texture (wood grain, brushed or painted metal with worn edges, concrete pores, rock strata, fabric sheen, bump, rounded edges), or is it a flat untextured solid colour? Flag unintended flat physical subjects. Intentional map/flag fills, diagrams and flat clay/kids styles are exempt.
+4. Judge as a viewer on a phone who sees each shot for a few seconds. Small, dark or confusing is a fault even if it is technically correct.
+5. Then judge the whole: one palette, a recurring character that stays the same, alternating framings, an ending that is a finished picture.
 
 ## Severity
 
-- P0: the shot cannot ship. A flat single-colour frame, a black frame, a white blob instead of the subject, a subject that is a dot or absent, a place unrelated to the words, a plate or wall covering the view, a missing planned shot.
-- P1: the shot should be fixed. Subject cut by the frame edge, too small, low in the caption band, leftover objects from another shot, identical tiles within a shot, two neighbouring shots that look the same, text unreadable, a floating or intersecting object, an empty ending.
+- P0: the shot cannot ship. A flat single-colour frame, a black frame, a white blob instead of the subject, a subject that is a dot or absent, a first frame that does not show the subject (opening on empty scenery, ground, or sky before the subject arrives, losing the viewer in the first second), a place unrelated to the words, a plate or wall covering the view, a missing planned shot.
+- P1: the shot should be fixed. Unintentionally flat physical main subject (intentional bright map/flag fills, diagrams and flat clay/kids styles exempt; the hero subject uses plain untextured solid colour without bump, grain, worn edges, or procedural surface definition instead of the surface kit: `materials.wood`, `materials.painted_metal`, `materials.brushed_metal`, `materials.concrete`, `materials.rock`, `materials.fabric`, `materials.earth_relief`, etc.), subject cut by the frame edge, too small, low in the caption band, leftover objects from another shot, identical tiles within a shot, two neighbouring shots that look the same, text unreadable, a floating or intersecting object, an empty ending.
 - P2: a note. Do not spend edits on P2 while a P0 or P1 remains.
 
 ## Diagnose from the numbers in the script
 
 Always find the cause in the script before writing an edit. Read the place's origin, the subject's position and size, and the `cam.set` pose of the shot.
 
+- First frame missing subject: shot 0 opens with the camera pointed at empty space, or the subject is scaled `(0, 0, 0)` or positioned off-camera waiting for a cue time. Fix: pose the main subject in frame on frame 0 (t = 0) so the video immediately hooks the viewer.
+- Flat-colour main subject: the script assigned `materials.col(...)` to the hero subject or primary props. Fix: replace with the appropriate procedural surface from `materials` (`materials.painted_metal`, `materials.wood`, `materials.brushed_metal`, `materials.concrete`, `materials.rock`, `materials.fabric`, `materials.soil`, `materials.grass`, `materials.rubber`, `materials.water`, `materials.ice`, `materials.glass`, `materials.earth_relief`) with `bump` and `bevel` (rounded edges) or `wear` (worn edges).
 - One flat colour: the camera is inside or facing a large surface. Compare the camera position with the ground height, the sky dome radius and centre, the walls, and any backdrop card of a ready set (the space sets have one about 45 m behind the subject; cameras must stay on the -Y side). A camera beyond the radius of a sky dome sees the dome's outside, also one flat colour. Move the camera to a tested pose of the set or recompute it from the subject.
 - Black or very dark: the place has no light of its own, the light is in another place's collection, the light is hundreds of metres away, or the camera looks away from everything. Add or move lights into this place's collection; for an area light, quadruple the watts for double the distance.
 - White blob: an emissive surface over strength 3 near the camera, or an area light of tens of kilowatts a few metres from the subject. Lower the strength or move the light back.
