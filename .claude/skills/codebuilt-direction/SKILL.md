@@ -27,6 +27,7 @@ The shot list of the Earth-stops short, the one the owner liked: a spinning glob
 - Something moves from the first frame of a shot. A still object with a drifting camera is the weakest shot there is.
 - The view changes every 2 to 4 seconds. A shot longer than 4 seconds gets a second beat: the camera changes framing or the action enters a new phase.
 - Alternate framings between neighbours: wide then close, high then low, front then side. Never two wides in a row.
+- On a map video, something new lands on the picture with every spoken phrase: a country fill, a label, a route segment, a marker, or a zoom to the next place the narration names. Write in each shot what lands on which phrase. No shot holds an unchanged picture for more than about 3 seconds; a held map on which new fills and labels keep landing counts as change and is often the best shot.
 - The first shot shows the question inside the first second (the subject already on screen at frame 0, no fade from black, no empty establishing shot).
 - The last shot is a finished picture: the pay-off or a return to the opening image.
 - Follow one character or object through the video when the story has one, and keep it looking the same.

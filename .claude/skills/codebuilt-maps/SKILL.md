@@ -58,7 +58,11 @@ Dim the rest when one country is the story: use `palette="muted", relief=True` a
 
 ## Look and light
 
-`world_map.build` adds a sun and a fill light and uses a dark blue world colour. Standard view transform, exposure 0. Highlight emission above 0.3 washes the colour to white: keep the default. Text and markers are emissive. Production uses Cycles CPU; do not assume EEVEE matches. A world or region map is a table-top: add a second beat with a camera change every 2 to 4 seconds, not static labels.
+`world_map.build` adds a sun and a fill light and uses a dark blue world colour. Standard view transform, exposure 0. Highlight emission above 0.3 washes the colour to white: keep the default. Text and markers are emissive. Production uses Cycles CPU; do not assume EEVEE matches. A world or region map is a table-top: never leave it unchanged for more than about 3 seconds.
+
+## One new thing per phrase
+
+Winning map Shorts land something new on the map with every spoken phrase: a country fill (`set_color`, `highlight`), a label, a route segment, a marker (`ping`), or a zoom to the next place (`maps.fly`). Drive each one from the measured time of the word that names it. A held camera on a map where fills and labels keep landing counts as change; a static shot of an unlabelled shape does not.
 
 ## Cost
 
