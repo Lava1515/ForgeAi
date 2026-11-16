@@ -4,7 +4,7 @@
 // to the topic pick, the script prompt, the fact check and the build planner prompt, so a choice made before the run shapes the video and not only its topic.
 // Free text (genre, theme) is data in a quoted JSON string with a closed character set, never an instruction. The single-job route passes no choices and its
 // prompts are unchanged.
-export const CHOICE_TYPES = Object.freeze(['factual', 'whatif', 'history']);
+export const CHOICE_TYPES = Object.freeze(['factual', 'whatif', 'history', 'teardown']);
 export const TEXT_CHOICE = /^[\p{L}\p{N} ,.'&/+()-]{1,60}$/u;
 export const isWhatIfTopic = (topic) => typeof topic === 'string' && /^what if\b/i.test(topic.trim()) && topic.trim().endsWith('?');
 
@@ -25,11 +25,13 @@ const TYPE_SCRIPT = Object.freeze({
   factual: 'Video type: factual explainer. Every statement is a real-world fact that can be checked; no hypotheticals.',
   whatif: 'Video type: what-if. The topic is a hypothetical question: open by posing it, say plainly that it is hypothetical, then reason step by step from real physics with checkable numbers. Every real-world fact you state must still be true.',
   history: 'Video type: history. A true account of a real period, told through documented people and places. Every date, number, name and place must come from a source that can be named; give dates as years or exact dates only when sourced, and say "about" or "around" when the record is uncertain. No invented dialogue, thoughts or events; where the record is silent, say so. No hypotheticals.',
+  teardown: 'Video type: teardown. Explain how the stealth jet works by tracing its parts and subsystems. Separate sourced real-world facts from the illustrative procedural model; never imply the model is a verified aircraft. No hypotheticals.',
 });
 const TYPE_BUILD = Object.freeze({
   factual: 'Type factual: show the real thing as it is.',
   whatif: 'Type what-if: the premise is hypothetical, so the first shot must show the question and the setup clearly labelled as a hypothetical.',
   history: 'Type history: show the real period, places and people (as maps, buildings, objects, simple figures) with the year or date on screen where it is sourced; mark reconstructions as reconstructions and never show an invented scene as a record.',
+  teardown: 'Type teardown: use the stealth_jet_teardown set as the main scene throughout. Build it with stealth_jet_teardown.build(origin), then show its assembled form and clearly staged subsystem and part breakdowns. Do not substitute another set or a generic jet model.',
 });
 
 /** The block the script prompt gets. '' when there are no choices (the single-job prompt stays byte for byte as it was). */

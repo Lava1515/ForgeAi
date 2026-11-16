@@ -27,7 +27,7 @@ import { isWhatIfTopic } from './productionChoices.js';
 export const RUN_VERSION = 'codebuilt-run-v1';
 export const MAX_COUNT = 10;
 export const DEFAULT_COUNT = 1;
-export const TYPES = Object.freeze(['factual', 'whatif', 'history']);
+export const TYPES = Object.freeze(['factual', 'whatif', 'history', 'teardown']);
 export const RUN_DIR = '.runs';
 export const ACTIVE_RUN = Object.freeze(['queued', 'running', 'aborting']);
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
@@ -234,7 +234,7 @@ export function createCodebuiltRunCoordinator({
       const out = decide('contentMode', { custom_theme_text: c.topic ?? c.theme ?? inspiration });
       type = out.body.contentMode === 'whatif' ? 'whatif' : 'factual';
       const assigned = cleanChannelVideoTypes(channel?.video_types);
-      if (!assigned.includes(type)) type = assigned[0];
+      if (!assigned.includes(type)) type = assigned.find((candidate) => candidate !== 'teardown') ?? type;
       resolved.type = { source: 'auto', reason: out.resolved.contentMode?.reason ?? 'default', value: type };
     }
     let topic = c.topic;

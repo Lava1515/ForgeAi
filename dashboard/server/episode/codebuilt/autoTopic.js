@@ -53,7 +53,7 @@ function promptFor({ genre, theme, type, inspiration, previousTopics, profile })
   const whatif = type === 'whatif';
   return [
     `Propose ${MAX_CANDIDATES_ASKED} different topics for one vertical educational short on a faceless 3D channel. Each must be explainable with simple 3D scenes and real, checkable numbers.`,
-    whatif ? 'Every topic must be a "What if ...?" question about real physics or science.' : type === 'history' ? 'Every topic is a true historical question or claim about a real period, with documented people and places, named dates and numbers that a source states. Never a "What if ...?" question and never invented events.' : 'Every topic is a factual question or claim with a true, checkable answer. Never a "What if ...?" question.',
+    whatif ? 'Every topic must be a "What if ...?" question about real physics or science.' : type === 'history' ? 'Every topic is a true historical question or claim about a real period, with documented people and places, named dates and numbers that a source states. Never a "What if ...?" question and never invented events.' : type === 'teardown' ? 'Every topic must explain a specific part, subsystem, or design principle of the stealth jet, with real claims that can be sourced. Never a "What if ...?" question.' : 'Every topic is a factual question or claim with a true, checkable answer. Never a "What if ...?" question.',
     'Each topic is a full question or claim of about 6 to 10 words (guidance, not a limit) that names one concrete subject and the stake for it, shows a visible payoff the video can picture, and has no hashtags, no lists and no "things that..." wording.',
     storyDirection(type),
     genre ? `Genre: ${JSON.stringify(genre)}` : 'Genre: any',
@@ -73,7 +73,7 @@ function profilePrompt({ genre, theme, type, inspiration, previousTopics, profil
     `Genre: ${JSON.stringify(genre)}; theme: ${JSON.stringify(theme)}; inspiration: ${JSON.stringify(inspiration)}`,
     `Already made or chosen, do not repeat subject or title wording: ${JSON.stringify(previousTopics.slice(-20))}`,
     'Each title must name one concrete subject with a stake, be a full question or claim in 6 to 10 words, no hashtags or lists. State a visible payoff and a one-sentence answer. Avoid every phrase in the profile avoid list. Write in the profile language.',
-    `Narrated ${type}: ${type === 'whatif' ? 'a What if question' : type === 'history' ? 'a question or claim about a real historical period with documented people, places and sourced dates, never What if' : 'a factual question or claim, never What if'}. Include at least 3 facts with numeric value (a year counts) and source, and 7 to 9 visually different shots in at least 3 locations.`,
+    `Narrated ${type}: ${type === 'whatif' ? 'a What if question' : type === 'history' ? 'a question or claim about a real historical period with documented people, places and sourced dates, never What if' : type === 'teardown' ? 'an explanation of a stealth jet part or subsystem, with sourced real-world facts' : 'a factual question or claim, never What if'}. Include at least 3 facts with numeric value (a year counts) and source, and 7 to 9 visually different shots in at least 3 locations.`,
     'Reply with one JSON object: {"candidates":[{"topic":"...","title":"...","subject":"one named thing","stake":"what is at stake","answer":"one sentence","hook":"...","payoff":"visible resolution","facts":[{"value":1,"source":"..."}],"tags":[]}]} . shots is [{"visual":"...","location":"..."}].',
   ].filter(Boolean).join('\n');
 }
