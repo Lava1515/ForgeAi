@@ -347,12 +347,22 @@
     {
       "id": "naturalearth:raster",
       "kind": "asset",
-      "use": "Earth relief and shaded relief raster base for the map kit (cross-blended hypso / natural earth raster in mapdata)",
+      "use": "Natural Earth II shaded relief and water, reduced to 4096x2048 JPEG for country surface UVs",
+      "download_url": "https://naturalearth.s3.amazonaws.com/50m_raster/NE2_50M_SR_W.zip",
+      "source_file": "NE2_50M_SR_W/NE2_50M_SR_W.tif",
+      "local_file": "blender_worker/codebuilt/mapdata/ne2_50m_sr_w_4096.jpg",
       "licence": "Public domain (Natural Earth terms of use; personal, educational and commercial use allowed, crediting unnecessary)",
       "allowed": true,
       "source": "https://www.naturalearthdata.com/about/terms-of-use/",
       "checked": "2026-11-16",
-      "checked_how": "terms of use page read: all vector and raster data in the public domain, personal, educational and commercial use allowed, crediting unnecessary"
+      "checked_how": "codex Â· gpt-6.1-sol, 2026-11-16: official terms and 50m Natural Earth II page read before download; all raster data public domain, commercial use permitted, credit optional",
+      "sha256": "c01595a22aaf3c979be4dc076db48ce1eec8fa62cacc861882e52efe4bab933d",
+      "download_sha256": "7e0e07089b699a3cccad98dd1b2446390d8e3f8c5006359d477a329cebcafaa9",
+      "dimensions": [
+        4096,
+        2048
+      ],
+      "bytes": 1927088
     },
     {
       "id": "polyhaven:textures",

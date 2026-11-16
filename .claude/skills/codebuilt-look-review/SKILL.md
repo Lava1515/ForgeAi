@@ -11,14 +11,14 @@ Project-authored guidance for the visual check. It restates, for this pipeline, 
 
 1. Go through the tiles shot by shot and write what is actually visible, not what the script intends. If you cannot tell what a tile shows, that is the finding.
 2. For each shot answer five questions: Is the subject immediately visible on the very first frame (tile 0 / frame 1 of shot 0)? Is it the place and subject the direction asked for? Is the subject large and in the upper middle of the frame? Is it lit so it can be read? Did something change between this shot's tiles?
-3. Check surface finish: Does the main subject have rich surface texture (wood grain, brushed or painted metal with worn edges, concrete pores, rock strata, fabric sheen, bump, rounded edges), or is it a flat untextured solid colour? Flag flat-colour main subjects.
+3. Check surface finish: Does the main subject have rich surface texture (wood grain, brushed or painted metal with worn edges, concrete pores, rock strata, fabric sheen, bump, rounded edges), or is it a flat untextured solid colour? Flag unintended flat physical subjects. Intentional map/flag fills, diagrams and flat clay/kids styles are exempt.
 4. Judge as a viewer on a phone who sees each shot for a few seconds. Small, dark or confusing is a fault even if it is technically correct.
 5. Then judge the whole: one palette, a recurring character that stays the same, alternating framings, an ending that is a finished picture.
 
 ## Severity
 
 - P0: the shot cannot ship. A flat single-colour frame, a black frame, a white blob instead of the subject, a subject that is a dot or absent, a first frame that does not show the subject (opening on empty scenery, ground, or sky before the subject arrives, losing the viewer in the first second), a place unrelated to the words, a plate or wall covering the view, a missing planned shot.
-- P1: the shot should be fixed. Flat-colour main subject (the hero subject uses plain untextured solid colour without bump, grain, worn edges, or procedural surface definition instead of the surface kit: `materials.wood`, `materials.painted_metal`, `materials.brushed_metal`, `materials.concrete`, `materials.rock`, `materials.fabric`, `materials.earth_relief`, etc.), subject cut by the frame edge, too small, low in the caption band, leftover objects from another shot, identical tiles within a shot, two neighbouring shots that look the same, text unreadable, a floating or intersecting object, an empty ending.
+- P1: the shot should be fixed. Unintentionally flat physical main subject (intentional bright map/flag fills, diagrams and flat clay/kids styles exempt; the hero subject uses plain untextured solid colour without bump, grain, worn edges, or procedural surface definition instead of the surface kit: `materials.wood`, `materials.painted_metal`, `materials.brushed_metal`, `materials.concrete`, `materials.rock`, `materials.fabric`, `materials.earth_relief`, etc.), subject cut by the frame edge, too small, low in the caption band, leftover objects from another shot, identical tiles within a shot, two neighbouring shots that look the same, text unreadable, a floating or intersecting object, an empty ending.
 - P2: a note. Do not spend edits on P2 while a P0 or P1 remains.
 
 ## Diagnose from the numbers in the script

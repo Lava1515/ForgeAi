@@ -84,7 +84,18 @@ def add_worn_edges(mat, wear=0.3, metal_color=(0.7, 0.72, 0.75), scale=8.0):
         no.inputs["Detail"].default_value = 5.0
     nt.links.new(tc.outputs["Object"], no.inputs["Vector"])
 
-    t = max(0.01, min(0.99, 1.0 - wear))
+    wear = max(0.0, min(1.0, wear))
+    geo = nt.nodes.new('ShaderNodeNewGeometry')
+    edge = nt.nodes.new('ShaderNodeMapRange')
+    edge.clamp = True
+    edge.inputs['From Min'].default_value = 0.5
+    edge.inputs['From Max'].default_value = 0.58
+    edge.inputs['To Max'].default_value = wear
+    nt.links.new(geo.outputs['Pointiness'], edge.inputs['Value'])
+    mask = nt.nodes.new('ShaderNodeMath'); mask.operation = 'MULTIPLY'
+    nt.links.new(edge.outputs['Result'], mask.inputs[0])
+    nt.links.new(no.outputs[0], mask.inputs[1])
+    t = 0.12
     ramp_col = nt.nodes.new('ShaderNodeValToRGB')
     orig_col = list(b.inputs["Base Color"].default_value)[:3]
     ramp_col.color_ramp.elements[0].position = max(0.0, t - 0.05)
@@ -98,9 +109,9 @@ def add_worn_edges(mat, wear=0.3, metal_color=(0.7, 0.72, 0.75), scale=8.0):
     ramp_met.color_ramp.elements[1].position = min(1.0, t + 0.05)
     ramp_met.color_ramp.elements[1].color = (1, 1, 1, 1)
 
-    nt.links.new(no.outputs[0], ramp_col.inputs[0])
+    nt.links.new(mask.outputs[0], ramp_col.inputs[0])
     nt.links.new(ramp_col.outputs[0], b.inputs["Base Color"])
-    nt.links.new(no.outputs[0], ramp_met.inputs[0])
+    nt.links.new(mask.outputs[0], ramp_met.inputs[0])
     nt.links.new(ramp_met.outputs[0], b.inputs["Metallic"])
     return mat
 
@@ -244,7 +255,18 @@ def painted_metal(name, paint_color=(0.15, 0.35, 0.7), metal_color=(0.7, 0.72, 0
         no.inputs["Detail"].default_value = 5.0
     nt.links.new(tc.outputs["Object"], no.inputs["Vector"])
 
-    t = max(0.01, min(0.99, 1.0 - wear))
+    wear = max(0.0, min(1.0, wear))
+    geo = nt.nodes.new('ShaderNodeNewGeometry')
+    edge = nt.nodes.new('ShaderNodeMapRange')
+    edge.clamp = True
+    edge.inputs['From Min'].default_value = 0.5
+    edge.inputs['From Max'].default_value = 0.58
+    edge.inputs['To Max'].default_value = wear
+    nt.links.new(geo.outputs['Pointiness'], edge.inputs['Value'])
+    mask = nt.nodes.new('ShaderNodeMath'); mask.operation = 'MULTIPLY'
+    nt.links.new(edge.outputs['Result'], mask.inputs[0])
+    nt.links.new(no.outputs[0], mask.inputs[1])
+    t = 0.12
     ramp_col = nt.nodes.new('ShaderNodeValToRGB')
     ramp_col.color_ramp.elements[0].position = max(0.0, t - 0.04)
     ramp_col.color_ramp.elements[0].color = (*paint_color, 1)
@@ -263,11 +285,11 @@ def painted_metal(name, paint_color=(0.15, 0.35, 0.7), metal_color=(0.7, 0.72, 0
     ramp_rough.color_ramp.elements[1].position = min(1.0, t + 0.04)
     ramp_rough.color_ramp.elements[1].color = (0.22, 0.22, 0.22, 1)
 
-    nt.links.new(no.outputs[0], ramp_col.inputs[0])
+    nt.links.new(mask.outputs[0], ramp_col.inputs[0])
     nt.links.new(ramp_col.outputs[0], b.inputs["Base Color"])
-    nt.links.new(no.outputs[0], ramp_met.inputs[0])
+    nt.links.new(mask.outputs[0], ramp_met.inputs[0])
     nt.links.new(ramp_met.outputs[0], b.inputs["Metallic"])
-    nt.links.new(no.outputs[0], ramp_rough.inputs[0])
+    nt.links.new(mask.outputs[0], ramp_rough.inputs[0])
     nt.links.new(ramp_rough.outputs[0], b.inputs["Roughness"])
 
     _attach_normal(nt, b, bump_height=no.outputs[0], bump_strength=bump, bevel_radius=bevel)
@@ -393,7 +415,7 @@ def ice(name, color=(0.78, 0.88, 0.95), rough=0.15, sss=0.35, scale=8.0, bump=0.
     return m
 
 
-def glass(name, color=(0.95, 0.97, 1.0), rough=0.02, ior=1.45, alpha=0.3, bevel=0.01):
+def glass(name, color=(0.95, 0.97, 1.0), rough=0.02, ior=1.45, alpha=1.0, bevel=0.01):
     """Architectural and prop glass with physical transmission, IOR 1.45, and edge bevel."""
     m = pbr(name, color, rough=rough, alpha=alpha, Transmission_Weight=1.0, IOR=ior, Specular_IOR_Level=0.5)
     nt = m.node_tree
@@ -495,56 +517,41 @@ def grass(name, color=(0.22, 0.45, 0.16), color_dark=(0.14, 0.32, 0.09),
     return m
 
 
-def earth_relief(name="earth_relief", relief_type="hypsometric", bump=0.4, scale=1.0, image_path=None):
-    """Shaded-relief and hypsometric Earth base for maps (underneath country fills)."""
-    m = pbr(name, (0.05, 0.16, 0.30), rough=0.6)
-    nt = m.node_tree
-    b = _principled(m)
+def earth_relief(name="earth_relief", image_path=None, color=None):
+    """Real pre-shaded Natural Earth colour raster; requires geographic UVs.
+
+    This is cartographic hillshading, NOT an elevation grid: no colour-as-height bump.
+    Optional country tint multiplies the relief so bright fills keep geographic detail.
+    Missing/corrupt assets raise; no fictional terrain fallback.
+    """
+    import os
+    image_path = image_path or os.path.join(os.path.dirname(__file__), "mapdata", "ne2_50m_sr_w_4096.jpg")
+    img = bpy.data.images.load(image_path, check_existing=True)
+    m = pbr(name, color or (1, 1, 1), rough=0.85)
+    nt, b = m.node_tree, _principled(m)
+    tex = nt.nodes.new('ShaderNodeTexImage')
+    tex.image, tex.extension = img, 'EXTEND'
     tc = nt.nodes.new('ShaderNodeTexCoord')
-
-    if image_path:
-        try:
-            img = bpy.data.images.load(image_path)
-            tex = nt.nodes.new('ShaderNodeTexImage')
-            tex.image = img
-            nt.links.new(tc.outputs["UV" if "UV" in tc.outputs else "Generated"], tex.inputs["Vector"])
-            nt.links.new(tex.outputs["Color"], b.inputs["Base Color"])
-            _attach_normal(nt, b, bump_height=tex.outputs["Color"], bump_strength=bump)
-            return m
-        except Exception as ex:
-            print("image load skipped, falling back to procedural relief:", ex)
-
-    # Procedural shaded relief terrain / hypsometric tints
-    no = nt.nodes.new('ShaderNodeTexNoise')
-    no.inputs["Scale"].default_value = 8.0 * scale
-    if "Detail" in no.inputs:
-        no.inputs["Detail"].default_value = 6.0
-    if "Roughness" in no.inputs:
-        no.inputs["Roughness"].default_value = 0.7
-    wv = nt.nodes.new('ShaderNodeTexWave')
-    wv.inputs["Scale"].default_value = 4.0 * scale
-    wv.inputs["Distortion"].default_value = 5.0
-
-    ramp = nt.nodes.new('ShaderNodeValToRGB')
-    elements = ramp.color_ramp.elements
-    # Hypsometric gradient: ocean deep -> shelf -> lowland -> plateau -> mountain -> snow
-    elements[0].position = 0.0
-    elements[0].color = (0.02, 0.08, 0.20, 1.0)
-    elements[1].position = 1.0
-    elements[1].color = (0.88, 0.90, 0.94, 1.0)
-    for pos, col in [(0.32, (0.06, 0.24, 0.36)), (0.40, (0.18, 0.34, 0.15)),
-                     (0.62, (0.50, 0.45, 0.26)), (0.82, (0.40, 0.32, 0.24))]:
-        try:
-            el = elements.new(pos)
-            el.color = (*col, 1.0)
-        except Exception:
-            pass
-
-    nt.links.new(tc.outputs["Object"], no.inputs["Vector"])
-    nt.links.new(tc.outputs["Object"], wv.inputs["Vector"])
-    nt.links.new(no.outputs[0], ramp.inputs[0])
-    nt.links.new(ramp.outputs[0], b.inputs["Base Color"])
-    _attach_normal(nt, b, bump_height=no.outputs[0], bump_strength=bump)
+    nt.links.new(tc.outputs['UV'], tex.inputs['Vector'])
+    out = tex.outputs['Color']
+    if color is not None:
+        # Luminance of real hillshading modulates the fill, preserving its hue.
+        gray = nt.nodes.new('ShaderNodeRGBToBW')
+        nt.links.new(out, gray.inputs[0])
+        ramp = nt.nodes.new('ShaderNodeValToRGB')
+        ramp.color_ramp.elements[0].color = (0.18, 0.18, 0.18, 1)
+        ramp.color_ramp.elements[1].color = (1, 1, 1, 1)
+        nt.links.new(gray.outputs[0], ramp.inputs[0])
+        mix = nt.nodes.new('ShaderNodeMixRGB')
+        mix.blend_type = 'MULTIPLY'
+        mix.inputs[0].default_value = 1
+        # Base Color stays editable by WorldMap.set_color/highlight.
+        rgb = nt.nodes.new('ShaderNodeRGB'); rgb.name = 'country_tint'
+        rgb.outputs[0].default_value = (*color, 1)
+        nt.links.new(rgb.outputs[0], mix.inputs[1])
+        nt.links.new(ramp.outputs[0], mix.inputs[2])
+        out = mix.outputs[0]
+    nt.links.new(out, b.inputs['Base Color'])
     return m
 
 

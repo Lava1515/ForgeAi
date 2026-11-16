@@ -60,7 +60,7 @@ Write small helpers once and reuse them: `ease(u)` (smoothstep), `lerp3(a, b, u)
 ## Look and materials
 
 - One palette for the video, 3 to 5 colours plus neutrals. The subject is the most saturated thing; backgrounds are lighter or greyer versions.
-- **The main subject must NEVER be flat solid colour.** Plain `materials.col()` is reserved for background crowd figures, distant scenery, or diagram elements. For every hero subject, vehicle, character prop, building, terrain, or foreground asset, use the procedural surface kit in `blender_worker.codebuilt.materials`:
+- **Physical hero subjects should have readable surface finish; intentional bright map/flag fills, diagrams and flat clay/kids styles are exempt.** Plain `materials.col()` is reserved for background crowd figures, distant scenery, or diagram elements. For every hero subject, vehicle, character prop, building, terrain, or foreground asset, use the procedural surface kit in `blender_worker.codebuilt.materials`:
   - `materials.wood(name, color=..., rough=0.55, bump=0.2, bevel=0.015)`: natural grain bands, annular rings, bump, and rounded edges.
   - `materials.brushed_metal(name, color=..., rough=0.35, bump=0.15, anisotropic=0.8, bevel=0.01)`: micro-scratch bump, anisotropic sheen.
   - `materials.painted_metal(name, paint_color=..., metal_color=..., wear=0.3, bump=0.2, bevel=0.015)`: painted surface with chipped edges exposing bare metal.
@@ -68,18 +68,18 @@ Write small helpers once and reuse them: `ease(u)` (smoothstep), `lerp3(a, b, u)
   - `materials.rock(name, color=..., rough=0.8, bump=0.6, strata=True, bevel=0.025)`: stratified geological layers, cracks, and deep relief.
   - `materials.water(name, color=..., rough=0.05, bump=0.25)`: generative ripples, glassy IOR 1.333, high specular gloss.
   - `materials.ice(name, color=..., rough=0.15, sss=0.35, bump=0.2)`: subsurface scatter, fracture lines, frost texture.
-  - `materials.glass(name, color=..., rough=0.02, ior=1.45, alpha=0.3)`: physical transmission, IOR 1.45, specular sheen.
+  - `materials.glass(name, color=..., rough=0.02, ior=1.45, alpha=1.0)`: physical transmission, IOR 1.45, specular sheen.
   - `materials.rubber(name, color=(0.08, 0.08, 0.09), rough=0.75, bump=0.1, bevel=0.02)`: deep matte finish, micro-pore bump, rounded contact edges.
   - `materials.fabric(name, color=..., rough=0.82, sheen=0.6, bump=0.15)`: micro-weave bump, edge sheen retro-reflection.
   - `materials.soil(name, color=..., rough=0.92, bump=0.45, wetness=0.0)`: granular clods, dark loam organic variation, moisture.
   - `materials.grass(name, color=..., rough=0.75, bump=0.35, sss=0.15)`: blade striations, thatch undertone gradient, foliage translucency.
-  - `materials.earth_relief(name, bump=0.4, scale=1.0)`: shaded-relief Earth base with hypsometric elevation tints and mountain relief under country maps.
+  - `materials.earth_relief(name, image_path=None, color=None)`: bundled real Natural Earth pre-shaded colour raster, requiring geographic UVs; no elevation bump or invented fallback.
 - **Rounded edges and contact shadows:**
   - Round contact edges using the `bevel` parameter in material constructors, `materials.add_rounded_edges(mat)`, or `stage.round_edges(obj)`.
-  - Contact shadows: `stage.area` and `stage.sun` enable contact shadows by default (`contact_shadow=True`), anchoring objects to their surfaces.
-  - Richer view transform: `stage.setup_render` applies the `AgX` view transform (or `Filmic`) with `Punchy` contrast.
+  - Cycles CPU computes contact shadows by ray tracing; no obsolete EEVEE contact-shadow options.
+  - Production contract: configure Cycles CPU and Standard explicitly, as the planner requires; do not use legacy `stage.setup_render`.
 - **Maps:**
-  - Build maps with `world_map.build(origin, palette="relief", relief=True)` which places a shaded-relief Earth base with hypsometric tints under bright country fills. Highlighted countries pop with saturated colors and emission (`wm.highlight("BRA")`).
+  - Build maps with `world_map.build(origin, projection="equirectangular", palette="relief", relief=True)` which applies real Natural Earth hillshading through geographic UVs on bright country faces, with blue sea. Highlighted countries pop with saturated colors and emission (`wm.highlight("BRA")`).
 - Emission: readouts and glowing marks 0.5 to 3; a sun disc or lava 4 to 8; never an emissive surface over 3 that fills more than a tenth of the frame (it becomes a white blob).
 - Avoid pure black and pure white surfaces; use `(0.03, 0.03, 0.04)` and `(0.93, 0.93, 0.93)`.
 - No transparent materials for water, glass walls or clouds unless the story needs to see through them.
@@ -87,7 +87,8 @@ Write small helpers once and reuse them: `ease(u)` (smoothstep), `lerp3(a, b, u)
 ## Lighting
 
 - Daylight exterior: `stage.sun` energy 2.5 to 4, warm `(1.0, 0.96, 0.88)`, from the camera's side and above (pos about (-30, -40, 60) relative to the place); one `stage.area` fill of 8,000 to 15,000 W, size 30, cool `(0.75, 0.87, 1.0)`, from the other side at 30 to 40 m; an emissive `props.sky`.
-- Night exterior: no sun; one cool area "moonlight" of 6,000 to 10,000 W `(0.6, 0.7, 1.0)` from above and behind the camera, warm point or area lights of 300 to 1,500 W at lamps and windows, a night `props.sky` and `props.stars`.\n- Space: one strong key area light of 20,000 to 60,000 W, size 10 to 20, at 30 to 45 m to one side of the camera, and a blue rim of a third of that from behind on the other side. World colour near black `(0.0, 0.0, 0.01)`.
+- Night exterior: no sun; one cool area "moonlight" of 6,000 to 10,000 W `(0.6, 0.7, 1.0)` from above and behind the camera, warm point or area lights of 300 to 1,500 W at lamps and windows, a night `props.sky` and `props.stars`.
+- Space: one strong key area light of 20,000 to 60,000 W, size 10 to 20, at 30 to 45 m to one side of the camera, and a blue rim of a third of that from behind on the other side. World colour near black `(0.0, 0.0, 0.01)`.
 - Interior: a key area of 400 to 1,200 W at 3 to 5 m in front and above, a fill of a third of it from the other side, a rim behind, and the window or lamp as an emissive.
 - Key to fill about 3 to 1. Light every place separately, inside its own collection. Area light power falls with the square of the distance: at twice the distance use four times the watts.
 - World background: set it to the sky's horizon colour for exteriors, so anything the dome does not cover is not black.
@@ -114,7 +115,8 @@ A diagram drawn in the landscape at the place's scale (a triangle between a towe
 ## Effects from simple meshes
 
 - Dust, smoke, steam, snow, debris: `props.puffs`. For each puff with phase p: age `a = (local - start) * speed - p`; if 0 < a < 1 place it at `origin + dir * a * spread` plus a rise, with scale `sin(pi * a)`; else scale 0.
-- Speed, wind, rain: `props.streaks`, each sliding along its axis modulo a distance, offset by its phase.\n- Shock wave or highlight: a `props.ring` whose scale grows from 0 with ease-out while the shot plays.
+- Speed, wind, rain: `props.streaks`, each sliding along its axis modulo a distance, offset by its phase.
+- Shock wave or highlight: a `props.ring` whose scale grows from 0 with ease-out while the shot plays.
 - Sparks and stars: small emissive balls on short arcs.
 - Water waves: `meshes.set_verts` on a `props.water` grid with `z = amp * sin(k*x - w*t)`.
 - Fire or lava glow: an emissive mesh plus a warm point light whose energy flickers `base * (1 + 0.15 * sin(t * 13))`.
@@ -122,7 +124,7 @@ A diagram drawn in the landscape at the place's scale (a triangle between a towe
 ## Before you finish, check your own script
 
 - The very first frame (tile 0 / frame 1 / t = 0) clearly shows the main subject — never start on empty scenery or delay the reveal.
-- The main subject uses procedural materials with bump, grain, and worn/rounded edges (`materials.wood`, `materials.painted_metal`, etc.) — never flat solid colour.
+- The main subject uses procedural materials with bump, grain, and worn/rounded edges (`materials.wood`, `materials.painted_metal`, etc.) ; intentional bright map/flag fills, diagrams and flat clay/kids styles are exempt.
 - Every shot function calls `cam.set`, and for the whole shot the camera is above the ground, inside the sky dome and outside every solid object.
 - The subject of every shot is at the size the framing arithmetic gives, in the upper middle of the frame.
 - Every place has lights in its own collection, and no place is closer than 600 m to another.
