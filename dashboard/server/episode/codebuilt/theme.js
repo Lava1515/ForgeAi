@@ -283,6 +283,22 @@ const stems = (value) => new Set(String(value ?? '').normalize('NFKC').toLocaleL
 /** Every word of the phrase, by stem, is in the text: "disputed borders" also catches "border dispute"; "war" does not catch "toward". */
 function mentions(textStems, phrase) { const need = [...stems(phrase)]; return need.length > 0 && need.every((w) => textStems.has(w)); }
 
+// claude · claude-sonnet-5-5 · 2026-11-16: map word gates (person_or_you, familiar_place) matched only a few singular nouns, so real map premises
+// (flights, oceans, islands, straits, empires, "countries") failed run-mwizobhy-07d319. Words are now compared singular, from broader lists.
+const plain = (w) => (/ies$/.test(w) && w.length > 4 ? `${w.slice(0, -3)}y` : /(?:ch|sh|x|ss|z)es$/.test(w) ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w);
+const plainWords = (value) => String(value ?? '').normalize('NFKC').toLocaleLowerCase('en-US').split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(plain);
+const hasAny = (value, list) => plainWords(value).some((w) => list.has(w));
+const VIEWER_WORDS = new Set(['you', 'your', 'we', 'our', 'people', 'person', 'family', 'traveller', 'traveler', 'sailor', 'driver', 'builder', 'worker', 'child', 'children', 'city', 'country', 'community', 'passenger', 'crew', 'farmer', 'soldier', 'king', 'queen', 'emperor', 'engineer', 'scientist', 'explorer', 'resident', 'citizen',
+  'pilot', 'airline', 'trader', 'merchant', 'shipper', 'fisherman', 'fishermen', 'villager', 'islander', 'local', 'tourist', 'migrant', 'refugee', 'commuter', 'nation', 'population', 'everyone', 'anyone', 'humanity', 'human', 'society', 'public', 'empire', 'kingdom', 'neighbor', 'neighbour', 'travel', 'shipping', 'trade']);
+const PLACE_WORDS = new Set(['home', 'house', 'school', 'street', 'road', 'city', 'town', 'country', 'kitchen', 'classroom', 'workplace', 'harbor', 'harbour', 'port', 'bridge', 'river', 'coast', 'coastline', 'neighborhood', 'neighbourhood', 'map', 'route', 'border', 'canal',
+  'sea', 'ocean', 'island', 'archipelago', 'strait', 'peninsula', 'lake', 'mountain', 'range', 'valley', 'desert', 'continent', 'region', 'capital', 'nation', 'empire', 'kingdom', 'territory', 'airport', 'flight', 'corridor', 'lane', 'pole', 'arctic', 'antarctic', 'gulf', 'bay', 'channel', 'isthmus', 'highway', 'railway', 'tunnel', 'dam', 'shore', 'glacier', 'forest', 'plateau', 'province', 'village']);
+const NOT_A_NAME = new Set(['the', 'a', 'an', 'if', 'is', 'are', 'was', 'were', 'do', 'does', 'did', 'can', 'could', 'will', 'would', 'should', 'why', 'what', 'how', 'when', 'where', 'which', 'who', 'you', 'your', 'we', 'our', 'it', 'its', 'this', 'that', 'these', 'those', 'in', 'on', 'at', 'for', 'of', 'and', 'but', 'or', 'i', 'they', 'their', 'he', 'she', 'his', 'her', 'there', 'every', 'each', 'all', 'some', 'no', 'not', 'one', 'two', 'three', 'four', 'five']);
+/** A capitalised word inside a sentence ("Greenland", "Strait of Hormuz") counts as a named place. Used on the stake and payoff only: titles are often Title Case, and a name alone in the title ("Why does Chile surprise you today?") is not an anchor. The first word of a sentence is skipped (a question word is always capitalised). */
+function hasProperName(value) {
+  const tokens = String(value ?? '').normalize('NFKC').split(/\s+/).filter(Boolean);
+  const isName = (t) => { const w = t.replace(/^[^\p{L}]+|[^\p{L}'’-]+$/gu, ''); return /^\p{Lu}\p{L}{2,}/u.test(w) && !NOT_A_NAME.has(w.toLocaleLowerCase('en-US')); };
+  return tokens.some((t, i) => isName(t) && (i > 0 && !/[.!?]$/.test(tokens[i - 1])));
+}
 /**
  * The premise floor (research report 4.3). These are checks a program can make: length, one premise and not a list, a full sentence,
  * the named subject really in the title, the fields the model must commit to, the channel's avoid list. They are a floor, not a judge of quality.
@@ -294,7 +310,9 @@ export function rulePremise(c, avoid = [], language = 'en', { maps = false } = {
   const subject = text(c.subject).trim();
   const english = /^en\b/i.test(language || 'en');
   const titleStems = stems(`${title} ${text(c.topic)}`);
-  const subjectStems = [...stems(subject)];
+  // Link words ("of", "the") are not part of the name. A subject of 3 or more content words may differ from the title by one word ("Arctic flight routes" vs "Arctic Flight Corridors"); shorter subjects must appear whole.
+  const subjectStems = [...stems(subject.replace(/\b(?:the|of|a|an|and|in|on|to|for|de)\b/gi, ' '))];
+  const subjectMissing = subjectStems.filter((w) => !titleStems.has(w)).length;
   const sentence = title.endsWith('?') || !english || QUESTION_WORD.test(title) || PREDICATE.test(title);
   const propertyTour = maps && /^(?:4|5|four|five)\s+(?:countries|places|cities|islands|capitals)\b/i.test(title) && /\b(?:share|almost|touch|cross|split|trap|surround|hide|block|force)\b/i.test(title);
   const checks = [
@@ -302,10 +320,10 @@ export function rulePremise(c, avoid = [], language = 'en', { maps = false } = {
     ['title_units', !/\b(?:mm|cm|km|m|inches?|feet|ft|miles?|mi|grams?|kg|kilograms?|pounds?|lb|lbs|seconds?|minutes?|hours?|days?|years?|°[cf]|celsius|fahrenheit)\b/i.test(title), 'Plain title without measurement units'],
     ['hashtag', !title.includes('#'), 'Plain title without hashtags'],
     ['list', propertyTour || (!LIST_START.test(title) && !(english && LIST_WORDS.test(title))), 'One premise; map tours may link four or five places by a concrete property'],
-    ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectStems.every((w) => titleStems.has(w)), 'One named subject, present in the title'],
+    ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectMissing <= (subjectStems.length >= 3 ? 1 : 0), 'One named subject, present in the title'],
     ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
-    ['person_or_you', !maps || /\b(?:you|your|we|our|people|person|family|travell?er|travell?ers|sailor|driver|builder|worker|child|children|city|country|community|passenger|crew|farmer|soldier|king|queen|emperor|engineer|scientist|explorer|resident|citizen)\b/i.test(`${title} ${subject} ${text(c.stake)}`), 'Name a person, group, place or viewer with something at stake'],
-    ['familiar_place', !maps || /\b(?:home|house|school|street|road|city|town|country|kitchen|classroom|workplace|harbor|port|bridge|river|coast|neighborhood|neighbourhood|map|route|border|canal)\b/i.test(`${title} ${subject} ${text(c.stake)} ${text(c.payoff)}`), 'Anchor it in a recognizable place or route'],
+    ['person_or_you', !maps || hasAny(`${title} ${subject} ${text(c.stake)}`, VIEWER_WORDS), 'Name a person, group, place or viewer with something at stake'],
+    ['familiar_place', !maps || hasAny(`${title} ${subject} ${text(c.stake)} ${text(c.payoff)}`, PLACE_WORDS) || hasProperName(text(c.stake)) || hasProperName(text(c.payoff)), 'Anchor it in a recognizable place or route'],
     ['sentence', sentence, 'Full question or claim'],
     ['answer', text(c.answer).trim().length >= 12, text(c.answer) || 'Missing one-sentence answer'],
     ['payoff', text(c.payoff).trim().length >= 12, text(c.payoff) || 'Missing visual payoff'],
