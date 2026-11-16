@@ -282,7 +282,7 @@ function scriptPrompt({ topic, duration, autoDuration, pack, choices, voice, pac
     return `${d} s: target ${w.target} words (at least ${w.min} and at most ${w.max}); about ${shots.target} shots (at least ${shots.min}, at most ${shots.max}); voice pace ${scriptPace(d, voice, pace)} words/s`;
   };
   const durationRule = autoDuration
-    ? `Auto length: choose duration 30, 45 or 60 seconds to fit this premise, using the shortest length that delivers its stakes and payoff without padding. Target about 3 spoken words/s, calibrated for this voice. Return numeric duration. Obey the selected duration's exact budget:\n${AUTO_SCRIPT_DURATIONS.map(budget).join('\n')}`
+    ? `Auto length: choose duration 30, 45 or 60 seconds to fit this premise, using the shortest length that delivers its stakes and payoff without padding. Return numeric duration. Obey the selected duration's exact budget:\n${AUTO_SCRIPT_DURATIONS.map(budget).join('\n')}`
     : `Fixed duration ${duration} s. ${budget(duration)}. Stay close to target; excess words make the video too long.`;
   return `You write the narration for a ${autoDuration ? '30-to-60' : duration}-second vertical 3D explainer short for a faceless channel. Every picture is later built from code in Blender in a bright toy-like style (simple people, vehicles, animals, buildings, landscapes, planets, cutaways), so write a story a viewer can SEE: things that happen to someone or something, in places, with a beginning, a turn and an ending.
 Topic: ${JSON.stringify(topic)}
@@ -440,7 +440,7 @@ export async function planCodebuiltScript(input = {}, deps = {}) {
 export const SHOT_VARIETY_RULE = 'Shot variety: no two shots within two of each other may share one composition. Between those shots change at least one of: camera side (azimuth 30 degrees or more), height (elevation 12 degrees or more), or distance/lens scale (25 percent or more). Place content so it reaches the upper third as well as the middle (an empty top third is reported as a warning only; it does not block). Keep every readout and equation fully inside the text safe area (shotcheck.TEXT_SAFE) at every frame.';
 
 /** The kit as the worker sees it (blender_worker/codebuilt). Kept next to the checks that depend on it; a test compares it with the Python files. */
-export const KIT_CONTRACT = `Blender 5.x headless, offline. The kit is importable after:  import sys; sys.path.insert(0, '/kit')  then  from blender_worker.codebuilt import meshes, materials, stage, timeline, renderloop, shotcheck, mathx, figures, props; from blender_worker.codebuilt.sets import city_street (and any of globe, polar_penguin, tunnel, cutaway_planet, xray_body, room, bathroom that you use)
+export const KIT_CONTRACT = `Blender 5.x headless, offline. The kit is importable after:  import sys; sys.path.insert(0, '/kit')  then  from blender_worker.codebuilt import meshes, materials, stage, timeline, renderloop, shotcheck, mathx, figures, props, maps; from blender_worker.codebuilt.sets import city_street, world_map (and any of globe, polar_penguin, tunnel, cutaway_planet, xray_body, room, bathroom that you use)
 READY SETS. Each module's build(origin=(x, y, z)) builds one complete lit location in its OWN new collection and returns a handles dict. What each makes, the handles it returns and camera poses that are known to frame it:
 ${SET_MANUAL_TEXT}
 Rules for sets: (1) use a set only as the place it really is; (2) call build once per place and keep the handles; h['collection'] is that place's collection: register it as colls['place-<id>'] = h['collection'] and link your own extra objects for that place into it (pass h['collection'] as the collection argument); (3) reach parts ONLY through the handles named above, never by searching bpy.data.objects by size, type or name; (4) sets are made to be seen from the -Y side: keep the camera at a smaller y than the subject and start from the tested poses (the space sets have a backdrop card and stars about 45 m behind the subject, at +Y: never move the camera behind the subject); (5) handles have different types: most are Blender objects (hide one with obj.scale = (0, 0, 0)); a person handle (city_street hero, each item of people, tunnel figure) is a figures rig dict, so move it with figures.pose and hide it with rig['root'].scale = (0, 0, 0); a list handle (cars, palms, clouds, bergs, readouts, ghost) is a list of such items; buildings is a list of (x, height) numbers, period, radii, acid_level, wall_y and the *_params are numbers, and water_verts is a function: these are data, not objects.
@@ -597,13 +597,13 @@ const callsAllHave = (code, opener, name, literal) => {
 const renderFramesCallsHave = (code, name, literal) => callsAllHave(code, RENDER_FRAMES_CALL, name, literal);
 
 /**
- * Every assignment or keyword `key = value` in `code` (comments and string contents blanked) as {op, value}: `op` is the augmented operator ('' for a plain
+ * Every assignment `owner.key = value` (or `key = value` when owner is omitted) in `code` (comments and string contents blanked) as {op, value}: `op` is the augmented operator ('' for a plain
  * assignment), `value` the rest of the statement. The render profile is checked on ALL of them: a valid first line must not hide a later bad one.
  */
-const settingAssignments = (code, key) => [...code.matchAll(new RegExp(`\\b${key}\\b\\s*((?:[-+*/%@&|^]|//|\\*\\*)?)=(?!=)\\s*([^\\n;]*)`, 'g'))].map((m) => ({ op: m[1], value: m[2].trimEnd() }));
+const settingAssignments = (code, key, owner) => [...code.matchAll(new RegExp(`${owner ? `\\b${owner}\\s*\\.\\s*` : '\\b'}${key}\\b\\s*((?:[-+*/%@&|^]|//|\\*\\*)?)=(?!=)\\s*([^\\n;]*)`, 'g'))].map((m) => ({ op: m[1], value: m[2].trimEnd() }));
 /** Reasons when any assignment of `key` is augmented or is not exactly `accept` (a regex source for the value, then , ) or the end of the statement), or when `required` and there is none. */
-function settingProblems(code, key, accept, label, { required = true } = {}) {
-  const all = settingAssignments(code, key);
+function settingProblems(code, key, accept, label, { required = true, owner } = {}) {
+  const all = settingAssignments(code, key, owner);
   const okValue = new RegExp(`^(?:${accept})(?=\\s*(?:[,)]|$))`);
   const bad = all.filter((a) => a.op || !okValue.test(a.value));
   if (bad.length) return [`${label} (found ${bad.map((a) => `${key} ${a.op}= ${a.value}`.slice(0, 60)).join(' | ')})`];
@@ -688,14 +688,14 @@ export function validateBuildScript(code, { nframes, shotStarts, places, type })
   else if (!callsAllHave(bare, RUN_QA_CALL, 'hold', '1')) why.push('every shotcheck.run_qa call must pass the literal keyword hold=1 (render_frames uses hold=1 and require_qa refuses a hold that run_qa did not pose)');
   if (!/engine\s*=\s*['"]CYCLES['"]/.test(noComments)) why.push("scene.render.engine must be 'CYCLES'");
   if (!/cycles\.device\s*=\s*['"]CPU['"]/.test(noComments)) why.push("scene.cycles.device must be 'CPU'");
-  // One render profile, checked on EVERY assignment or keyword in the code (strings and comments blanked), not the first match.
-  why.push(...settingProblems(bare, 'resolution_x', '1080(?:\\.0+)?', 'scene.render.resolution_x must be exactly 1080'));
-  why.push(...settingProblems(bare, 'resolution_y', '1920(?:\\.0+)?', 'scene.render.resolution_y must be exactly 1920'));
-  why.push(...settingProblems(bare, 'resolution_percentage', '100(?:\\.0+)?', 'scene.render.resolution_percentage must be exactly 100'));
-  why.push(...settingProblems(bare, 'fps', '30(?:\\.0+)?|FPS', 'scene.render.fps must be exactly 30'));
+  // 2026-11-16 14:45 +02:00 · codex · gpt-6-astra: check render/cycles attributes, not unrelated locals.
+  // Every matching assignment is checked; hold is checked only on the two kit calls above.
+  why.push(...settingProblems(bare, 'resolution_x', '1080(?:\\.0+)?', 'scene.render.resolution_x must be exactly 1080', { owner: 'render' }));
+  why.push(...settingProblems(bare, 'resolution_y', '1920(?:\\.0+)?', 'scene.render.resolution_y must be exactly 1920', { owner: 'render' }));
+  why.push(...settingProblems(bare, 'resolution_percentage', '100(?:\\.0+)?', 'scene.render.resolution_percentage must be exactly 100', { owner: 'render' }));
+  why.push(...settingProblems(bare, 'fps', '30(?:\\.0+)?|FPS', 'scene.render.fps must be exactly 30', { owner: 'render' }));
   why.push(...settingProblems(bare, 'FPS', '30', 'FPS must be exactly 30'));
-  why.push(...settingProblems(bare, 'samples', '(?:8|9|1[0-6])(?:\\.0+)?', 'scene.cycles.samples must be an integer from 8 through 16'));
-  why.push(...settingProblems(bare, 'hold', '1(?:\\.0+)?', 'hold must be exactly 1 in every render_frames and run_qa call', { required: false }));
+  why.push(...settingProblems(bare, 'samples', '(?:8|9|1[0-6])(?:\\.0+)?', 'scene.cycles.samples must be an integer from 8 through 16', { owner: 'cycles' }));
   // Collections shot-0 .. shot-(n-1): each name as a literal, or built from a format inside the meshes.coll(...) call itself ('shot-%d', f'shot-{i}', 'shot-' + str(i)) when a helper makes them in a loop.
   // The format may also sit in a variable first (name = 'shot-%d' % i; meshes.coll(scene, name)): a 13-shot script written that way was refused
   // as "collection 'shot-0' is missing" (job mwf06gtw-069893, 2026-11-13). Any shot-name format in the code counts when meshes.coll is called.
