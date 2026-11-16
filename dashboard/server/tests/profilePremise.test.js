@@ -88,3 +88,67 @@ test('premise floor: avoid list by word stems, list titles, non-English question
   assert.equal(run('Warum ist Chile so lang und so dünn?', [], {}, 'de').pass, true);
   assert.ok(run('Why Chile is long', [], { subject: 'countries' }).reasons.some((r) => r.detail === 'subject'));
 });
+
+// codex · gpt-6.1-sol · 2026-11-16 09:14 +02:00: N1 profile, tour and safety regressions.
+const mapProfile = { niche: 'map explainers about people, places and routes', language: 'en', avoid: [] };
+const mapCandidate = (patch = {}) => ({
+  id: 'map', topic: 'Why does Chile split your route?', title: 'Why does Chile split your route?', subject: 'Chile',
+  stake: 'You face a long detour.', answer: 'The Andes divide the country.', payoff: 'A map route bends around the mountains.',
+  hook: 'Why does your route split?', facts: [], shots: [], tags: [], ...patch,
+});
+const scoreProfile = (candidate, profile = mapProfile) => scoreCandidates({ candidates: [candidate], history: [], sets: [{ name: 'code_built', themes: [] }], options: { profile, owner_wants_new_sets: true, safety_rules: { require_verified_claims: false } } });
+async function profilePromptFor(profile, type = 'factual') {
+  let prompt;
+  const pick = createAutoTopicProvider({ getChannel: () => ({ id: 'test', profile }), history: () => ({ videos: [], available: false }),
+    askRoleFn: async (_role, value) => { prompt = value; return { candidates: [mapCandidate({ topic: type === 'whatif' ? 'What if Chile split your route?' : mapCandidate().topic })] }; },
+    score: () => ({ chosen: { ...mapCandidate(), total: 1, rules: {} }, ranked: [], rejected: [], history_used: 0 }),
+  });
+  await pick({ channelId: 'test', type });
+  return prompt;
+}
+
+test('map instructions follow the profile niche; science and history profiles retain their own niche', async () => {
+  for (const niche of ['science experiments', 'true historical stories']) {
+    const prompt = await profilePromptFor({ ...mapProfile, niche });
+    assert.doesNotMatch(prompt, /map-explainer premises|map central|map payoff|familiar countries|current wars/);
+    assert.match(prompt, /Propose 12 different premises/);
+    assert.ok(prompt.includes(niche));
+  }
+  const prompt = await profilePromptFor(mapProfile);
+  assert.match(prompt, /map-explainer premises/);
+  assert.match(prompt, /4 or 5 places/);
+  assert.match(prompt, /comparison/);
+  assert.match(prompt, /journey/);
+  assert.match(prompt, /mystery/);
+  assert.match(prompt, /current wars/);
+  assert.match(prompt, /disputed borders/);
+  assert.doesNotMatch(prompt, /no measurement units, hashtags or lists/);
+  assert.match(await profilePromptFor(mapProfile, 'whatif'), /what-if/);
+});
+
+test('map profiles allow bounded property tours while other profiles and vague lists keep their list gate', () => {
+  for (const count of ['Four', '5']) {
+    const tour = mapCandidate({ title: `${count} countries almost touch your route`, topic: `${count} countries almost touch your route`, subject: 'countries', answer: 'Narrow gaps separate the countries along your route.' });
+    assert.ok(scoreProfile(tour).chosen, JSON.stringify(scoreProfile(tour).rejected));
+    assert.ok(scoreProfile(tour, { ...mapProfile, niche: 'science' }).rejected[0].reasons.some(r => r.detail === 'list'));
+  }
+  for (const title of ['Five richest countries on your map', 'Ten countries almost touch your route', 'Five facts about Chile on your map']) {
+    const result = scoreProfile(mapCandidate({ title, topic: title, subject: title.includes('Chile') ? 'Chile' : 'countries' }));
+    assert.ok(result.rejected[0].reasons.some(r => r.detail === 'list'), title);
+  }
+});
+
+test('Auto map fact_safety rejects current wars and disputed borders across candidate fields, without banning countries or historical wars', () => {
+  for (const patch of [
+    { topic: 'Why does an ongoing war block your route?' }, { answer: 'A current conflict closes the crossing.' },
+    { payoff: 'Show the disputed border between the countries.' }, { shots: [{ visual: 'A territorial dispute changes the route.', location: 'map' }] },
+    { tags: ['current_war'] }, { stake: 'People face fighting in an active armed conflict.' },
+  ]) {
+    const result = scoreProfile(mapCandidate(patch));
+    assert.ok(result.rejected[0]?.reasons.some(r => r.rule === 'fact_safety'), JSON.stringify(patch));
+  }
+  for (const answer of ['Ukraine has rivers and mountain routes.', 'Russia and China have long railway routes.', 'A historical war in 1812 changed this road.', 'You travel toward the coast.']) {
+    assert.ok(scoreProfile(mapCandidate({ answer })).chosen, answer);
+  }
+  assert.ok(scoreProfile(mapCandidate({ answer: 'A current conflict closes the crossing.' }), { ...mapProfile, niche: 'history stories' }).chosen);
+});

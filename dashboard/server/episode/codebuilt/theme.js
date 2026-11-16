@@ -15,6 +15,11 @@ import { selectEpisodeChannel, EpisodeChannelError } from '../channel.js';
 
 export const THEME_VERSION = 'codebuilt-theme-v1';
 export const MAX_CANDIDATES = 50;
+// codex · gpt-6.1-sol · 2026-11-16 09:14 +02:00: niche data controls map-only rules, never channel id or global defaults.
+export const isMapProfile = (profile) => /\b(?:maps?|geography|cartography|geographic)\b/i.test(text(profile?.niche));
+const premiseText = (c) => [c.topic, c.title, c.subject, c.stake, c.answer, c.hook, c.payoff, c.main_setting,
+  ...(c.shots || []).flatMap(s => [s.visual, s.location]), ...(c.tags || []), ...(c.facts || []).map(f => f.source)].join(' ');
+
 const MAX_STRING = 12000;
 const MAX_FILE_BYTES = 256 * 1024;
 
@@ -246,6 +251,12 @@ function ruleSetFit(c, o, index) {
 function ruleFactSafety(c, o) {
   const rules = o.safety_rules;
   const reasons = [];
+  // Deterministic textual floor, not a semantic geopolitical classifier. Scope to Auto's map niche.
+  if (isMapProfile(o.profile)) {
+    const premise = normalise(premiseText(c)).replace(/[_-]/g, ' ');
+    if (/\b(?:current|ongoing|active|present day|today|now)\b[^.!?]{0,60}\b(?:wars?|conflicts?|invasions?|fighting)\b|\b(?:wars?|conflicts?|invasions?|fighting)\b[^.!?]{0,60}\b(?:current|ongoing|active|today|now)\b/i.test(premise)) reasons.push('current_wars');
+    if (/\b(?:disputed|contested)\s+(?:\w+\s+){0,2}(?:borders?|boundaries|territor\w*|sovereignty)\b|\b(?:border|boundary|territorial|sovereignty)\s+disputes?\b/i.test(premise)) reasons.push('disputed_borders');
+  }
   const claims = (c.claims || []).filter(object);
   const status = (cl) => normalise(cl.status);
   if (claims.some((cl) => status(cl) === 'false')) reasons.push('false_claim');
@@ -277,7 +288,7 @@ function mentions(textStems, phrase) { const need = [...stems(phrase)]; return n
  * the named subject really in the title, the fields the model must commit to, the channel's avoid list. They are a floor, not a judge of quality.
  * The word lists are English; for another language only the language-neutral checks apply (a question mark counts as a question).
  */
-export function rulePremise(c, avoid = [], language = 'en') {
+export function rulePremise(c, avoid = [], language = 'en', { maps = false } = {}) {
   const title = text(c.title).trim();
   const count = title.split(/\s+/).filter(Boolean).length;
   const subject = text(c.subject).trim();
@@ -285,11 +296,12 @@ export function rulePremise(c, avoid = [], language = 'en') {
   const titleStems = stems(`${title} ${text(c.topic)}`);
   const subjectStems = [...stems(subject)];
   const sentence = title.endsWith('?') || !english || QUESTION_WORD.test(title) || PREDICATE.test(title);
+  const propertyTour = maps && /^(?:4|5|four|five)\s+(?:countries|places|cities|islands|capitals)\b/i.test(title) && /\b(?:share|almost|touch|cross|split|trap|surround|hide|block|force)\b/i.test(title);
   const checks = [
     ['title_length', count >= 4 && count <= 8 && title.length <= 100, `${count} words, ${title.length} characters; need 4 to 8 words and at most 100 characters`],
     ['title_units', !/\b(?:mm|cm|km|m|inches?|feet|ft|miles?|mi|grams?|kg|kilograms?|pounds?|lb|lbs|seconds?|minutes?|hours?|days?|years?|°[cf]|celsius|fahrenheit)\b/i.test(title), 'Plain title without measurement units'],
     ['hashtag', !title.includes('#'), 'Plain title without hashtags'],
-    ['list', !LIST_START.test(title) && !(english && LIST_WORDS.test(title)), 'One premise, no list'],
+    ['list', propertyTour || (!LIST_START.test(title) && !(english && LIST_WORDS.test(title))), 'One premise; map tours may link four or five places by a concrete property'],
     ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectStems.every((w) => titleStems.has(w)), 'One named subject, present in the title'],
     ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
     ['person_or_you', /\b(?:you|your|we|our|people|person|family|travell?er|travell?ers|sailor|driver|builder|worker|child|children|city|country|community|passenger|crew|farmer|soldier|king|queen|emperor|engineer|scientist|explorer|resident|citizen)\b/i.test(`${title} ${subject} ${text(c.stake)}`), 'Name a person, group, place or viewer with something at stake'],
@@ -323,7 +335,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
       fact_safety: ruleFactSafety(c, o),
     };
     const reasons = THEME_RULES.filter((r) => r.gate).flatMap((r) => results[r.key].reasons || []);
-    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language) : null;
+    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language, { maps: isMapProfile(o.profile) }) : null;
     if (premise) {
       reasons.push(...premise.reasons);
     }
