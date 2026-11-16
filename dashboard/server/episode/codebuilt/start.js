@@ -511,10 +511,18 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     try {
       const fn = scriptStage ?? pl.planCodebuiltScript;
       if (typeof fn !== 'function') throw new StartError('script_unavailable', 501);
-      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
+      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(rec.autoDuration && !rec.durationSelected ? { autoDuration: true } : {}), ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
     } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
     }
     if (!scripted || typeof scripted.script !== 'string' || !scripted.script.trim() || typeof scripted.brief !== 'string') throw new StartError('script_failed', 502);
+    // codex / gpt-6.1-sol / 2026-11-16 09:06 +02:00: S2 selects Auto once.
+    // Retries and resumes retain this duration; manual requests ignore the override.
+    if (rec.autoDuration && !rec.durationSelected) {
+      if (![30, 45, 60].includes(scripted.duration)) throw new StartError('script_failed', 502);
+      rec.duration = scripted.duration;
+      rec.durationSelected = true;
+      save(rec);
+    }
     for (const c of scripted.calls ?? []) addCall(c);
     // The real paths/codebuilt.json pack comes from the planner. A script result without one cannot be built, and nothing is spent on voice first.
     if (!scripted.pathPack || typeof scripted.pathPack !== 'object' || scripted.pathPack.id !== 'codebuilt' || !Array.isArray(scripted.pathPack.skills)) throw new StartError('script_failed', 502);
@@ -777,7 +785,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const id = newId();
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
-        ...(batch ? { factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : internal.contentMode === 'history' ? 'history' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
+        ...(batch ? { autoDuration: internal.autoDuration === true, factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : internal.contentMode === 'history' ? 'history' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
       if (type === 'history') {
         rec.contentMode = 'history';
         rec.factCheck = true;

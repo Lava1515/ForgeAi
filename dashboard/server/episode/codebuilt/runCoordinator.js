@@ -258,6 +258,12 @@ export function createCodebuiltRunCoordinator({
       if (ctl.aborted && !abortedJob) { abortedJob = true; try { theStarter().abort(jobId); } catch { /* already final */ } }
       let job;
       try { job = theStarter().get(jobId); } catch { return null; }
+      // codex / gpt-6.1-sol / 2026-11-16 09:06 +02:00: retain script-selected Auto length.
+      if (rec.request.duration === null && [30, 45, 60].includes(job.duration) && video.duration !== job.duration) {
+        video.duration = job.duration;
+        video.resolved.duration = { source: 'auto', reason: 'script selected duration for the premise', value: job.duration };
+        persist(rec, ctl);
+      }
       if (job.step && job.step !== video.step) { video.step = job.step; persist(rec, ctl); }
       if (FINAL.includes(job.status)) return job;
       await sleep(pollMs);
@@ -301,7 +307,7 @@ export function createCodebuiltRunCoordinator({
         try {
           queued = theStarter().start(
             { topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, buildModel: rec.request.buildModel, ...(rec.channelId ? { channelId: rec.channelId } : {}) },
-            { factCheck: true, runId: rec.id, batchIndex: i, contentMode: resolved.type, choices: resolved.choices, ...(resolved.themePick?.premise ? { premise: resolved.themePick.premise } : {}), preCalls: calls },
+            { factCheck: true, autoDuration: rec.request.duration === null, runId: rec.id, batchIndex: i, contentMode: resolved.type, choices: resolved.choices, ...(resolved.themePick?.premise ? { premise: resolved.themePick.premise } : {}), preCalls: calls },
           );
         } catch (error) {
           fail(video, typeof error?.code === 'string' && MESSAGES[error.code] ? error.code : 'start_failed', 'start');
