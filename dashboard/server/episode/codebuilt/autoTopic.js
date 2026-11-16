@@ -22,7 +22,7 @@ export const MAX_CANDIDATES_ASKED = 6;
 const SETS = Object.freeze([Object.freeze({ name: 'code_built', themes: Object.freeze(['code', 'built']) })]);
 
 export class AutoTopicError extends Error {
-  constructor(code) { super(code); this.name = 'AutoTopicError'; this.code = code; }
+  constructor(code, diagnostics = null) { super(code); this.name = 'AutoTopicError'; this.code = code; if (diagnostics) this.diagnostics = diagnostics; }
 }
 
 /** askRole with the theme router step; refuses under the test runner so a rig that injects nothing cannot reach a model. */
@@ -146,7 +146,14 @@ export function createAutoTopicProvider({ askRoleFn = productionTopicAsk, histor
         options: { ...DEFAULT_OPTIONS, ...(profile ? { profile, type } : {}), owner_wants_new_sets: true, safety_rules: { blocked_tags: [], require_verified_claims: false }, ...(channelId ? { channel: { id: channelId, get_channel: getChannel } } : {}) },
       });
     } catch { throw new AutoTopicError('theme_scoring_failed'); }
-    if (!scored.chosen) throw new AutoTopicError('theme_all_rejected');
+    // codex · gpt-6.1-sol · 2026-11-16 10:36 +02:00: retain bounded scorer evidence, never the raw response.
+    if (!scored.chosen) throw new AutoTopicError('theme_all_rejected', {
+      candidates: candidates.slice(0, 14).map(({ id, topic }) => ({ id: clean(id, 16), topic: clean(topic, TOPIC_MAX) })),
+      rejected: (scored.rejected ?? []).slice(0, 14).map((r) => ({
+        id: clean(r.id, 16), topic: clean(candidates.find((c) => c.id === r.id)?.topic ?? '', TOPIC_MAX),
+        reasons: (Array.isArray(r.reasons) ? r.reasons : []).slice(0, 24).map((x) => `${clean(x.rule, 64)}:${clean(x.detail, 240)}`),
+      })),
+    });
     return {
       ...(profile ? { type, premise: { language: profile.language || 'en', title: scored.chosen.title, hook: scored.chosen.hook, payoff: scored.chosen.payoff, answer: scored.chosen.answer, score: scored.chosen.total, reasons: scored.chosen.rules, ranked: scored.ranked, rejected: scored.rejected } } : {}),
       topic: scored.chosen.topic, candidate_id: scored.chosen.id, total: scored.chosen.total,
