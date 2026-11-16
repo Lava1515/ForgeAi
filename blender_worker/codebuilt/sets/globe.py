@@ -31,9 +31,10 @@ def build(origin=(0.0, 0.0, 0.0), relief=True, clouds=True):
     real_earth = bool(relief) and earth_surface(globe)
     globe.rotation_euler = (0, 0, face_lon(0.0))
     cloud_mat = materials.col((1, 1, 1), 0.9, Emission_Color=(1, 1, 1, 1), Emission_Strength=0.7)
+    clouds_enabled = clouds
     clouds = []
     # Over the real Earth only a few clouds, so they never hide the place a shot is about.
-    for _ in range((8 if real_earth else 26) if clouds else 0):
+    for _ in range((8 if real_earth else 26) if clouds_enabled else 0):
         a, la, s_ = rng.uniform(0, 2 * np.pi), rng.uniform(-1.0, 1.0), rng.uniform(0.5, 1.3)
         cl = meshes.ball("gcloud", 1.0, cloud_mat, c,
                          loc=(5.08 * math.cos(la) * math.cos(a), 5.08 * math.cos(la) * math.sin(a), 5.08 * math.sin(la)),
