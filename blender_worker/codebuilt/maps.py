@@ -586,7 +586,7 @@ class WorldMap:
             if hl is None:
                 self._set_ribbon(iso, self.border)
             else:
-                hl["fill"].pose(hl["fill"].t)
+                hl["fill"]._resize_border()
 
     def project_size_km(self, key, parts="auto"):
         """Width and height in km of the country's bounding box on the map (parts as in Country.parts)."""
@@ -619,6 +619,10 @@ class WorldMap:
         from . import materials
         cty = self.data.find(key)
         iso = cty.iso
+        previous = self._hl.get(iso)
+        if previous is not None:
+            previous["fill"]._retire()
+            self.objs[iso].data.materials[2] = self._border_mat
         if color is None or (isinstance(color, str) and color == "auto"):
             color = self.next_color()
         color = tuple(float(v) for v in color)
@@ -955,25 +959,67 @@ class Fill:
         self.outline_width, self.outline_color = float(outline_width), _lighter(color)
         self.outline, self.halo, self.glow, self.label, self.marker = outline, halo, glow, label, marker
         self.t = None
+        # codex · gpt-6-astra, 2026-11-16: reveal from the actual starting material.
+        top, side = wm.objs[iso].data.materials[:2]
+        nodes = top.node_tree.nodes
+        b = next(n for n in nodes if n.type == 'BSDF_PRINCIPLED')
+        sb = next(n for n in side.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+        self.base_color = tuple(b.inputs['Base Color'].default_value)
+        self.base_emission_color = tuple(b.inputs['Emission Color'].default_value)
+        self.base_emission = b.inputs['Emission Strength'].default_value
+        self.base_side = tuple(sb.inputs['Base Color'].default_value)
+        self.base_mix = nodes['hl_mix'].outputs[0].default_value if nodes.get('hl_mix') is not None else None
+        self.base_tint = tuple(nodes['country_tint'].outputs[0].default_value) if nodes.get('country_tint') is not None else self.base_color
+
+    def _retire(self):
+        """Hide replaced decorations, including the label's child plate."""
+        for ob in (self.label, self.halo):
+            if ob is not None:
+                for part in (ob, *ob.children_recursive):
+                    part.hide_render = part.hide_viewport = True
+        if self.marker is not None:
+            self.marker.show(False)
+
+    def _resize_border(self):
+        """Resize only geometry; preserve public colour/lift overrides."""
+        wm = self.wm
+        e = _smooth(self.t or 0.0)
+        factor = 1.0 + (self.outline_width - 1.0) * e if self.outline is not None else 1.0
+        wm._set_ribbon(self.iso, wm.border * factor)
+        if self.halo is not None:
+            from . import meshes
+            v, _, _ = wm._halo_verts(self.iso, 7.0 * wm.border)
+            if len(v) == self.halo["glow_n"]:
+                meshes.set_verts(self.halo, v)
 
     def pose(self, t):
         wm = self.wm
         e = _smooth(t)
         self.t = float(t)
         ob = wm.objs[self.iso]
-        wm._paint(ob, self.color, self.emission, e, wm._info[self.iso].get("col"))
+        from . import materials
+        mix, color = e, self.color
+        if self.base_mix is not None:
+            mix = self.base_mix * (1.0 - e) + e
+            # Preserve the natural-land contribution as well as the initial tint.
+            color = tuple((p * self.base_mix * (1.0 - e) + v * e) / mix for p, v in zip(self.base_tint, self.color)) if e > 0.0 else self.base_tint[:3]
+        wm._paint(ob, color, self.emission, mix, self.base_color[:3])
+        b = next(n for n in ob.data.materials[0].node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+        target_emission = wm.land_glow + self.emission if self.base_mix is not None else self.emission
+        materials.set_inputs(b, Emission_Strength=self.base_emission + (target_emission - self.base_emission) * e)
+        if self.base_mix is None:
+            materials.set_inputs(b, Emission_Color=tuple(p + (v - p) * e for p, v in zip(self.base_emission_color, (*self.color, 1))))
+        side = next(n for n in ob.data.materials[1].node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+        target_side = (*(v * (0.45 if self.base_mix is not None else 0.55) for v in self.color), 1)
+        materials.set_inputs(side, Base_Color=tuple(p + (v - p) * e for p, v in zip(self.base_side, target_side)))
         wm.set_lift(self.iso, self.lift * e)
         if self.outline is not None:
             em = next(n for n in self.outline.node_tree.nodes if n.type == 'EMISSION')
             oc, bc = self.outline_color, wm.border_color
             em.inputs[0].default_value = (*[b + (o - b) * e for b, o in zip(bc, oc)], 1)
             em.inputs[1].default_value = 0.6 + (2.0 - 0.6) * e
-            wm._set_ribbon(self.iso, wm.border * (1.0 + (self.outline_width - 1.0) * e))
+        self._resize_border()
         if self.halo is not None:
-            from . import meshes
-            v, _, _ = wm._halo_verts(self.iso, 7.0 * wm.border)
-            if len(v) == self.halo["glow_n"]:
-                meshes.set_verts(self.halo, v)
             self.halo.material_slots[0].material.node_tree.nodes["glow_strength"].inputs[1].default_value = self.glow * e
             self.halo.hide_render = e <= 0.0
         if self.label is not None:
