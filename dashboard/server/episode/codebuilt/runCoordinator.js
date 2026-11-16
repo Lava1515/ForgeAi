@@ -280,10 +280,13 @@ export function createCodebuiltRunCoordinator({
       if (ctl.persistFailed) fail(video, 'persistence_failed', stage);
       else { video.status = 'aborted'; video.error = { code: 'run_aborted', message: MESSAGES.run_aborted }; }
     };
+    // codex / gpt-6.1-sol / 2026-11-16 08:56 +02:00: at most two jobs in flight.
+    const inFlight = [];
     try {
       rec.status = 'running'; persist(rec, ctl);
       const previousTopics = [];
       for (let i = 0; i < rec.count; i += 1) {
+        if (inFlight.length >= 2) await inFlight.shift();
         const video = rec.videos[i];
         if (ctl.aborted) { stopRest(i); break; }
         video.status = 'resolving'; video.step = 'resolving';
@@ -303,6 +306,7 @@ export function createCodebuiltRunCoordinator({
         Object.assign(video, { topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, type: resolved.type, resolved: resolved.resolved, theme_pick: resolved.themePick ? { candidate_id: resolved.themePick.candidate_id, total: resolved.themePick.total, ranked: resolved.themePick.ranked, rejected: resolved.themePick.rejected, history_used: resolved.themePick.history_used, history_available: resolved.themePick.history_available } : null });
         previousTopics.push(resolved.topic);
         if (ctl.aborted) { stopInFlight(video, 'resolving'); stopRest(i + 1); persist(rec, ctl); break; }
+        if (!persist(rec, ctl)) { stopInFlight(video, 'resolving'); stopRest(i + 1); break; }
         let queued;
         try {
           queued = theStarter().start(
@@ -315,19 +319,31 @@ export function createCodebuiltRunCoordinator({
           if (ctl.aborted) { stopRest(i + 1); break; }
           continue;
         }
-        video.jobId = queued.id; video.status = 'running'; video.step = queued.step ?? 'queued'; ctl.jobId = queued.id; persist(rec, ctl);
-        const job = await waitForJob(ctl, queued.id, video, rec);
-        ctl.jobId = null;
-        if (!job) fail(video, 'job_lost', video.step);
-        else if (job.status === 'done' && !ctl.persistFailed) { video.status = 'done'; video.step = 'done'; video.draftId = job.draftId ?? null; video.error = null; if (job.length_check) video.length_check = job.length_check; }
-        else if (ctl.persistFailed) { video.draftId = job.status === 'done' ? (job.draftId ?? null) : null; fail(video, 'persistence_failed', job.step ?? video.step); }
-        else if (job.status === 'aborted' && ctl.aborted) { video.status = 'aborted'; video.error = { code: 'aborted', message: MESSAGES.aborted, stage: job.step ?? null }; }
-        else { video.status = 'failed'; video.error = { code: job.error?.code ?? 'internal', message: job.error?.message ?? MESSAGES.internal, stage: job.step ?? null }; }
-        persist(rec, ctl);
+        video.jobId = queued.id; video.status = 'running'; video.step = queued.step ?? 'queued'; ctl.jobs.add(queued.id); persist(rec, ctl);
+        inFlight.push((async () => {
+          const job = await waitForJob(ctl, queued.id, video, rec);
+          ctl.jobs.delete(queued.id);
+          if (!job) fail(video, 'job_lost', video.step);
+          else if (job.status === 'done' && !ctl.persistFailed) { video.status = 'done'; video.step = 'done'; video.draftId = job.draftId ?? null; video.error = null; if (job.length_check) video.length_check = job.length_check; }
+          else if (ctl.persistFailed) { video.draftId = job.status === 'done' ? (job.draftId ?? null) : null; fail(video, 'persistence_failed', job.step ?? video.step); }
+          else if (job.status === 'aborted' && ctl.aborted) { video.status = 'aborted'; video.error = { code: 'aborted', message: MESSAGES.aborted, stage: job.step ?? null }; }
+          else { video.status = 'failed'; video.error = { code: job.error?.code ?? 'internal', message: job.error?.message ?? MESSAGES.internal, stage: job.step ?? null }; }
+          persist(rec, ctl);
+        })().catch(() => {
+          // Observe failures immediately, even while the next topic is resolving.
+          // The remaining waiters see aborted and stop their jobs before we finish.
+          ctl.aborted = true;
+          fail(video, 'internal', video.step);
+          persist(rec, ctl);
+        }));
         if (ctl.aborted) { stopRest(i + 1); break; }
       }
+      await Promise.all(inFlight);
       rec.status = ctl.persistFailed ? 'failed' : ctl.aborted ? 'aborted' : 'done';
     } catch {
+      ctl.aborted = true;
+      for (const id of ctl.jobs) { try { theStarter().abort(id); } catch {} }
+      await Promise.allSettled(inFlight);
       // Unexpected: never leave the run looking active. Anything unfinished is reported, not hidden.
       for (const v of rec.videos) if (v.status === 'pending' || v.status === 'resolving') { v.status = 'failed'; v.error = { code: 'internal', message: MESSAGES.internal }; }
       rec.status = 'done';
@@ -361,7 +377,7 @@ export function createCodebuiltRunCoordinator({
         videos: Array.from({ length: req.count }, (_, index) => ({ index, status: 'pending', step: null, topic: null, jobId: null, draftId: null, error: null })),
       };
       save(rec); // a run that cannot even be recorded is refused
-      const ctl = { aborted: false, jobId: null };
+      const ctl = { aborted: false, jobs: new Set() };
       live.set(id, { rec, ctl });
       activeId = id;
       void runLoop(rec, ctl);
@@ -382,7 +398,7 @@ export function createCodebuiltRunCoordinator({
       if (!entry) throw new RunError('conflict', 409);
       entry.ctl.aborted = true;
       rec.status = 'aborting';
-      if (entry.ctl.jobId) { try { theStarter().abort(entry.ctl.jobId); } catch { /* the loop aborts it again or sees it final */ } }
+      for (const jobId of entry.ctl.jobs) { try { theStarter().abort(jobId); } catch { /* already final */ } }
       safeSave(rec);
       return publicRun(rec);
     },

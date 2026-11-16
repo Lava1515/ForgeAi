@@ -138,6 +138,42 @@ export class StartError extends Error {
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const now = () => new Date().toISOString();
 
+// codex · gpt-6.1-sol · 2026-11-16 08:56 +02:00: shared across starter instances.
+// Voice bypasses the render fence, so it must share this lease with previews/render.
+const gpuWaiters = [];
+let gpuBusy = false;
+function drainGpu() {
+  if (gpuBusy || !gpuWaiters.length) return;
+  gpuBusy = true;
+  const next = gpuWaiters.shift();
+  next.signal.removeEventListener('abort', next.abort);
+  next.resolve(() => { gpuBusy = false; drainGpu(); });
+}
+async function withGpu(signal, jobsDir, action) {
+  const release = await new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new StartError('aborted')); return; }
+    const waiter = { signal, resolve, abort: () => {
+      const index = gpuWaiters.indexOf(waiter);
+      if (index >= 0) gpuWaiters.splice(index, 1);
+      reject(new StartError('aborted'));
+    } };
+    signal.addEventListener('abort', waiter.abort, { once: true });
+    gpuWaiters.push(waiter);
+    drainGpu();
+  });
+  try {
+    if (signal.aborted) throw new StartError('aborted');
+    // A quarantined container may still own the GPU. Voice fails closed too,
+    // including after restart, until fence cleanup has been confirmed.
+    const locks = path.join(jobsDir, '.cb6-locks');
+    if (jobWriteBlockedReason(jobsDir, 'gpu-phase-check')) throw new StartError('conflict', 409);
+    try {
+      if (fs.readdirSync(locks).some((name) => name.endsWith('.lock'))) throw new StartError('conflict', 409);
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    return await action();
+  } finally { release(); }
+}
+
 /** Validates a start request: topic text and a supported duration. Duration is requested, never silently changed. */
 export function checkStartRequest(input) {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new StartError('bad_request');
@@ -178,8 +214,8 @@ export function createCodebuiltStarter({
   const recFile = (id) => path.join(stateRoot(), id, 'status.json');
   const live = new Map(); // id -> { rec, controller }
   const resumeData = new Map(); // private validated artifacts; never written to status.json
-  const waiting = []; // queued ids, one job runs at a time (the fence holds the GPU lease anyway)
-  let running = null;
+  const waiting = []; // bounded lookahead: one current job and one preparing job
+  const running = new Set();
 
   const save = (rec) => {
     rec.updatedAt = clock();
@@ -630,7 +666,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         try {
           const basePost = postFactoryFn ?? postFactory;
           const post = attempt === 0 ? postFactoryFn : (route, body, ...rest) => basePost(route, route === '/api/tts-timed' ? { ...body, seed: VOICE_RETRY_SEED + attempt } : body, ...rest);
-          voice = await voiceStage({ script: scripted.script, ...(Array.isArray(scripted.shots) && scripted.shots.length ? { beats: scripted.shots } : {}), voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(post ? { postFactoryFn: post } : {}) });
+          voice = await withGpu(signal, jobsDir, () => voiceStage({ script: scripted.script, ...(Array.isArray(scripted.shots) && scripted.shots.length ? { beats: scripted.shots } : {}), voice: rec.voice, outDir: stage, allowedRoot: jobsDir, episodeDir: `cb-${rec.id}`, episodesRoot, runId: rec.id, onCall: addCall, ...(post ? { postFactoryFn: post } : {}) }));
           break;
         } catch (error) {
           if (attempt >= VOICE_RETRIES || signal.aborted || !VOICE_RETRY_REASONS.includes(error?.reason)) throw error;
@@ -699,38 +735,41 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
 
     // 4b. The visual loop: preview the planned build, look at the sheets and fix what is wrong. Exhaustion may continue with a marked draft only
     // when at least one successful preview was looked at; no code reaches the final render without a look.
-    let buildScript = plan.buildScript;
-    let loopReceipt = null;
-    if (visualLoop !== false) {
-      if (resume?.build) step(rec, 'visual_loop');
-      const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build ? { code: resume.build.code, startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
-        .finally(() => writeCalls(rec.id, allCalls));
-      if (!outcome || (!outcome.accepted && outcome.unapproved !== true) || typeof outcome.buildScript !== 'string' || !outcome.buildScript.trim() || sha(outcome.buildScript) !== outcome.sha256) throw new StartError('look_failed', 502);
-      buildScript = outcome.buildScript;
-      loopReceipt = outcome.unapproved === true
-        ? { ...outcome.receipt, visual_check: { approved: false, findings: Array.isArray(outcome.findings) ? outcome.findings : [] } }
-        : outcome.receipt;
-      if (outcome.unapproved === true) rec.visual_check = loopReceipt.visual_check;
+    await withGpu(signal, jobsDir, async () => {
       checkAbort();
-    }
+      let buildScript = plan.buildScript;
+      let loopReceipt = null;
+      if (visualLoop !== false) {
+        if (resume?.build) step(rec, 'visual_loop');
+        const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build ? { code: resume.build.code, startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
+          .finally(() => writeCalls(rec.id, allCalls));
+        if (!outcome || (!outcome.accepted && outcome.unapproved !== true) || typeof outcome.buildScript !== 'string' || !outcome.buildScript.trim() || sha(outcome.buildScript) !== outcome.sha256) throw new StartError('look_failed', 502);
+        buildScript = outcome.buildScript;
+        loopReceipt = outcome.unapproved === true
+          ? { ...outcome.receipt, visual_check: { approved: false, findings: Array.isArray(outcome.findings) ? outcome.findings : [] } }
+          : outcome.receipt;
+        if (outcome.unapproved === true) rec.visual_check = loopReceipt.visual_check;
+        checkAbort();
+      }
 
-    // 5. Build in the isolated runner. The job request has no say in image, command or limits.
-    step(rec, 'building');
-    try {
-      await runtime.runner.run({
-        jobId: rec.id, kind: 'generated-code', timeoutMs: TIMEOUT_MS[rec.duration] ?? 60 * 60 * 1000, signal,
-        script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, buildScript,
-      });
-    } catch (error) {
-      writeCalls(rec.id, allCalls);
-      if (signal.aborted || error?.code === 'ABORTED') throw new StartError('aborted');
-      if (error?.code === 'LAUNCH_NOT_APPROVED') throw new StartError('launch_not_approved', 409);
-      throw new StartError('build_failed', 502);
-    }
-    writeCalls(rec.id, allCalls, true);
-    writeLoopReceipt(rec.id, loopReceipt);
-    if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
-    checkAbort();
+      // 5. Build in the isolated runner. The job request has no say in image, command or limits.
+      step(rec, 'building');
+      try {
+        await runtime.runner.run({
+          jobId: rec.id, kind: 'generated-code', timeoutMs: TIMEOUT_MS[rec.duration] ?? 60 * 60 * 1000, signal,
+          script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, buildScript,
+        });
+      } catch (error) {
+        writeCalls(rec.id, allCalls);
+        if (signal.aborted || error?.code === 'ABORTED') throw new StartError('aborted');
+        if (error?.code === 'LAUNCH_NOT_APPROVED') throw new StartError('launch_not_approved', 409);
+        throw new StartError('build_failed', 502);
+      }
+      writeCalls(rec.id, allCalls, true);
+      writeLoopReceipt(rec.id, loopReceipt);
+      if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
+      checkAbort();
+    });
 
     // 6. Titles and tags are the only model-authored draft metadata. Failures retain the topic fallback.
     step(rec, 'drafting');
@@ -751,15 +790,20 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     } catch { throw new StartError('draft_failed', 500); }
   }
 
-  async function pump() {
-    if (running || !waiting.length) return;
-    const id = waiting.shift();
-    const entry = live.get(id);
-    if (!entry) return pump();
-    const { rec, controller } = entry;
-    if (controller.signal.aborted) { settle(rec, new StartError('aborted')); return pump(); }
-    running = id;
-    try { await execute(rec, controller); settle(rec, null); } catch (error) { settle(rec, error); } finally { running = null; void pump(); }
+  function pump() {
+    while (running.size < 2 && waiting.length) {
+      const id = waiting.shift();
+      const entry = live.get(id);
+      if (!entry) continue;
+      const { rec, controller } = entry;
+      if (controller.signal.aborted) { settle(rec, new StartError('aborted')); continue; }
+      running.add(id);
+      void (async () => {
+        try { await execute(rec, controller); settle(rec, null); }
+        catch (error) { settle(rec, controller.signal.aborted ? new StartError('aborted') : error); }
+        finally { running.delete(id); pump(); }
+      })();
+    }
   }
   function settle(rec, error) {
     if (!error) { rec.status = 'done'; rec.step = 'done'; rec.error = null; }
@@ -791,6 +835,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         rec.factCheck = true;
         rec.choices = { genre: choices?.genre ?? null, theme: choices?.theme ?? null, type: 'history' };
       }
+      if (live.has(id) || fs.existsSync(recFile(id))) throw new StartError('conflict', 409);
       save(rec);
       live.set(id, { rec, controller: new AbortController() });
       waiting.push(id);
@@ -807,7 +852,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const rec = load(id);
       if (!rec) throw new StartError('not_found', 404);
       if (!['failed', 'aborted'].includes(rec.status)) throw new StartError('conflict', 409);
-      if ((running !== null && running !== id) || waiting.some((queuedId) => queuedId !== id) || [...live.values()].some(({ rec: item }) => item.id !== id && ACTIVE.includes(item.status))) throw new StartError('conflict', 409);
+      if (running.size > 0 || waiting.some((queuedId) => queuedId !== id) || [...live.values()].some(({ rec: item }) => item.id !== id && ACTIVE.includes(item.status))) throw new StartError('conflict', 409);
       const artifacts = reusable(id);
       if (artifacts.blockedReason) throw new StartError('conflict', 409);
       rec.resumes = Array.isArray(rec.resumes) ? rec.resumes : [];
@@ -825,15 +870,15 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const entry = live.get(id);
       if (!entry) throw new StartError('conflict', 409);
       entry.controller.abort();
-      if (rec.status === 'queued') { const at = waiting.indexOf(id); if (at >= 0) waiting.splice(at, 1); settle(rec, new StartError('aborted')); }
+      if (!running.has(id) && rec.status === 'queued') { const at = waiting.indexOf(id); if (at >= 0) waiting.splice(at, 1); settle(rec, new StartError('aborted')); }
       return publicJob(rec);
     },
     /** Resolves when the job has settled (tests and graceful shutdown). */
-    async idle() { while (running || waiting.length) await new Promise((r) => setTimeout(r, 5)); },
+    async idle() { while (running.size || waiting.length) await new Promise((r) => setTimeout(r, 5)); },
   };
 
   function jobStatus(rec) {
-    const otherActive = (running !== null && running !== rec.id) || waiting.some((queuedId) => queuedId !== rec.id) || [...live.values()].some(({ rec: item }) => item.id !== rec.id && ACTIVE.includes(item.status));
+    const otherActive = [...running].some((id) => id !== rec.id) || waiting.some((queuedId) => queuedId !== rec.id) || [...live.values()].some(({ rec: item }) => item.id !== rec.id && ACTIVE.includes(item.status));
     const resumable = ['failed', 'aborted'].includes(rec.status);
     const artifacts = resumable ? reusable(rec.id) : null;
     const blockedReason = artifacts?.blockedReason ?? (resumable && otherActive ? 'Another code-built job is active' : null);
