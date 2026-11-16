@@ -5,6 +5,7 @@ casts shadows of raised countries. The map is `maps.WorldMap` and sits in the XY
 true-size moves and camera flights: see blender_worker/codebuilt/maps.py and the skill codebuilt-maps. Build options: world_map.build(origin, detail="110m"|"50m",
 projection="equal_earth"|"equirectangular"|"mercator", palette="relief"|"continents"|"muted"|"flat", highlight="BRA", only=[...], bbox=(lon0, lat0, lon1, lat1), relief=True).
 Handles: map (the WorldMap), countries (iso -> object), sea.
+Default projection is equirectangular with relief=True. Equal Earth and Mercator require relief=False; use Equal Earth without relief for area comparisons.
 """
 from .. import maps
 from .common import SetBuilder
