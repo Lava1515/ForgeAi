@@ -23,7 +23,8 @@ import { normalizeJobCalls } from '../../perf/creationCost.js';
 import { lengthCheck, LENGTH_TOLERANCE_S } from './lengthCheck.js';
 import { GENERATED_GPU_EXECUTOR_ID } from '../engines/codebuilt/launch.js';
 import { produceLightMetadata, validateTitle, validateTags } from './lightMetadata.js';
-import { loadCodebuiltGuides } from './skills.js';
+import { loadCodebuiltGuides, runWithJobFormats, cleanJobFormats } from './skills.js';
+import { channelJobFormats } from './autoTopic.js';
 import { askRole } from '../../routes/askRole.js';
 import { postFactory } from '../../routes/factoryClient.js';
 import { askClaude } from '../../routes/claudeCli.js';
@@ -799,7 +800,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       if (controller.signal.aborted) { settle(rec, new StartError('aborted')); continue; }
       running.add(id);
       void (async () => {
-        try { await execute(rec, controller); settle(rec, null); }
+        try { await runWithJobFormats(rec.formats, () => execute(rec, controller)); settle(rec, null); }
         catch (error) { settle(rec, controller.signal.aborted ? new StartError('aborted') : error); }
         finally { running.delete(id); pump(); }
       })();
@@ -830,6 +831,9 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
         ...(batch ? { autoDuration: internal.autoDuration === true, factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : internal.contentMode === 'history' ? 'history' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
+      // F1: the job's formats (from the topic pick, else from the channel profile) choose format skills and sets at every step.
+      const formats = cleanJobFormats(Array.isArray(internal?.premise?.formats) ? internal.premise.formats : channelJobFormats(req.channelId ?? defaultChannelId, type));
+      if (formats.length) rec.formats = formats;
       if (type === 'history') {
         rec.contentMode = 'history';
         rec.factCheck = true;

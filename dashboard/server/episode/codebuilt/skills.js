@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { SET_PICKER_TEXT } from './setCatalog.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -66,15 +68,65 @@ export function topicGuideNamesFor(pack, step, text) {
     .map((entry) => entry.skill);
 }
 
+// ---- Job formats (fix lane F1, 2026-11-16) ----
+// A format is a flag a job carries from its topic pick or its channel profile (autoTopic.js jobFormatsFor), for example "map".
+// What a format loads is configuration: paths/codebuilt.json rules.formats[<format>] = { skills, steps, sets, setSteps, note }.
+// Nothing here knows a niche. The keyword route (rules.topicSkills) is unchanged and still serves every other channel.
+const FORMAT_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+const formatScope = new AsyncLocalStorage();
+
+/** Format names that are safe to use as keys: lowercase words, at most 4, no repeats. Anything else is dropped. */
+export function cleanJobFormats(value) {
+  return [...new Set((Array.isArray(value) ? value : []).filter((name) => typeof name === 'string' && FORMAT_RE.test(name)))].slice(0, 4);
+}
+
+/** Runs fn with the job's formats in scope, so every guide loaded while the job's steps run sees them without each caller passing them on. */
+export function runWithJobFormats(formats, fn) {
+  return formatScope.run(cleanJobFormats(formats), fn);
+}
+
+/** The formats of the job whose step is running now; [] outside a job. */
+export function currentJobFormats() {
+  return formatScope.getStore() ?? [];
+}
+
+const formatEntries = (pack, formats) => cleanJobFormats(formats)
+  .map((name) => pack?.rules?.formats && Object.hasOwn(pack.rules.formats, name) ? pack.rules.formats[name] : null)
+  .filter((entry) => entry && typeof entry === 'object');
+
+/** Skill names the pack's rules.formats assign to a step for these job formats. No keyword is needed. */
+export function formatGuideNamesFor(pack, step, formats) {
+  return formatEntries(pack, formats)
+    .filter((entry) => Array.isArray(entry.steps) && entry.steps.includes(step) && Array.isArray(entry.skills))
+    .flatMap((entry) => entry.skills.filter((name) => typeof name === 'string'));
+}
+
+/**
+ * The ready sets a format offers at a step, as a guidance block: the format's note and the catalogue line of each set it names
+ * (setCatalog.js, so a set that does not exist is never offered). '' when no format offers sets at this step.
+ */
+export function formatSetsText(pack, step, formats) {
+  const lines = new Map(SET_PICKER_TEXT.split('\n').map((line) => [line.slice(0, line.indexOf(':')), line]));
+  const parts = [];
+  for (const entry of formatEntries(pack, formats)) {
+    if (!Array.isArray(entry.setSteps) || !entry.setSteps.includes(step) || !Array.isArray(entry.sets)) continue;
+    const offered = entry.sets.filter((name) => typeof name === 'string' && lines.has(name)).map((name) => `- ${lines.get(name)}`);
+    if (!offered.length) continue;
+    parts.push(`### Ready sets for this video\n${typeof entry.note === 'string' ? `${entry.note.trim()}\n` : ''}${offered.join('\n')}`);
+  }
+  return parts.join('\n\n');
+}
+
 /**
  * The guidance text for one pipeline step (script, direction, build, look): every project-authored SKILL.md the pack assigns to
  * that step, in order, each under its own heading. Only names the pack lists in `skills` as guidance_only are read, and only from
  * this repository's .claude/skills folder (same path checks as the build skill). A step with no assigned skill gives ''.
  * `topic` (the topic and script text, optional): topic skills of rules.topicSkills whose keywords appear in it are added after the step skills.
+ * `formats` (default: the formats of the running job): skills and ready sets of rules.formats are added for them, whatever the text says.
  * The text goes into a prompt as guidance; nothing here is mounted, executed or copied into generated code.
  */
-export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '' } = {}) {
-  const names = [...new Set([...guideNamesFor(pack, step), ...topicGuideNamesFor(pack, step, topic)])];
+export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '', formats = currentJobFormats() } = {}) {
+  const names = [...new Set([...guideNamesFor(pack, step), ...formatGuideNamesFor(pack, step, formats), ...topicGuideNamesFor(pack, step, topic)])];
   const approved = new Set((Array.isArray(pack?.skills) ? pack.skills : []).filter((entry) => entry?.mode === 'guidance_only').map((entry) => entry.skill));
   const parts = [];
   for (const name of names) {
@@ -82,5 +134,7 @@ export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '' }
     // The YAML frontmatter (name, description) is for skill listings, not for a prompt.
     parts.push(`### ${name}\n${safeSkillText(root, name).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim()}`);
   }
+  const sets = formatSetsText(pack, step, formats);
+  if (sets) parts.push(sets);
   return parts.join('\n\n');
 }

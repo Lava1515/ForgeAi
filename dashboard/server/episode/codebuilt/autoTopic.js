@@ -25,6 +25,20 @@ export class AutoTopicError extends Error {
   constructor(code, diagnostics = null) { super(code); this.name = 'AutoTopicError'; this.code = code; if (diagnostics) this.diagnostics = diagnostics; }
 }
 
+/**
+ * The formats a job carries to its script, direction and build steps (fix lane F1, 2026-11-16). A format comes from the channel
+ * profile's niche, never from the pipeline: a channel with no profile, or a profile about something else, gives []. What a format
+ * loads is in paths/codebuilt.json rules.formats. An owner-selected teardown is about the jet, not the channel niche.
+ */
+export function jobFormatsFor({ profile, type } = {}) {
+  return type !== 'teardown' && isActiveProfile(profile) && isMapProfile(profile) ? ['map'] : [];
+}
+
+/** jobFormatsFor for a channel id: for jobs that had no topic pick (the owner typed the topic). An unknown channel gives []. */
+export function channelJobFormats(channelId, type, getChannel = getChannelById) {
+  try { return jobFormatsFor({ profile: channelId ? getChannel(channelId)?.profile : null, type }); } catch { return []; }
+}
+
 /** askRole with the theme router step; refuses under the test runner so a rig that injects nothing cannot reach a model. */
 export const productionTopicAsk = (role, instruction, options = {}) => process.env.NODE_TEST_CONTEXT
   ? Promise.reject(new Error('model calls are disabled under the test runner'))
@@ -154,8 +168,10 @@ export function createAutoTopicProvider({ askRoleFn = productionTopicAsk, histor
         reasons: (Array.isArray(r.reasons) ? r.reasons : []).slice(0, 24).map((x) => `${clean(x.rule, 64)}:${clean(x.detail, 240)}`),
       })),
     });
+    // The pick's format rides on the premise, which already travels with the job to every step (start.js reads premise.formats).
+    const formats = jobFormatsFor({ profile, type });
     return {
-      ...(profile ? { type, premise: { language: profile.language || 'en', title: scored.chosen.title, hook: scored.chosen.hook, payoff: scored.chosen.payoff, answer: scored.chosen.answer, score: scored.chosen.total, reasons: scored.chosen.rules, ranked: scored.ranked, rejected: scored.rejected } } : {}),
+      ...(profile ? { type, premise: { formats, language: profile.language || 'en', title: scored.chosen.title, hook: scored.chosen.hook, payoff: scored.chosen.payoff, answer: scored.chosen.answer, score: scored.chosen.total, reasons: scored.chosen.rules, ranked: scored.ranked, rejected: scored.rejected } } : {}),
       topic: scored.chosen.topic, candidate_id: scored.chosen.id, total: scored.chosen.total,
       ranked: scored.ranked.length, rejected: scored.rejected.map((r) => ({ id: r.id, reasons: r.reasons.map((x) => `${x.rule}:${x.detail}`) })),
       history_used: scored.history_used, history_available: loaded.available === true,

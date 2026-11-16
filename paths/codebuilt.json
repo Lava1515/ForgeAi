@@ -102,8 +102,30 @@
       "Only project-authored skills in this repository's .claude/skills are read. User-level skills are not loaded by the pipeline and skill text is never copied into generated code.",
       "If a skill conflicts with the brief, the direction or the playbook, those win; say so in the report.",
       "Only codebuilt-scene-generation is mounted into the job container, read-only, at /skills/codebuilt-scene-generation, and it is limited to one SKILL.md.",
-      "Topic skills (rules.topicSkills) are loaded only for a step they list and only when one of their keywords appears as a whole word or phrase in the topic or script; they are still guidance only and still read from this repository's .claude/skills."
+      "Topic skills (rules.topicSkills) are loaded only for a step they list and only when one of their keywords appears as a whole word or phrase in the topic or script; they are still guidance only and still read from this repository's .claude/skills.",
+      "Format skills (rules.formats) are loaded for a job that carries that format, whatever words its topic or script use. A job gets a format from its topic pick or from its channel profile (the niche stays in the profile); the pipeline never assumes one. A format may also name ready sets to offer at the steps in setSteps."
     ],
+    "formats": {
+      "map": {
+        "skills": [
+          "codebuilt-maps"
+        ],
+        "steps": [
+          "script",
+          "direction",
+          "build"
+        ],
+        "sets": [
+          "world_map",
+          "globe"
+        ],
+        "setSteps": [
+          "direction",
+          "build"
+        ],
+        "note": "This video is for a channel whose format is map explainers: the viewer must see the real map. Show every place the script names on one of these ready sets, which carry real country shapes and the real Earth. Never draw your own Earth, continent or country from primitives or noise. Use world_map for countries, borders, routes and regions; use globe for the whole Earth, oceans and remote points."
+      }
+    },
     "skillsByStep": {
       "script": [
         "codebuilt-script"

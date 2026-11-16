@@ -161,6 +161,65 @@ def earth_mat(sand=(0.6, 0.5, 0.28)):
     return m
 
 
+EARTH_UV = "earth_lonlat"
+
+
+def lonlat_point(lon, lat, r=1.0):
+    """Point on a globe of radius r in the globe's own space: longitude 0 on +X, east towards +Y, north pole +Z."""
+    lo, la = math.radians(lon), math.radians(lat)
+    return (r * math.cos(la) * math.cos(lo), r * math.cos(la) * math.sin(lo), r * math.sin(la))
+
+
+def face_lon(lon):
+    """rotation_euler.z that turns a globe (lonlat_point space) so this longitude faces a camera on the -Y side."""
+    return math.radians(-90.0 - lon)
+
+
+def lonlat_uvs(verts, faces):
+    """Per-corner (u, v) of an equirectangular Earth raster for a sphere in lonlat_point space. Pure numpy.
+
+    u = lon/360 + 0.5, v = lat/180 + 0.5, the same convention as maps.WorldMap. Each face takes its longitudes on the
+    side of its own centre, so the faces at the 180 degree seam run to u=0 or u=1 and never stretch across the map.
+    Returns one array of shape (corners, 2) per face.
+    """
+    v = np.asarray(verts, dtype=float).reshape(-1, 3)
+    lon = np.degrees(np.arctan2(v[:, 1], v[:, 0]))
+    lat = np.degrees(np.arcsin(np.clip(v[:, 2] / np.maximum(np.linalg.norm(v, axis=1), 1e-12), -1.0, 1.0)))
+    out = []
+    for f in faces:
+        idx = np.asarray(f, dtype=int)
+        centre = v[idx].mean(axis=0)
+        mid = math.degrees(math.atan2(centre[1], centre[0]))
+        lo = mid + (lon[idx] - mid + 180.0) % 360.0 - 180.0
+        out.append(np.stack([np.clip(lo / 360.0 + 0.5, 0.0, 1.0), lat[idx] / 180.0 + 0.5], axis=1))
+    return out
+
+
+def earth_surface(ob, name="earth_globe"):
+    """Give a sphere object the real Earth: geographic UVs and the bundled Natural Earth relief raster (materials.earth_relief).
+
+    Returns True when the real raster is on the object. When the raster file is missing or cannot be loaded the object
+    gets the old noise Earth (earth_mat) instead and this returns False.
+    """
+    from .. import materials
+    me = ob.data
+    try:
+        mat = materials.earth_relief(name)
+    except Exception:
+        me.materials.clear()
+        me.materials.append(earth_mat())
+        return False
+    uvs = lonlat_uvs([tuple(vt.co) for vt in me.vertices], [tuple(p.vertices) for p in me.polygons])
+    layer = me.uv_layers.get(EARTH_UV) or me.uv_layers.new(name=EARTH_UV)
+    for poly, face_uv in zip(me.polygons, uvs):
+        for loop_index, uv in zip(poly.loop_indices, face_uv):
+            layer.data[loop_index].uv = (float(uv[0]), float(uv[1]))
+    me.materials.clear()
+    me.materials.append(mat)
+    me.update()
+    return True
+
+
 def star_field(b, n, spread_x, spread_z, depth, size, mat):
     """Camera-facing diamonds scattered on a plane at +Y depth (one mesh)."""
     from .. import meshes
