@@ -30,7 +30,7 @@ test('profile titles require 4 to 8 plain words without units and reward a human
   const good = { title: 'Why does Chile split your route?', subject: 'Chile', stake: 'You face a long detour.', answer: 'The Andes divide the country.', payoff: 'A map route bends around the mountains.' };
   assert.equal(rulePremise(good, []).pass, true);
   for (const [title, detail, patch] of [['Why Chile stretches 4,300 kilometres down the map today?', 'title_length', {}], ['Why Chile stretches 4,300 km?', 'title_units', {}], ['Why is this so unusual?', 'person_or_you', { stake: 'Something important could change.' }], ['Why did this happen to you?', 'familiar_place', { payoff: 'The result appears at the end.' }]]) {
-    assert.ok(rulePremise({ ...good, title, ...patch }, []).reasons.some(r => r.detail === detail), `${title}: ${detail}`);
+    assert.ok(rulePremise({ ...good, title, ...patch }, [], 'en', { maps: true }).reasons.some(r => r.detail === detail), `${title}: ${detail}`);
   }
 });
 
@@ -97,6 +97,19 @@ const mapCandidate = (patch = {}) => ({
   hook: 'Why does your route split?', facts: [], shots: [], tags: [], ...patch,
 });
 const scoreProfile = (candidate, profile = mapProfile) => scoreCandidates({ candidates: [candidate], history: [], sets: [{ name: 'code_built', themes: [] }], options: { profile, owner_wants_new_sets: true, safety_rules: { require_verified_claims: false } } });
+
+// codex · gpt-6.1-sol · 2026-11-16: reviewer-reported non-map and teardown regressions.
+test('map person/place gates preserve everyday-object and explicit teardown profiles', async () => {
+  const zipper = mapCandidate({ title: 'Why does a zipper lock shut?', topic: 'Why does a zipper lock shut?', subject: 'zipper', stake: 'The teeth must stay interlocked.', payoff: 'The slider locks the teeth together.' });
+  assert.ok(scoreProfile(zipper, { ...mapProfile, niche: 'everyday objects' }).chosen);
+  const nozzle = mapCandidate({ title: 'How does the F-35 nozzle hide heat?', topic: 'How does the F-35 nozzle hide heat?', subject: 'nozzle', stake: 'The exhaust needs to hide heat.', payoff: 'The exhaust spreads into a wider plume.' });
+  const scored = scoreCandidates({ candidates: [nozzle], history: [], sets: [{ name: 'code_built', themes: [] }], options: { profile: mapProfile, type: 'teardown', owner_wants_new_sets: true, safety_rules: { require_verified_claims: false } } });
+  assert.ok(scored.chosen, JSON.stringify(scored.rejected));
+  assert.ok(scoreProfile(zipper).rejected[0].reasons.some(r => r.detail === 'person_or_you'));
+  const prompt = await profilePromptFor(mapProfile, 'teardown');
+  assert.doesNotMatch(prompt, /map-explainer premises|Make the map central/);
+  assert.match(prompt, /owner selected teardown explicitly/);
+});
 async function profilePromptFor(profile, type = 'factual') {
   let prompt;
   const pick = createAutoTopicProvider({ getChannel: () => ({ id: 'test', profile }), history: () => ({ videos: [], available: false }),

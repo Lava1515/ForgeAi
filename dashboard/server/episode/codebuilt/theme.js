@@ -252,7 +252,7 @@ function ruleFactSafety(c, o) {
   const rules = o.safety_rules;
   const reasons = [];
   // Deterministic textual floor, not a semantic geopolitical classifier. Scope to Auto's map niche.
-  if (isMapProfile(o.profile)) {
+  if (o.type !== 'teardown' && isMapProfile(o.profile)) {
     const premise = normalise(premiseText(c)).replace(/[_-]/g, ' ');
     if (/\b(?:current|ongoing|active|present day|today|now)\b[^.!?]{0,60}\b(?:wars?|conflicts?|invasions?|fighting)\b|\b(?:wars?|conflicts?|invasions?|fighting)\b[^.!?]{0,60}\b(?:current|ongoing|active|today|now)\b/i.test(premise)) reasons.push('current_wars');
     if (/\b(?:disputed|contested)\s+(?:\w+\s+){0,2}(?:borders?|boundaries|territor\w*|sovereignty)\b|\b(?:border|boundary|territorial|sovereignty)\s+disputes?\b/i.test(premise)) reasons.push('disputed_borders');
@@ -304,8 +304,8 @@ export function rulePremise(c, avoid = [], language = 'en', { maps = false } = {
     ['list', propertyTour || (!LIST_START.test(title) && !(english && LIST_WORDS.test(title))), 'One premise; map tours may link four or five places by a concrete property'],
     ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectStems.every((w) => titleStems.has(w)), 'One named subject, present in the title'],
     ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
-    ['person_or_you', /\b(?:you|your|we|our|people|person|family|travell?er|travell?ers|sailor|driver|builder|worker|child|children|city|country|community|passenger|crew|farmer|soldier|king|queen|emperor|engineer|scientist|explorer|resident|citizen)\b/i.test(`${title} ${subject} ${text(c.stake)}`), 'Name a person, group, place or viewer with something at stake'],
-    ['familiar_place', /\b(?:home|house|school|street|road|city|town|country|kitchen|classroom|workplace|harbor|port|bridge|river|coast|neighborhood|neighbourhood|map|route|border|canal)\b/i.test(`${title} ${subject} ${text(c.stake)} ${text(c.payoff)}`), 'Anchor it in a recognizable place or route'],
+    ['person_or_you', !maps || /\b(?:you|your|we|our|people|person|family|travell?er|travell?ers|sailor|driver|builder|worker|child|children|city|country|community|passenger|crew|farmer|soldier|king|queen|emperor|engineer|scientist|explorer|resident|citizen)\b/i.test(`${title} ${subject} ${text(c.stake)}`), 'Name a person, group, place or viewer with something at stake'],
+    ['familiar_place', !maps || /\b(?:home|house|school|street|road|city|town|country|kitchen|classroom|workplace|harbor|port|bridge|river|coast|neighborhood|neighbourhood|map|route|border|canal)\b/i.test(`${title} ${subject} ${text(c.stake)} ${text(c.payoff)}`), 'Anchor it in a recognizable place or route'],
     ['sentence', sentence, 'Full question or claim'],
     ['answer', text(c.answer).trim().length >= 12, text(c.answer) || 'Missing one-sentence answer'],
     ['payoff', text(c.payoff).trim().length >= 12, text(c.payoff) || 'Missing visual payoff'],
@@ -335,7 +335,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
       fact_safety: ruleFactSafety(c, o),
     };
     const reasons = THEME_RULES.filter((r) => r.gate).flatMap((r) => results[r.key].reasons || []);
-    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language, { maps: isMapProfile(o.profile) }) : null;
+    const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language, { maps: o.type !== 'teardown' && isMapProfile(o.profile) }) : null;
     if (premise) {
       reasons.push(...premise.reasons);
     }
