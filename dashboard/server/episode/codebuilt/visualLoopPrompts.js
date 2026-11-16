@@ -78,6 +78,82 @@ function repeatedLegibilityNote(previous) {
   return `\nREPEATED LEGIBILITY FINDING (${shots.join(', ')}): the same diagram or text fault came back after a fix, so the fix changed the wrong thing. Do not change the same numbers again. Project the diagram's corners and ends through the camera first (frame height at distance d is d * 36 / lens, width 9/16 of that): a corner outside the frame needs a camera further back or a smaller diagram, a thin line or small text needs bigger strokes and letters (15 px and 50 px at 1080 x 1920). Then rebuild that diagram on a diagram.Board (from blender_worker.codebuilt import diagram; the review guidance describes it) and aim the shot with board.camera(cam, ...).\n`;
 }
 
+// ---- kit checks and measured numbers (fix lane F2, 2026-11-16) ---------------------------------------------------------------------
+// The kit's pre-render checks no longer stop a preview: shotcheck.run_qa writes what failed, each shot's camera numbers and the
+// measured framing of each preview frame to <preview job>/work/qa_report.json, and the look gets them next to the pictures.
+// The file is written inside the container by code that ran generated code, so every value is checked and bounded here.
+
+export const KIT_CHECKS = Object.freeze(['text_clipped', 'readout_too_wide', 'readout_behind_subject', 'same_composition', 'missing_target', 'uncheckable_shot']);
+const EDGES = ['left', 'right', 'bottom', 'top', 'camera'];
+const plain = (text, max) => cleanDiagnostic([...String(text ?? '')].filter((ch) => ch >= ' ' && ch <= '~').join('')).slice(0, max);
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e7 ? v : null);
+const frameNo = (v) => (Number.isInteger(v) && v >= 0 && v < 1e6 ? v : null);
+
+/** A parsed qa_report.json -> { findings, cameras, framing, seconds } with only checked values, or null when it is not one. */
+export function sanitizeKitReport(raw, shotCount) {
+  if (!isObj(raw) || raw.version !== 1) return null;
+  const shotIndex = (v) => (Number.isInteger(v) && v >= 0 && v < shotCount ? v : null);
+  const findings = (Array.isArray(raw.findings) ? raw.findings : []).slice(0, 40).flatMap((f) => {
+    if (!isObj(f) || !KIT_CHECKS.includes(f.check)) return [];
+    const text = plain(f.text, 600);
+    if (text.length < 3) return [];
+    const shot = shotIndex(f.shot);
+    return [{ check: f.check, shot: shot === null ? null : `shot-${shot}`, frames: (Array.isArray(f.frames) ? f.frames : []).slice(0, 2).map(frameNo).filter((n) => n !== null), text }];
+  });
+  const cameras = (Array.isArray(raw.cameras) ? raw.cameras : []).slice(0, 40).flatMap((c) => {
+    const shot = isObj(c) ? shotIndex(c.shot) : null;
+    const values = isObj(c) ? [c.az, c.el, c.dist, c.lens].map(num) : [null];
+    const target = isObj(c) && Array.isArray(c.target) && c.target.length === 3 ? c.target.map(num) : [null];
+    if (shot === null || values.includes(null) || target.includes(null)) return [];
+    return [{ shot: `shot-${shot}`, frame: frameNo(c.frame), az: values[0], el: values[1], dist: values[2], lens: values[3], target }];
+  });
+  const framing = (Array.isArray(raw.framing) ? raw.framing : []).slice(0, 60).flatMap((m) => {
+    const frame = isObj(m) ? frameNo(m.frame) : null;
+    if (frame === null) return [];
+    const shot = shotIndex(m.shot);
+    const base = { frame, shot: shot === null ? null : `shot-${shot}` };
+    if (m.subject === null || m.subject === undefined) return [{ ...base, subject: null }];
+    const subject = plain(m.subject, 60);
+    if (!subject) return [];
+    const parts = Number.isInteger(m.parts) && m.parts > 0 && m.parts < 1e5 ? m.parts : 1;
+    if (m.out === true) return [{ ...base, subject, parts, out: true }];
+    const [h, w, cx, cy] = [m.h, m.w, m.cx, m.cy].map((v) => (num(v) !== null && v >= 0 && v <= 1 ? v : null));
+    if ([h, w, cx, cy].includes(null)) return [];
+    return [{ ...base, subject, parts, h, w, cx, cy, cut: (Array.isArray(m.cut) ? m.cut : []).filter((e) => EDGES.includes(e)).slice(0, 4) }];
+  });
+  return { findings, cameras, framing, seconds: num(raw.seconds) };
+}
+
+const pct = (v) => `${Math.round(v * 100)}%`;
+const short = (v) => String(Math.round(v * 100) / 100);
+
+function framingLine(m) {
+  if (m.subject === null) return 'nothing is at the camera target (no object within reach of the point the camera is aimed at)';
+  const what = `"${m.subject}"${m.parts > 1 ? ` (${m.parts} parts)` : ''}`;
+  if (m.out) return `${what} is at the camera target but NOT IN THE FRAME`;
+  const cut = m.cut.length ? `, ${m.cut.includes('camera') ? 'partly BEHIND THE CAMERA' : `CUT by the ${m.cut.join(' and ')} frame edge${m.cut.length > 1 ? 's' : ''}`}` : '';
+  const small = m.h < 1 / 6 && m.w < 0.5 ? ' (under a sixth of the frame height)' : '';
+  return `${what} fills ${pct(m.h)} of the frame height${small} and ${pct(m.w)} of the width, centre ${pct(m.cx)} across and ${pct(m.cy)} up${cut}`;
+}
+
+/** The prompt sections for a kit report: failed checks, camera numbers per shot, measured framing per tile. [] when there is nothing. */
+export function kitPromptSections(kit, sheets = []) {
+  if (!kit) return [];
+  const parts = [];
+  if (kit.findings.length) {
+    parts.push(`KIT CHECKS THAT FAILED ON THIS SCRIPT (measured in code on the posed scene; facts, not opinions). The pictures were rendered anyway, but the final render refuses a script with any of these, so "pass" is not accepted while one remains. Fix every one of them in this same reply, together with what you see in the pictures, and list each as a finding (P1, or P0 when the pictures show it spoils the shot):\n${kit.findings.map((f) => `- [${f.check}]${f.shot ? ` ${f.shot}` : ''}: ${f.text}`).join('\n').slice(0, 6000)}`);
+  }
+  if (kit.cameras.length) {
+    parts.push(`CAMERA NUMBERS (measured at the middle frame of each shot, from the pos and target given to cam.set; azimuth 0 = the camera is on the -Y side of its target, positive towards +X; elevation = degrees above the target; shot numbers in kit messages are these shot ids). Edit these numbers, do not guess:\n${kit.cameras.map((c) => `${c.shot}${c.frame === null ? '' : ` (frame ${c.frame})`}: azimuth ${Math.round(c.az)}, elevation ${Math.round(c.el)}, distance ${short(c.dist)} m, lens ${Math.round(c.lens)} mm, target (${c.target.map(short).join(', ')})`).join('\n')}`);
+  }
+  const tileOf = new Map(sheets.flatMap((sheet) => sheet.tiles.map((t) => [t.frame, t.n])));
+  const lines = kit.framing.filter((m) => tileOf.has(m.frame)).map((m) => `T${tileOf.get(m.frame)} (frame ${m.frame}${m.shot ? `, ${m.shot}` : ''}): ${framingLine(m)}`);
+  if (lines.length) {
+    parts.push(`MEASURED FRAMING PER TILE (what the camera is aimed at: the object or parent group found at the camera target; sizes are the visible share of the frame, measured from its vertices, y up). When the named object is the shot's subject these numbers are facts: a subject under a third of the frame height needs a shorter distance or a longer lens (size in frame scales with lens / distance), a CUT subject needs more distance or a moved target. When the named object is not the subject (the camera is aimed at something else, or past it), that is worth fixing too: aim cam.set at the subject.\n${lines.join('\n')}`);
+  }
+  return parts;
+}
+
 function previousSummary(previous) {
   if (!Array.isArray(previous) || !previous.length) return '';
   const lines = [];
@@ -88,7 +164,7 @@ function previousSummary(previous) {
 }
 
 export function buildLookPrompt({
-  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous, guides = '', fixRoundsLeft = null,
+  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous, guides = '', fixRoundsLeft = null, kit = null,
 }) {
   const hasSheets = sheets.length > 0;
   const uniqueCodes = [...new Set(sheets.map((x) => x.code))];
@@ -105,6 +181,7 @@ export function buildLookPrompt({
   if (hasSheets) parts.push(`TILES:\n${tileLines.join('\n')}`);
   const flagged = sheets.flatMap((sheet) => sheet.tiles.filter((t) => t.flag).map((t) => `T${t.n} (frame ${t.frame}) is ${t.flag === 'flat' ? 'ONE FLAT COLOUR (the camera is inside or against a surface, or nothing is lit)' : t.flag === 'dark' ? 'almost black' : t.flag === 'plain' ? 'nearly one colour: look closely, and if the frame is mostly one flat surface (a wall, floor, dome or plate filling it) that is a P0' : 'blown out (a quarter or more of it is pure white)'}`));
   if (flagged.length) parts.push(`MEASURED FROM THE PIXELS (facts, not opinions; a flat tile can never pass):\n${flagged.join('\n')}`);
+  if (hasSheets) parts.push(...kitPromptSections(kit, sheets));
   if (qaText) parts.push(`WHY THERE ARE NO PICTURES (preview/QA output):\n${cleanDiagnostic(qaText)}`);
   parts.push(`LOOK CHECKLIST (P0 = must not ship as it is, P1 = should be fixed, P2 = a note):\n${LOOK_CHECKLIST.map((line) => `- ${line}`).join('\n')}`);
   const prior = previousSummary(previous);
@@ -133,7 +210,7 @@ const bad = (message, detail = {}) => new LoopError('bad_reply', message, detail
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const onlyKeys = (obj, allowed, what) => { for (const k of Object.keys(obj)) if (!allowed.includes(k)) throw bad(`${what} has an unknown key`); };
 
-export function parseLookReply(text, { shots, sheetCodes, finalRound = false, flatTiles = [] } = {}) {
+export function parseLookReply(text, { shots, sheetCodes, finalRound = false, flatTiles = [], kitFailures = [] } = {}) {
   let body;
   try { body = parseModelJson(text); } catch { throw bad('the reply was not JSON'); }
   if (!isObj(body)) throw bad('the reply must be a JSON object');
@@ -179,6 +256,8 @@ export function parseLookReply(text, { shots, sheetCodes, finalRound = false, fl
   const hasP0P1 = findings.some((f) => f.severity === 'P0' || f.severity === 'P1');
   if (body.verdict === 'pass' && hasP0) throw bad('a pass cannot carry a P0 finding');
   if (body.verdict === 'pass' && flatTiles.length) throw bad(`tile${flatTiles.length > 1 ? 's' : ''} ${flatTiles.map((n) => `T${n}`).join(', ')} measured as one flat colour: that is a P0 (camera inside or against a surface, or nothing lit), so the verdict cannot be pass`);
+
+  if (body.verdict === 'pass' && kitFailures.length) throw bad(`the kit checks failed on this script (${[...new Set(kitFailures)].join(', ')}) and the final render refuses it, so the verdict cannot be pass: list each failed check as a finding and fix it`);
 
   const targetsIn = body.targets ?? [];
   const editsIn = body.edits ?? [];

@@ -5,15 +5,22 @@ inside the frame can still run off the screen edge (the 46.5 s clipped equation 
 This module projects the real text box through the camera and fails any shot whose text leaves
 the safe area. It also holds the shot-variety rule that generated builds must follow.
 
-run_qa() is the consumer: one pass over the rendered frames. Two checks block: text in frame and shot variety (the shot
-target is the one stage.Camera.set recorded, never derived from mesh positions). The top-third check is advisory only
-(a warning in the report) until it is calibrated on real generated scenes. A passing run opens a render gate bound to the
-exact apply function; renderloop.render_frames(require_qa=True) spends the gate once, at its start, so a generated build
-cannot render around its QA, render a different build, or render twice on one pass.
+run_qa() is the consumer: one pass over a sample of the rendered frames (every QA_STEP-th frame plus the middle and the end
+of each shot). The checks are text in frame, readouts, and shot variety (the shot target is the one stage.Camera.set recorded,
+never derived from mesh positions). The top-third check is advisory only. A passing run opens a render gate bound to the exact
+apply function; renderloop.render_frames(require_qa=True) spends the gate once, at its start, so a generated build cannot
+render around its QA, render a different build, or render twice on one pass.
+
+Since 2026-11-16 (fix lane F2): in a PREVIEW job (the host wrote /job/work/preview.json) a failed check no longer stops the
+preview. The frames render and the findings travel with them in /job/work/qa_report.json, together with each shot's camera
+numbers and the measured framing of each preview frame, so one look can fix check failures and visible problems together.
+What still stops a preview: a shot that never aimed the camera (missing_target), a shot with no frame to check, and any
+Python error. In the FINAL render every failed check still raises QAError, as before.
 """
 import json
 import math
 import os
+import time
 
 from .framing import MIN_DEPTH
 
@@ -173,18 +180,124 @@ def shot_signature(pos, target, lens=50.0):
             dist / lens)
 
 
-def check_shot_variety(shots, min_azimuth=30.0, min_elevation=12.0, min_scale=0.25, neighbour_span=2):
-    """shots: dicts pos, target, lens (one representative pose per shot). Returns (i, j) pairs that
-    share one composition within neighbour_span shots: all three signature values are too close."""
+NEW_TARGET_FRAME_SHARE = 0.25   # a target moved by a quarter of the frame's long side or more is a new composition
+
+
+def frame_long_side(pos, target, lens=50.0):
+    """World length the long side of the frame covers at the target's distance."""
+    d = _sub(pos, target)
+    return math.sqrt(_dot(d, d)) * SENSOR_MM / (lens or 50.0)
+
+
+def new_target_distance(a, b, share=NEW_TARGET_FRAME_SHARE):
+    """How far apart two shots' targets must be to count as different places: share of the smaller frame."""
+    return share * min(frame_long_side(a["pos"], a["target"], a.get("lens", 50.0)),
+                       frame_long_side(b["pos"], b["target"], b.get("lens", 50.0)))
+
+
+def something_new(earlier, later):
+    """True when the later shot shows something the earlier one did not: an object or label that was not in view, or one
+    whose look changed (a fill colour landing on a held map). Only judged for two shots of the SAME place (collection) that
+    both carry marks ({name: look} of what is in frame); otherwise False, so the camera and target alone decide."""
+    a, b = earlier.get("marks"), later.get("marks")
+    if a is None or b is None or earlier.get("place") is None or earlier.get("place") != later.get("place"):
+        return False
+    return any(name not in a or a[name] != look for name, look in b.items())
+
+
+def check_shot_variety(shots, min_azimuth=30.0, min_elevation=12.0, min_scale=0.25, neighbour_span=2,
+                       min_target_share=NEW_TARGET_FRAME_SHARE):
+    """shots: dicts pos, target, lens (one representative pose per shot), optional place and marks. Returns (i, j) pairs
+    that share one composition within neighbour_span shots: the camera sits at the same side, height and distance/lens
+    scale relative to its target, the target is the same spot (it moved less than min_target_share of the frame), and the
+    later shot shows nothing new. So a tour of different targets at one tilt passes, and so does a held map on which a new
+    fill or label lands; the same target from the same angle with nothing new is still reported."""
     sigs = [shot_signature(s["pos"], s["target"], s.get("lens", 50.0)) for s in shots]
     same = []
     for i in range(len(sigs)):
         for j in range(i + 1, min(len(sigs), i + neighbour_span + 1)):
             (a1, e1, s1), (a2, e2, s2) = sigs[i], sigs[j]
             da = abs((a1 - a2 + 180) % 360 - 180)
-            if da < min_azimuth and abs(e1 - e2) < min_elevation and abs(s1 - s2) / max(s1, s2, 1e-9) < min_scale:
-                same.append((i, j))
+            if not (da < min_azimuth and abs(e1 - e2) < min_elevation and abs(s1 - s2) / max(s1, s2, 1e-9) < min_scale):
+                continue
+            moved = _sub(shots[i]["target"], shots[j]["target"])
+            if math.sqrt(_dot(moved, moved)) >= new_target_distance(shots[i], shots[j], min_target_share):
+                continue
+            if something_new(shots[i], shots[j]):
+                continue
+            same.append((i, j))
     return same
+
+
+# ---------------------------------------------------------------- framing numbers for the look (advisory, never block)
+SUBJECT_REACH = 0.05      # an object counts as "at the target" when its box is within this share of the camera distance
+SUBJECT_MAX_SPAN = 3.0    # ... and its box diagonal is at most this many frame long sides (bigger is ground or a room)
+CUT_TOLERANCE = 0.01
+
+
+def _box_union(boxes):
+    return (tuple(min(b[0][k] for b in boxes) for k in range(3)), tuple(max(b[1][k] for b in boxes) for k in range(3)))
+
+
+def _box_distance(box, p):
+    return math.sqrt(sum(max(box[0][k] - p[k], 0.0, p[k] - box[1][k]) ** 2 for k in range(3)))
+
+
+def _box_diagonal(box):
+    return math.sqrt(sum((box[1][k] - box[0][k]) ** 2 for k in range(3)))
+
+
+def subject_at_target(objects, pos, target, lens=50.0):
+    """(label, [objects]) the camera is aimed at, or None. objects: content dicts with a world "box" ((min xyz), (max xyz))
+    and optional "group" (top parent name) and "scenery". Parts of one parent count as one subject. Among the candidates
+    whose box holds the target (or lies within SUBJECT_REACH of it) the largest that is not ground-sized wins; when none is
+    that close, the nearest one within half the camera distance."""
+    d = _sub(pos, target)
+    dist = math.sqrt(_dot(d, d)) or 1e-9
+    limit = SUBJECT_MAX_SPAN * dist * SENSOR_MM / (lens or 50.0)
+    usable = [o for o in objects if not o.get("scenery") and o.get("box") is not None]
+
+    def pick(sets):
+        scored = [(_box_distance(box, target), _box_diagonal(box), label, objs)
+                  for label, objs, box in ((label, objs, _box_union([o["box"] for o in objs])) for label, objs in sets)]
+        scored = [x for x in scored if x[1] <= limit]
+        near = [x for x in scored if x[0] <= SUBJECT_REACH * dist]
+        if near:
+            best = max(near, key=lambda x: x[1])
+        else:
+            best = min((x for x in scored if x[0] <= 0.5 * dist), key=lambda x: x[0], default=None)
+        return None if best is None else (best[2], best[3])
+
+    groups = {}
+    for o in usable:
+        groups.setdefault(o.get("group") or o["name"], []).append(o)
+    return pick(list(groups.items())) or pick([(o["name"], [o]) for o in usable])
+
+
+def measure_framing(objects, pos, target, lens=50.0):
+    """Where the thing the camera is aimed at sits in the frame, from the points the QA pass already projected:
+    {"subject", "parts", "h", "w" (visible share of the frame height and width), "cx", "cy" (y up), "cut" (frame edges it
+    crosses)}; {"subject": None} when nothing is at the target; "out": True when it is not in the frame at all."""
+    found = subject_at_target(objects, pos, target, lens)
+    if found is None:
+        return {"subject": None}
+    label, objs = found
+    out = {"subject": str(label)[:60], "parts": len(objs)}
+    pts = [(x, y) for o in objs for x, y, depth in o["pts"] if depth > MIN_DEPTH]
+    behind = any(depth <= MIN_DEPTH for o in objs for _, _, depth in o["pts"])
+    if not pts:
+        return {**out, "out": True}
+    x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
+    y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
+    if x1 < 0 or x0 > 1 or y1 < 0 or y0 > 1:
+        return {**out, "out": True}
+    clamp = lambda v: max(0.0, min(1.0, v))
+    cut = [edge for edge, over in (("left", x0 < -CUT_TOLERANCE), ("right", x1 > 1 + CUT_TOLERANCE),
+                                   ("bottom", y0 < -CUT_TOLERANCE), ("top", y1 > 1 + CUT_TOLERANCE)) if over]
+    if behind and not cut:
+        cut = ["camera"]   # part of it is behind the camera
+    return {**out, "h": round(clamp(y1) - clamp(y0), 3), "w": round(clamp(x1) - clamp(x0), 3),
+            "cx": round((clamp(x0) + clamp(x1)) / 2, 3), "cy": round((clamp(y0) + clamp(y1)) / 2, 3), "cut": cut}
 
 
 def upper_area_empty(points_xy, min_top=0.6):
@@ -196,6 +309,11 @@ def upper_area_empty(points_xy, min_top=0.6):
 # ---------------------------------------------------------------- consumer: visibility, one QA pass, render gate
 UPPER_MIN_TOP = 2 / 3   # advisory: content should reach y >= this (the top third of the frame, y up 0..1)
 UPPER_STEP = 16         # frames between upper-area samples (kept a multiple of hold, so each is a rendered frame)
+# Frames between samples of the whole pass. Posing every frame took 191 s on a 1,325-frame build whose 22 preview frames
+# rendered in 8 s (job mwj2lsmh-85bb1a, measured 2026-11-16: 136 s in view_layer.update, 49 s projecting meshes). Every 4th
+# frame is 0.13 s of video; the middle and the last frame of every shot are always posed as well. Preview and final use the
+# same sample, so a script whose preview checks are clean cannot fail them in the final render.
+QA_STEP = 4
 SCENERY_ROLE = "scenery"   # object custom property codebuilt_role: stage.mark_scenery(obj) sets it; unmarked meshes are content
 MAX_VERTS = 1500        # vertices projected per object per sample (stride sample above this)
 MAX_LISTED = 20         # entries kept in an error message
@@ -307,95 +425,186 @@ def _shot_name(ranges, f):
     return next((n for n, a, b in ranges if a <= f < b), None)
 
 
-def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, safe=TEXT_SAFE, min_top=UPPER_MIN_TOP):
-    """One pass over the rendered frames (0, hold, 2*hold, ...; held frames are copies). probe supplies update(),
-    text_objects(), text_box(o), content(), cam_pose() (position, lens) and cam_target() (what stage.Camera.set
-    recorded, or None); BlenderProbe is the real one. Returns a report dict. Closes the render gate first; only enforce()
-    opens it. Blocking: text_clipped, same_composition, missing_target. Advisory: upper_warnings."""
+def _marks(content, texts):
+    """{name: look} of what is in frame now: meshes with a projected point inside the frame, and text whose box touches it."""
+    marks = {o["name"]: o.get("look") for o in content if _in_frame(o["pts"])}
+    for name, box, body in texts:
+        if box[4] > MIN_DEPTH and box[1] >= 0 and box[0] <= 1 and box[3] >= 0 and box[2] <= 1:
+            marks[name] = ("text", body)
+    return marks
+
+
+def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, safe=TEXT_SAFE, min_top=UPPER_MIN_TOP,
+                step=None, extra_frames=()):
+    """One pass over a sample of the rendered frames: every step-th (default QA_STEP, rounded up to a multiple of hold),
+    plus the middle and last rendered frame of every shot. probe supplies update(), text_objects(), text_box(o), content(),
+    cam_pose() (position, lens) and cam_target() (what stage.Camera.set recorded, or None); BlenderProbe is the real one.
+    extra_frames (the preview frames) are posed only to measure framing; no check runs on them, so the preview and the final
+    render judge the same frames. Returns a report dict. Closes the render gate first; only enforce() opens it.
+    Failures: text_clipped, readout_too_wide, readout_behind_subject, same_composition (reported in a preview, blocking in
+    the final), missing_target and uncheckable_shots (always blocking). Advisory: upper_warnings, cameras, framing."""
     reset_qa()
+    started = time.perf_counter()
     hold = max(1, int(hold))
+    step = hold * max(1, -(-int(QA_STEP if step is None else step) // hold))
     samples = shot_pose_frames(ranges, hold)
     uncheckable = [ranges[i][0] for i, f in enumerate(samples) if f is None or not 0 <= f < nframes]
     pose_at = {f: i for i, f in enumerate(samples) if f is not None and 0 <= f < nframes}
-    step = max(hold, upper_step // hold * hold)
-    upper_frames = set(range(0, nframes, step)) | set(pose_at)
+    end_at = {}
+    for i, (_, first, end) in enumerate(ranges):
+        last = min(end, nframes) - 1
+        last -= last % hold
+        if first <= last and last not in pose_at:
+            end_at[last] = i
+    check_frames = set(range(0, nframes, step)) | set(pose_at) | set(end_at)
+    measure_frames = {int(f) for f in extra_frames if 0 <= int(f) < nframes}
+    ustep = max(step, upper_step // step * step)
+    upper_frames = set(range(0, nframes, ustep)) | set(pose_at)
     text_samples, depth_samples, upper_warnings, poses, missing, checked = [], [], [], {}, [], 0
-    readout_names = set()
-    for f in range(0, nframes, hold):
+    readout_names, framing, end_marks = set(), [], {}
+    is_readout = lambda o: bool(getattr(o, "get", lambda *_: False)("codebuilt_readout", False))
+    for f in sorted(check_frames | measure_frames):
         apply(f)
         probe.update()
-        checked += 1
-        content = probe.content()
-        for o in probe.text_objects():
-            if getattr(o, "get", lambda *_: False)("codebuilt_readout", False):
-                readout_names.add(o.name)
-            box = probe.text_box(o)
-            if box is not None:
+        checking = f in check_frames
+        content = None   # projecting every mesh is the costly part: only on the frames that use it
+        texts = []
+        if checking:
+            checked += 1
+            for o in probe.text_objects():
+                if is_readout(o):
+                    readout_names.add(o.name)
+                box = probe.text_box(o)
+                if box is None:
+                    continue
+                texts.append((o.name, box, getattr(getattr(o, "data", None), "body", None)))
                 text_samples.append((f, o.name, box))
-                if getattr(o, "get", lambda *_: False)("codebuilt_readout", False):
+                if is_readout(o):
+                    content = probe.content() if content is None else content
                     subject = subject_in_readout_box(content, box)
                     if subject is not None:
                         depth_samples.append((f, o.name, box[4], subject[1], subject[0], _shot_name(ranges, f)))
-        if f in upper_frames and upper_area_empty(upper_area_points(content), min_top):
-            upper_warnings.append((f, _shot_name(ranges, f)))
+            if f in upper_frames:
+                content = probe.content() if content is None else content
+                if upper_area_empty(upper_area_points(content), min_top):
+                    upper_warnings.append((f, _shot_name(ranges, f)))
+        if not (f in pose_at or f in end_at or f in measure_frames):
+            continue
+        content = probe.content() if content is None else content
+        target = probe.cam_target()
+        if f in pose_at and target is None:
+            missing.append(_shot_name(ranges, f) or f"shot {pose_at[f]}")
+        if target is None:
+            continue
+        pos, lens = probe.cam_pose()
         if f in pose_at:
-            target = probe.cam_target()
-            if target is None:
-                missing.append(_shot_name(ranges, f) or f"shot {pose_at[f]}")
-            else:
-                pos, lens = probe.cam_pose()
-                poses[pose_at[f]] = {"pos": tuple(pos), "target": tuple(target), "lens": lens}
+            i = pose_at[f]
+            poses[i] = {"pos": tuple(pos), "target": tuple(target), "lens": lens, "place": ranges[i][0], "frame": f,
+                        "marks": _marks(content, texts)}
+        if f in end_at:
+            end_marks[end_at[f]] = _marks(content, texts)
+        if f in pose_at or f in measure_frames:
+            shot = next((k for k, (_, first, end) in enumerate(ranges) if first <= f < end), None)
+            try:
+                framing.append({"frame": f, "shot": shot, **measure_framing(content, tuple(pos), tuple(target), lens)})
+            except Exception:   # a measurement for the look never fails the pass
+                pass
+    for i, marks in end_marks.items():
+        if i in poses:
+            poses[i]["marks"] = {**poses[i]["marks"], **marks}
     order = sorted(poses)
     same = [(order[i], order[j]) for i, j in check_shot_variety([poses[k] for k in order])
             if order[j] - order[i] <= 2]
     clipped = find_text_clipped(text_samples, safe)
     too_wide = [(f, n, b) for f, n, b in text_samples if n in readout_names and readout_too_wide(b)]
     behind = find_readouts_behind_subject(depth_samples)
-    return {"ok": not (clipped or too_wide or behind or same or missing or uncheckable), "text_clipped": clipped,
-            "readout_too_wide": too_wide, "readout_behind_subject": behind, "same_composition": same, "missing_target": missing,
-            "uncheckable_shots": uncheckable,
-            "upper_warnings": upper_warnings, "frames_checked": checked, "shots": len(ranges), "shots_with_pose": len(poses),
-            "nframes": nframes, "hold": hold}
+    cameras = []
+    for i in order:
+        az, el, _ = shot_signature(poses[i]["pos"], poses[i]["target"], poses[i]["lens"])
+        d = _sub(poses[i]["pos"], poses[i]["target"])
+        cameras.append({"shot": i, "place": str(poses[i]["place"])[:60], "frame": poses[i]["frame"], "az": round(az, 1),
+                        "el": round(el, 1), "dist": round(math.sqrt(_dot(d, d)), 2), "lens": round(float(poses[i]["lens"]), 1),
+                        "target": [round(float(v), 2) for v in poses[i]["target"]],
+                        "new_target_m": round(NEW_TARGET_FRAME_SHARE * frame_long_side(poses[i]["pos"], poses[i]["target"], poses[i]["lens"]), 2)})
+    report = {"ok": not (clipped or too_wide or behind or same or missing or uncheckable), "text_clipped": clipped,
+              "readout_too_wide": too_wide, "readout_behind_subject": behind, "same_composition": same, "missing_target": missing,
+              "uncheckable_shots": uncheckable,
+              "upper_warnings": upper_warnings, "frames_checked": checked, "shots": len(ranges), "shots_with_pose": len(poses),
+              "nframes": nframes, "hold": hold, "step": step, "cameras": cameras, "framing": framing,
+              "seconds": round(time.perf_counter() - started, 2)}
+    report["hard"] = bool(missing or uncheckable)
+    report["findings"] = build_findings(report, ranges)
+    return report
+
+
+def _group_frames(entries, key, limit=MAX_LISTED):
+    """entries in frame order -> {key(entry): [first_frame, last_frame, first_entry]} for at most limit keys."""
+    groups = {}
+    for entry in entries:
+        k = key(entry)
+        if k not in groups:
+            if len(groups) >= limit:
+                continue
+            groups[k] = [entry[0], entry[0], entry]
+        groups[k][1] = entry[0]
+    return groups
+
+
+def _camera_line(c):
+    return (f"shot {c['shot']} ({c['place']}): azimuth {c['az']:.0f}, elevation {c['el']:.0f}, distance {c['dist']:.1f} m, "
+            f"lens {c['lens']:.0f} mm, target ({', '.join(f'{v:g}' for v in c['target'])})")
+
+
+def build_findings(report, ranges=None):
+    """The failed checks as a bounded list of {"check", "shot" (index or None), "shots", "frames" [first, last], "text"}:
+    what the host shows to the look next to the pictures, and what describe() joins into the failure text."""
+    def shot_of(frame):
+        return next((i for i, (_, a, b) in enumerate(ranges or []) if a <= frame < b), None)
+
+    out = []
+    for name in (report.get("uncheckable_shots") or [])[:MAX_LISTED]:
+        out.append({"check": "uncheckable_shot", "shot": None, "frames": [],
+                    "text": f"shot {str(name)[:80]!r} has no rendered frame the checks could pose (it is shorter than one frame)"})
+    for name, (first, last, entry) in _group_frames(report.get("text_clipped") or [], lambda e: e[1]).items():
+        out.append({"check": "text_clipped", "shot": shot_of(first), "frames": [first, last],
+                    "text": f"text leaves the safe area {TEXT_SAFE}: {name[:80]!r} at frames {first}-{last}, first box {entry[2]} "
+                            "(xmin, xmax, ymin, ymax, depth; 0..1 across the frame, y up)"})
+    for name, (first, last, entry) in _group_frames(report.get("readout_too_wide") or [], lambda e: e[1]).items():
+        out.append({"check": "readout_too_wide", "shot": shot_of(first), "frames": [first, last],
+                    "text": f"readout exceeds {MAX_READOUT_FRAME_SHARE:.0%} of frame width: {name[:80]!r} is "
+                            f"{entry[2][1] - entry[2][0]:.0%} wide at frames {first}-{last}"})
+    for (name, subject, shot), (first, last, entry) in _group_frames(report.get("readout_behind_subject") or [],
+                                                                    lambda e: (e[1], e[4], e[5])).items():
+        frames = str(first) if first == last else f"{first}-{last}"
+        out.append({"check": "readout_behind_subject", "shot": shot_of(first), "frames": [first, last],
+                    "text": f"readout {name[:80]!r} in {str(shot)[:80]} is behind {subject[:80]!r} "
+                            f"(readout {entry[2]:.2f} m, object {entry[3]:.2f} m) at frames {frames}: "
+                            "move the readout nearer to the camera or move the object"})
+    cams = {c["shot"]: c for c in report.get("cameras") or []}
+    for i, j in (report.get("same_composition") or [])[:MAX_LISTED]:
+        text = f"shots share one composition: shot {i} and shot {j}"
+        if i in cams and j in cams:
+            a, b = cams[i], cams[j]
+            text += (f" (shot {i}: azimuth {a['az']:.0f}, elevation {a['el']:.0f}, distance {a['dist']:.1f} m, lens {a['lens']:.0f} mm; "
+                     f"shot {j}: azimuth {b['az']:.0f}, elevation {b['el']:.0f}, distance {b['dist']:.1f} m, lens {b['lens']:.0f} mm; "
+                     f"the same target and nothing new in view). In ONE of the two change the azimuth by 30 degrees or more, the "
+                     f"elevation by 12 or more, or the distance/lens by 25 percent or more; or aim it at a target at least "
+                     f"{min(a['new_target_m'], b['new_target_m']):.2f} m away; or show something new in shot {j} (a new object, label or fill colour)")
+        out.append({"check": "same_composition", "shot": j, "shots": [i, j], "frames": [], "text": text})
+    for name in (report.get("missing_target") or [])[:MAX_LISTED]:
+        out.append({"check": "missing_target", "shot": None, "frames": [],
+                    "text": f"no camera target recorded for shot {str(name)[:80]!r}: position the camera with "
+                            "cam.set(pos, target, ...) (stage.Camera.set) in each shot function"})
+    return out
 
 
 def describe(report, include_warnings=False):
-    """Short, bounded text for a QA report: its failures, plus the advisory warnings when include_warnings."""
-    parts = []
-    if report.get("uncheckable_shots"):
-        parts.append(f"shots {report['uncheckable_shots'][:MAX_LISTED]} have no render-cadence QA sample")
-    if report["text_clipped"]:
-        groups = {}
-        for frame, name, box in report["text_clipped"]:
-            if name not in groups:
-                if len(groups) >= MAX_LISTED:
-                    continue
-                groups[name] = [frame, frame, box]
-            groups[name][1] = frame
-        parts.append(f"text leaves the safe area {TEXT_SAFE}: " + "; ".join(
-            f"{name[:80]!r} at frames {first}-{last}, first box {box}"
-            for name, (first, last, box) in groups.items()))
-    if report.get("readout_too_wide"):
-        parts.append(f"readout exceeds {MAX_READOUT_FRAME_SHARE:.0%} of frame width")
-    if report.get("readout_behind_subject"):
-        groups = {}
-        for frame, name, rd, sd, subject, shot in report["readout_behind_subject"]:
-            key = (name, subject, shot)
-            if key not in groups:
-                if len(groups) >= MAX_LISTED:
-                    continue
-                groups[key] = [frame, frame, rd, sd]
-            groups[key][1] = frame
-        for (name, subject, shot), (first, last, rd, sd) in groups.items():
-            frames = str(first) if first == last else f"{first}-{last}"
-            parts.append(f"readout {name[:80]!r} in {str(shot)[:80]} is behind {subject[:80]!r} "
-                         f"(readout {rd:.2f} m, object {sd:.2f} m) at frames {frames}: "
-                         "move the readout nearer to the camera or move the object")
-    if report["same_composition"]:
-        parts.append(f"shots share one composition (indices): {report['same_composition'][:MAX_LISTED]}")
-    if report["missing_target"]:
-        parts.append(f"no camera target recorded for shots {report['missing_target'][:MAX_LISTED]}: position the camera with "
-                     "cam.set(pos, target, ...) (stage.Camera.set) in each shot function")
-    if include_warnings and report["upper_warnings"]:
+    """Short, bounded text for a QA report: its failures with their numbers, plus the advisory warnings when include_warnings."""
+    parts = [f["text"] for f in (report.get("findings") or build_findings(report))]
+    if report.get("same_composition") and report.get("cameras"):
+        # every camera, so all clashing pairs can be solved in one edit instead of trading one clash for another
+        parts.append("all shot cameras, measured at the middle of each shot: " + " | ".join(_camera_line(c) for c in report["cameras"][:MAX_LISTED]))
+    if include_warnings and report.get("upper_warnings"):
         parts.append(f"warning (does not block): top third of the frame shows no content (frame, shot): {report['upper_warnings'][:MAX_LISTED]}")
     return ("; ".join(parts) or ("QA failed" if not report.get("ok") else "QA passed"))[:FAILURE_MAX_CHARS]
 
@@ -416,11 +625,50 @@ def _record_failure(message):
         pass
 
 
-def enforce(report, apply):
-    """Open the render gate for a passing report, bound to the apply function that was posed; keep it closed and raise
-    QAError for a failing one."""
+REPORT_FILE = "/job/work/qa_report.json"
+REPORT_MAX_FRAMING = 60
+
+
+def _record_report(report, mode):
+    """Best effort: the structured result of the pass, for the host to hand to the look with the preview frames. Bounded;
+    never raises. Written on a pass too (the camera and framing numbers are useful either way)."""
+    try:
+        directory = os.path.dirname(REPORT_FILE)
+        if not os.path.isdir(directory):
+            return
+        data = {"version": 1, "mode": mode, "ok": bool(report.get("ok")), "hard": bool(report.get("hard")),
+                "findings": [{**f, "text": str(f.get("text", ""))[:600]} for f in (report.get("findings") or [])[:3 * MAX_LISTED]],
+                "cameras": (report.get("cameras") or [])[:40], "framing": (report.get("framing") or [])[:REPORT_MAX_FRAMING],
+                "upper_warnings": [list(w) for w in (report.get("upper_warnings") or [])[:MAX_LISTED]],
+                "frames_checked": report.get("frames_checked"), "step": report.get("step"), "seconds": report.get("seconds")}
+        with open(REPORT_FILE, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+    except Exception:
+        pass
+
+
+def preview_mode():
+    """True inside a preview job: the host wrote the preview spec renderloop.render_frames obeys. The same file decides both,
+    so a run whose checks only report can only ever render preview frames."""
+    from .renderloop import PREVIEW_SPEC
+    return os.path.exists(PREVIEW_SPEC)
+
+
+def _preview_frames():
+    try:
+        from .renderloop import load_preview_spec
+        spec = load_preview_spec()
+        return list(spec["frames"]) if spec else []
+    except Exception:   # a bad spec is render_frames' error to raise
+        return []
+
+
+def enforce(report, apply, preview=False):
+    """Open the render gate, bound to the apply function that was posed, for a passing report; and, in a preview only, for a
+    report whose failures are all of the reporting kind (they reach the look with the pictures). Keep it closed and raise
+    QAError for a hard failure (no camera target, a shot with no frame) and, in the final render, for any failure."""
     reset_qa()
-    if not report.get("ok"):
+    if not report.get("ok") and (not preview or report.get("hard", True)):
         message = "QA failed before rendering: " + describe(report)
         _record_failure(message)
         raise QAError(message)
@@ -428,17 +676,22 @@ def enforce(report, apply):
 
 
 def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
-    """In Blender: the pre-render QA a generated build must pass. Call it once, as a plain statement, after the scene is
+    """In Blender: the pre-render QA of a generated build. Call it once, as a plain statement, after the scene is
     built and before renderloop.render_frames(..., require_qa=True), which spends the pass: call it again before any further render_frames. shots: the (start_seconds, collection_name, fn) list
-    given to timeline.apply_frame. Raises QAError on failure; renders nothing. The camera must be positioned with stage.Camera.set in every shot function."""
+    given to timeline.apply_frame. Renders nothing. In the final render it raises QAError on any failure. In a preview job it raises only when a shot
+    never aimed the camera or has no frame; other failures are written to REPORT_FILE and the preview renders. The camera must be positioned with stage.Camera.set in every shot function."""
     from .timeline import shot_frame_ranges
+    preview = preview_mode()
     probe = BlenderProbe(scene, cam)
-    report = run_qa_with(probe, apply, nframes, shot_frame_ranges(shots, nframes, fps), hold=hold)
+    report = run_qa_with(probe, apply, nframes, shot_frame_ranges(shots, nframes, fps), hold=hold,
+                         extra_frames=_preview_frames() if preview else ())
     report["bounds_source"] = getattr(probe, "bounds_source", None)
+    report["mode"] = "preview" if preview else "final"
+    _record_report(report, report["mode"])
     print("QA " + json.dumps({k: (v[:MAX_LISTED] if isinstance(v, list) else v) for k, v in report.items()}))
-    if report["ok"] and report["upper_warnings"]:
+    if report["upper_warnings"] or not report["ok"]:
         print("QA " + describe(report, include_warnings=True))
-    enforce(report, apply)
+    enforce(report, apply, preview=preview)
     return report
 
 
@@ -544,8 +797,34 @@ class BlenderProbe:
             safe_w = np.where(front, w, 1.0)
             x = np.where(front, h[:, 0] / safe_w * 0.5 + 0.5, 0.5)
             y = np.where(front, h[:, 1] / safe_w * 0.5 + 0.5, 0.5)
-            out.append({"name": o.name, "pts": list(zip(x.tolist(), y.tolist(), w.tolist())), "scenery": o.get("codebuilt_role") == SCENERY_ROLE})
+            top = o
+            while top.parent is not None:
+                top = top.parent
+            out.append({"name": o.name, "pts": list(zip(x.tolist(), y.tolist(), w.tolist())), "scenery": o.get("codebuilt_role") == SCENERY_ROLE,
+                        "box": (tuple(world.min(axis=0).tolist()), tuple(world.max(axis=0).tolist())),
+                        "group": None if top is o else top.name, "look": self._look(o)})
         return out
+
+    @staticmethod
+    def _look(o):
+        """A small fingerprint of how a mesh is painted (material names, base colour, glow), so a fill colour landing on a
+        held map counts as something new between two shots. None when it cannot be read."""
+        try:
+            out = []
+            for m in o.data.materials:
+                colour = None
+                for n in (m.node_tree.nodes if m is not None and m.node_tree is not None else ()):
+                    if n.type == 'BSDF_PRINCIPLED':
+                        c, e = n.inputs['Base Color'].default_value, n.inputs.get('Emission Strength')
+                        colour = (round(c[0], 2), round(c[1], 2), round(c[2], 2), round(e.default_value, 2) if e is not None else 0)
+                        break
+                    if n.type == 'EMISSION':
+                        c = n.inputs[0].default_value
+                        colour = (round(c[0], 2), round(c[1], 2), round(c[2], 2), round(n.inputs[1].default_value, 2))
+                out.append((m.name if m is not None else None, colour))
+            return tuple(out)
+        except Exception:
+            return None
 
     def subject_depth(self, box):
         """Nearest (object name, depth) overlapping this readout's projected box, or None."""

@@ -5,22 +5,30 @@
 //
 // Honest limits: this is a controller around a model call, not an agent session with tools; the model process runs on the host on
 // the existing subscription login, and every line of generated code still runs only in the offline container. A receipt proves what
-// pixels and which prompt reached which call, not that the model judged well. Numeric QA (shotcheck.run_qa) is a separate gate and
-// is never recorded as a look. Nothing here publishes anything: preview jobs and sheets stay in the host stage folder.
+// pixels and which prompt reached which call, not that the model judged well. Nothing here publishes anything: preview jobs and
+// sheets stay in the host stage folder.
+//
+// Kit checks (fix lane F2, 2026-11-16): numeric QA (shotcheck.run_qa) no longer stops a preview. It still stops the FINAL render,
+// so a script whose kit checks fail is never accepted and never returned as the unapproved result; but its preview renders, and
+// the failed checks, the camera numbers and the measured framing reach the look with the pictures (work/qa_report.json of the
+// preview job), so one round fixes check failures and visible problems together. Before, 92 of 310 rounds in 60 jobs were
+// previews the kit's own checks had stopped, each fixed blind from an error text.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pickPreviewFrames } from './previewFrames.js';
-import { buildLookPrompt, parseLookReply, applyScopedEdits, LOOK_FIX_ROUNDS } from './visualLoopPrompts.js';
+import { buildLookPrompt, parseLookReply, applyScopedEdits, sanitizeKitReport, LOOK_FIX_ROUNDS } from './visualLoopPrompts.js';
 import { LoopError } from './loopErrors.js';
 
 export const MAX_FIX_ROUNDS = LOOK_FIX_ROUNDS; // 3 since 2026-11-14: two fix rounds left real P0s in every draft of the night of 11-13
 export const MAX_LOOKS = MAX_FIX_ROUNDS + 1;
 export const MAX_REPLY_RETRIES = 3; // shared across the whole loop: invalid replies, refused edits and failed attempts
 export const MAX_CALLS = 16;
-// A preview that ends without frames (the generated code raised, or the kit's own QA refused the scene) is fixed from its
+// A preview that ends without frames (the generated code raised, or a shot never aimed the camera) is fixed from its
 // error text alone. Those fix rounds are cheap and do not use up a look: job mwf9bowk-8ff1e1 (2026-11-13) spent two of its
-// three looks on "shots share one composition" and ended with nothing rendered.
+// three looks on "shots share one composition" and ended with nothing rendered. A round whose pictures came with failed kit
+// checks draws on the same allowance (it did not use up a look before 2026-11-16 either, when it had no pictures at all);
+// once the allowance is used, such a round counts as a look.
 export const MAX_CRASH_FIXES = 4;
 export const MAX_CONSECUTIVE_CRASHES = 3;
 export const PREVIEW_SCALE = 50; // half of the final resolution (final profile 1080x1920, hold=1; preview 540x960)
@@ -51,6 +59,21 @@ const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
 export const newSheetCode = () => Array.from({ length: 5 }, () => CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join('');
 
 function readJson(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
+
+export const KIT_REPORT_FILE = 'qa_report.json';
+const KIT_REPORT_MAX_BYTES = 64 * 1024;
+/**
+ * The kit's check report of a finished preview: <preview job>/work/qa_report.json, beside the preview/ folder the frames are in.
+ * A regular file of at most 64 KB, or null (an older kit, or a build that never reached run_qa, leaves none).
+ */
+export function readKitReport(previewDir) {
+  try {
+    const file = path.join(path.dirname(previewDir), 'work', KIT_REPORT_FILE);
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size === 0 || stat.size > KIT_REPORT_MAX_BYTES) return null;
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch { return null; }
+}
 function writeJson(file, value) { fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`); }
 
 function checkInput(input, deps) {
@@ -71,7 +94,8 @@ function checkInput(input, deps) {
  * loop-error.json with a fixed sentence). Input: { jobId, stageDir, brief, script, shots: [{subject, narration}], shotStarts (s),
  * nframes, buildScript, kitContract, validate(code) -> reasons[], probe (a passed probe result), lookModel, signal, fps }.
  * Deps: runPreview({jobId, buildScript, spec, signal}), makeSheets({framesDir, outDir, code, signal}), askLook(prompt, images, opts),
- * askText(prompt, opts) (only for a round whose preview crashed), onCall(entry), onPhase('previewing' | 'looking'), now(), newCode().
+ * askText(prompt, opts) (only for a round whose preview crashed), onCall(entry), onPhase('previewing' | 'looking'), now(), newCode(),
+ * readKitReport(previewDir) -> the parsed kit check report of that preview, or null (default: readKitReport above).
  */
 export async function runVisualBuildLoop(input, deps = {}) {
   checkInput(input, deps);
@@ -157,8 +181,8 @@ async function loop(input, deps, { now, newCode, stage }) {
     // ---- replay: a round already looked at for this exact script is read back, never asked or previewed again
     let record = replayRound(dir, { buildSha256, shots, finalRound, script, input });
     if (record) {
-      consecutiveCrashes = record.crashed ? consecutiveCrashes + 1 : 0;
-      if (record.crashed) { crashFixes += 1; finalRound = false; }
+      consecutiveCrashes = record.crashed || record.freeRound ? consecutiveCrashes + 1 : 0;
+      if (record.crashed || record.freeRound) { crashFixes += 1; finalRound = false; }
     } else {
       fs.writeFileSync(path.join(dir, 'build.py'), script);
       // ---- preview
@@ -185,10 +209,21 @@ async function loop(input, deps, { now, newCode, stage }) {
         consecutiveCrashes += 1;
         crashFixes += 1;
         finalRound = false;
-      } else {
-        consecutiveCrashes = 0;
       }
       guard();
+      // ---- kit checks: the pictures exist, and what the kit measured on the posed scene comes with them
+      let kit = null;
+      let freeRound = false;
+      if (preview) {
+        try { kit = sanitizeKitReport((deps.readKitReport ?? readKitReport)(preview.dir), shots.length); } catch { kit = null; }
+        if (kit?.findings.length && crashFixes < MAX_CRASH_FIXES && consecutiveCrashes < MAX_CONSECUTIVE_CRASHES) {
+          freeRound = true; // fixed like a crash round, without using up a look, but this time with pictures
+          consecutiveCrashes += 1;
+          crashFixes += 1;
+          finalRound = false;
+        }
+      }
+      if (!crash && !freeRound) consecutiveCrashes = 0;
       // ---- sheets
       let sheets = [];
       let code = null;
@@ -204,12 +239,13 @@ async function loop(input, deps, { now, newCode, stage }) {
       }
       // ---- the look (or, when the preview crashed, a text-only fix round)
       record = await askRound({
-        r, finalRound, script, buildSha256, sheets, code, crash, previous, shots, previewJobId, preview, dir, frameListSha256,
+        r, finalRound, script, buildSha256, sheets, code, crash, previous, shots, previewJobId, preview, dir, frameListSha256, kit, freeRound,
       });
     }
     rounds.push(record.summary);
-    if (!record.crashed) looked.push({ buildScript: script, buildSha256, findings: record.reply.findings });
-    state.rounds.push({ round: r, buildSha256, verdict: record.reply.verdict, crashed: record.crashed });
+    // Only a script the final render will take can be the unapproved result: one whose kit checks failed is looked at, not kept.
+    if (!record.crashed && !record.kitFailed) looked.push({ buildScript: script, buildSha256, findings: record.reply.findings });
+    state.rounds.push({ round: r, buildSha256, verdict: record.reply.verdict, crashed: record.crashed, ...(record.kitFailed ? { kitFailed: true } : {}) });
     saveState();
 
     if (record.reply.verdict === 'pass') {
@@ -224,21 +260,22 @@ async function loop(input, deps, { now, newCode, stage }) {
       if (looked.length) return unapprovedResult();
       throw new LoopError('look_failed', 'the last look still found a problem', { reason: 'rounds_exhausted' });
     }
-    if (!record.crashed) looks += 1;
+    if (!record.crashed && !record.freeRound) looks += 1;
     previous.push({ round: r, findings: record.reply.findings });
     script = record.nextScript;
   }
   throw new LoopError('look_failed', 'the visual check did not approve the build', { reason: 'rounds_exhausted' });
 
   // ---------------------------------------------------------------------------------------------------------------------------
-  async function askRound({ r, finalRound, script: current, buildSha256, sheets, code, crash, previous: prior, shots: planned, previewJobId, preview, dir, frameListSha256: frameHash }) {
+  async function askRound({ r, finalRound, script: current, buildSha256, sheets, code, crash, previous: prior, shots: planned, previewJobId, preview, dir, frameListSha256: frameHash, kit = null, freeRound = false }) {
+    const kitFailures = kit ? kit.findings.map((f) => f.check) : [];
     const textOnly = sheets.length === 0;
     const sheetCodes = textOnly ? [] : [code];
     const images = sheets.map((s) => ({ bytes: fs.readFileSync(s.path), mediaType: 'image/jpeg' }));
     const prompt = buildLookPrompt({
       brief: input.brief, script: input.script, shots: planned, buildScript: current, kitContract: input.kitContract,
       sheets: sheets.map((s) => ({ code: s.code, tiles: s.tiles })), shotStarts, fps, round: r, finalRound, qaText: crash?.text, previous: prior,
-      guides: typeof input.lookGuides === 'string' ? input.lookGuides : '', fixRoundsLeft: Math.max(0, MAX_LOOKS - 1 - looks),
+      guides: typeof input.lookGuides === 'string' ? input.lookGuides : '', fixRoundsLeft: Math.max(0, MAX_LOOKS - 1 - looks), kit,
     });
     const flatTiles = sheets.flatMap((s) => s.tiles.filter((t) => t.flag === 'flat').map((t) => t.n));
     const roundCalls = [];
@@ -282,7 +319,7 @@ async function loop(input, deps, { now, newCode, stage }) {
       }
       let reply = null; let nextScript = null; let refusal = null;
       try {
-        reply = parseLookReply(answer.text, { shots: planned, sheetCodes, finalRound, flatTiles });
+        reply = parseLookReply(answer.text, { shots: planned, sheetCodes, finalRound, flatTiles, kitFailures });
         if (reply.verdict === 'fix' && !finalRound) {
           const edited = applyScopedEdits(current, reply, { validate: input.validate });
           nextScript = edited.source;
@@ -299,15 +336,16 @@ async function loop(input, deps, { now, newCode, stage }) {
       }
       const summary = {
         round: r, buildSha256, nextBuildSha256: nextScript ? sha256(nextScript) : null, previewJobId, verdict: reply.verdict, crashed: textOnly,
+        kitFailed: kitFailures.length > 0, kitChecks: [...new Set(kitFailures)], freeRound,
         p0: reply.findings.filter((f) => f.severity === 'P0').length, p1: reply.findings.filter((f) => f.severity === 'P1').length, p2: reply.findings.filter((f) => f.severity === 'P2').length,
         findings: reply.findings,
         shotsDescribed: reply.shots.length, shotsOk: reply.shots.filter((s) => s.ok).length, attempts: roundCalls.length, model: answer.model ?? lookModel, usage: answer.usage ?? null,
         sheets: sheets.map((s) => ({ sha256: s.sha256, bytes: s.bytes, code: s.code, tiles: s.tiles.length })), sheetCodes, frameListSha256: frameHash,
         previewFrames: preview ? preview.frames.map((f) => ({ name: f.name, sha256: f.sha256 })) : [], receipt: textOnly ? null : answer.receipt, promptSha256: sha256(text),
       };
-      writeJson(path.join(dir, 'look.json'), { version: 1, status: 'complete', ...summary, shotIds: planned.map((s) => s.id), reply });
+      writeJson(path.join(dir, 'look.json'), { version: 1, status: 'complete', ...summary, shotIds: planned.map((s) => s.id), reply, ...(kit ? { kit } : {}) });
       writeJson(path.join(dir, 'call.json'), roundCalls);
-      return { reply, nextScript, crashed: textOnly, summary: publicSummary(summary) };
+      return { reply, nextScript, crashed: textOnly, kitFailed: kitFailures.length > 0, freeRound, summary: publicSummary(summary) };
     }
   }
 
@@ -315,14 +353,19 @@ async function loop(input, deps, { now, newCode, stage }) {
     const stored = readJson(path.join(dir, 'look.json'));
     if (!stored || stored.version !== 1 || stored.status !== 'complete' || stored.buildSha256 !== buildSha256 || !Array.isArray(stored.sheetCodes)) return null;
     try {
-      const reply = parseLookReply(JSON.stringify(stored.reply), { shots: planned, sheetCodes: stored.sheetCodes, finalRound });
+      // A stored round that did not use up a look (its preview crashed, or came with failed kit checks) was never a last look.
+      const free = stored.freeRound === true && crashFixes < MAX_CRASH_FIXES && consecutiveCrashes < MAX_CONSECUTIVE_CRASHES;
+      if (stored.freeRound === true && !free) return null;
+      if (free) finalRound = false;
+      const kitFailures = stored.kitFailed === true && Array.isArray(stored.kitChecks) ? stored.kitChecks.filter((c) => typeof c === 'string') : [];
+      const reply = parseLookReply(JSON.stringify(stored.reply), { shots: planned, sheetCodes: stored.sheetCodes, finalRound, kitFailures });
       let nextScript = null;
       if (reply.verdict === 'fix' && !finalRound) {
         nextScript = applyScopedEdits(current, reply, { validate: inp.validate }).source;
         if (sha256(nextScript) !== stored.nextBuildSha256) return null;
       }
-      const { reply: _drop, shotIds: _ids, version: _v, status: _s, ...summary } = stored;
-      return { reply, nextScript, crashed: stored.crashed === true, summary: publicSummary({ ...summary, replayed: true }) };
+      const { reply: _drop, shotIds: _ids, version: _v, status: _s, kit: _kit, ...summary } = stored;
+      return { reply, nextScript, crashed: stored.crashed === true, kitFailed: stored.kitFailed === true, freeRound: free, summary: publicSummary({ ...summary, replayed: true }) };
     } catch { return null; }
   }
 }
@@ -344,6 +387,8 @@ function callEntry({ r, attempt, model, wallS, usage, status, images, validation
 function publicSummary(s) {
   return {
     round: s.round, buildSha256: s.buildSha256, nextBuildSha256: s.nextBuildSha256 ?? null, previewJobId: s.previewJobId, verdict: s.verdict, crashed: s.crashed === true,
+    // kit checks that failed on this round's script: fixed check names only (see KIT_CHECKS), never the kit's sentences
+    kitFailed: s.kitFailed === true, kitChecks: Array.isArray(s.kitChecks) ? s.kitChecks.filter((c) => typeof c === 'string' && /^[a-z_]{1,40}$/.test(c)).slice(0, 8) : [],
     p0: s.p0, p1: s.p1, p2: s.p2, shotsDescribed: s.shotsDescribed, shotsOk: s.shotsOk, attempts: s.attempts, model: s.model, usage: s.usage ?? null,
     findings: s.findings ?? [],
     sheets: s.sheets, sheetCodes: s.sheetCodes, frameListSha256: s.frameListSha256, previewFrames: s.previewFrames, receipt: s.receipt ?? null, promptSha256: s.promptSha256, replayed: s.replayed === true,
