@@ -5,6 +5,11 @@ import { checkRunRequest } from '../episode/codebuilt/runCoordinator.js';
 import { normalizeProductionChoices, scriptChoicesPrompt } from '../episode/codebuilt/productionChoices.js';
 import { loadCodebuiltPathPack, loadCodebuiltGuides } from '../episode/codebuilt/planner.js';
 
+test('a code-built run accepts 15 videos and rejects 16', () => {
+  assert.equal(checkRunRequest({ count: 15 }).count, 15);
+  assert.throws(() => checkRunRequest({ count: 16 }), { code: 'bad_request' });
+});
+
 test('an explicit history type is kept, a bogus type is refused, a What if topic cannot be history', () => {
   assert.equal(checkRunRequest({ type: 'history' }).type, 'history');
   assert.equal(checkRunRequest({ type: 'History', topic: 'How did Rome fall?' }).type, 'history');

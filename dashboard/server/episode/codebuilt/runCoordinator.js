@@ -1,4 +1,4 @@
-// KAN-928 (CB16): the owner-started batch. One Start action runs `count` (1..10, default 1) code-built videos, one after another.
+// KAN-928 (CB16): the owner-started batch. One Start action runs `count` (1..15, default 1) code-built videos, one after another.
 //
 // For each video the coordinator resolves every choice the owner left on Auto (duration, voice and the type through routes/autoChoices.js; the topic through
 // theme.js scoring fed by a real router call, see autoTopic.js). The TYPE is decided before the topic, and the same validated { genre, theme, type } goes to the
@@ -25,7 +25,7 @@ import { sanitizeRouterCall } from './routerCalls.js';
 import { isWhatIfTopic } from './productionChoices.js';
 
 export const RUN_VERSION = 'codebuilt-run-v1';
-export const MAX_COUNT = 10;
+export const MAX_COUNT = 15;
 export const DEFAULT_COUNT = 1;
 export const TYPES = Object.freeze(['factual', 'whatif', 'history']);
 export const RUN_DIR = '.runs';
