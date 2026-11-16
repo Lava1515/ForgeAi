@@ -165,3 +165,34 @@ test('Auto map fact_safety rejects current wars and disputed borders across cand
   }
   assert.ok(scoreProfile(mapCandidate({ answer: 'A current conflict closes the crossing.' }), { ...mapProfile, niche: 'history stories' }).chosen);
 });
+
+// claude · claude-sonnet-5-5 · 2026-11-16: run-mwizobhy-07d319 video 2 rejected 11 of 12 map candidates (person_or_you 10, subject 8, familiar_place 5).
+// Only the winner's fields and the rejection reasons were saved; the cases below keep the real winner and rebuild the failing shapes from those reasons.
+test('map premise floor accepts ordinary map premises that the old word lists rejected, and still rejects lists and avoid phrases', () => {
+  const maps = { maps: true };
+  const base = { stake: 'Passengers would lose hours on every long flight.', answer: 'Great circles are the shortest paths on a globe.', payoff: 'A taut thread on a globe bends over the pole.' };
+  const accepted = [
+    // the real winner of the run (stake is rebuilt; it was not saved)
+    { title: 'Why Airplanes Take The Curved Arctic Route', topic: 'Great Circle Arctic Flight Corridors', subject: 'Great Circle Arctic flight corridor', ...base },
+    // person_or_you: plural/new viewer words (passengers, airlines, countries, islanders, shipping) and a place the old list lacked (ocean, strait, island)
+    { title: 'Why do airlines avoid the Pacific Ocean?', topic: 'Pacific Ocean flights', subject: 'Pacific Ocean', stake: 'Airlines pay for every extra hour in the air.', answer: 'Great circle routes curve north of it.', payoff: 'Routes bend over the pole on a globe.' },
+    { title: 'Why does Hormuz Strait decide oil shipping?', topic: 'Hormuz Strait', subject: 'Hormuz Strait', stake: 'Shipping into the gulf must pass one narrow channel.', answer: 'It is the only sea exit.', payoff: 'Ship lanes squeeze into a thin strip.' },
+    { title: 'How do three countries share one island?', topic: 'Island shared by countries', subject: 'island', stake: 'Islanders cross borders to reach the next town.', answer: 'Borders follow old colonial lines.', payoff: 'Lines cut across the island map.' },
+    // familiar_place via a capitalised proper name in the stake or payoff instead of a listed noun
+    { title: 'Why does Greenland look so huge?', topic: 'Greenland size', subject: 'Greenland', stake: 'You misjudge its real size.', answer: 'Mercator maps stretch the poles.', payoff: 'The outline of Greenland shrinks as it slides toward the equator.' },
+    // subject phrased with one different word than the title (3+ content words may miss one)
+    { title: 'Why does the Suez Canal save sailors weeks?', topic: 'Suez shortcut', subject: 'Suez Canal shortcut route', stake: 'Sailors avoid a trip around Africa.', answer: 'The canal links two seas.', payoff: 'A ship cuts across the narrow desert strip.' },
+  ];
+  for (const c of accepted) {
+    const out = rulePremise(c, ['current wars', 'disputed borders'], 'en', maps);
+    assert.equal(out.pass, true, `${c.title}: ${JSON.stringify(out.reasons)}`);
+  }
+  // Still rejected: a list, an avoid phrase, a subject unrelated to the title, a subject of 1-2 words missing a word, and no person or place at all.
+  const reject = (patch, rule) => assert.ok(rulePremise({ ...accepted[1], ...patch }, ['current wars', 'disputed borders'], 'en', maps).reasons.some((r) => r.detail === rule), rule);
+  reject({ title: '5 things airlines do over oceans', topic: 'x', subject: 'airlines' }, 'list');
+  reject({ title: 'Why do airlines avoid disputed borders?', topic: 'x', subject: 'airlines' }, 'avoid:disputed borders');
+  reject({ subject: 'Atlantic Ocean' }, 'subject');
+  reject({ subject: 'Pacific Currents' }, 'subject');
+  reject({ title: 'Why is this so unusual?', topic: 'Odd thing', subject: 'this', stake: 'Something important could change.', payoff: 'It all becomes clear.' }, 'person_or_you');
+  reject({ title: 'Why Is This So Unusual Today?', topic: 'Odd thing', subject: 'unusual', stake: 'You would be surprised by it.', payoff: 'The result appears at the end.' }, 'familiar_place');
+});
