@@ -27,7 +27,7 @@ import { isWhatIfTopic } from './productionChoices.js';
 export const RUN_VERSION = 'codebuilt-run-v1';
 export const MAX_COUNT = 15;
 export const DEFAULT_COUNT = 1;
-export const TYPES = Object.freeze(['factual', 'whatif', 'history']);
+export const TYPES = Object.freeze(['factual', 'whatif', 'history', 'teardown']);
 export const RUN_DIR = '.runs';
 export const ACTIVE_RUN = Object.freeze(['queued', 'running', 'aborting']);
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
@@ -112,7 +112,7 @@ function requestedChannelTypes(type) {
 function supportsRequestedTypes(channel, type) {
   let assigned;
   try { assigned = cleanChannelVideoTypes(channel?.video_types); } catch { assigned = []; }
-  return type === null ? assigned.length > 0 : requestedChannelTypes(type).every((candidate) => assigned.includes(candidate));
+  return type === null ? assigned.some((candidate) => candidate !== 'teardown') : requestedChannelTypes(type).every((candidate) => assigned.includes(candidate));
 }
 
 function findMappedChannel(type, channels) {
@@ -234,7 +234,7 @@ export function createCodebuiltRunCoordinator({
       const out = decide('contentMode', { custom_theme_text: c.topic ?? c.theme ?? inspiration });
       type = out.body.contentMode === 'whatif' ? 'whatif' : 'factual';
       const assigned = cleanChannelVideoTypes(channel?.video_types);
-      if (!assigned.includes(type)) type = assigned[0];
+      if (!assigned.includes(type)) type = assigned.find((candidate) => candidate !== 'teardown') ?? type;
       resolved.type = { source: 'auto', reason: out.resolved.contentMode?.reason ?? 'default', value: type };
     }
     let topic = c.topic;

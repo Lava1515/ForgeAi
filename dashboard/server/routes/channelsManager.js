@@ -224,7 +224,7 @@ export function resolveChannelPolicy(channel = {}, engineOverride) {
   };
 }
 export const cleanMaxPosts = (n) => Math.min(10, Math.max(1, Math.round(Number(n)) || 2));
-export const CHANNEL_VIDEO_TYPES = Object.freeze(['factual', 'whatif', 'history']);
+export const CHANNEL_VIDEO_TYPES = Object.freeze(['factual', 'whatif', 'history', 'teardown']);
 export function cleanChannelVideoTypes(types) {
   if (types === undefined) return [...CHANNEL_VIDEO_TYPES];
   if (!Array.isArray(types)) throw new TypeError('video_types must be an array');
