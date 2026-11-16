@@ -300,6 +300,7 @@ async function loop(input, deps, { now, newCode, stage }) {
       const summary = {
         round: r, buildSha256, nextBuildSha256: nextScript ? sha256(nextScript) : null, previewJobId, verdict: reply.verdict, crashed: textOnly,
         p0: reply.findings.filter((f) => f.severity === 'P0').length, p1: reply.findings.filter((f) => f.severity === 'P1').length, p2: reply.findings.filter((f) => f.severity === 'P2').length,
+        findings: reply.findings,
         shotsDescribed: reply.shots.length, shotsOk: reply.shots.filter((s) => s.ok).length, attempts: roundCalls.length, model: answer.model ?? lookModel, usage: answer.usage ?? null,
         sheets: sheets.map((s) => ({ sha256: s.sha256, bytes: s.bytes, code: s.code, tiles: s.tiles.length })), sheetCodes, frameListSha256: frameHash,
         previewFrames: preview ? preview.frames.map((f) => ({ name: f.name, sha256: f.sha256 })) : [], receipt: textOnly ? null : answer.receipt, promptSha256: sha256(text),
@@ -344,6 +345,7 @@ function publicSummary(s) {
   return {
     round: s.round, buildSha256: s.buildSha256, nextBuildSha256: s.nextBuildSha256 ?? null, previewJobId: s.previewJobId, verdict: s.verdict, crashed: s.crashed === true,
     p0: s.p0, p1: s.p1, p2: s.p2, shotsDescribed: s.shotsDescribed, shotsOk: s.shotsOk, attempts: s.attempts, model: s.model, usage: s.usage ?? null,
+    findings: s.findings ?? [],
     sheets: s.sheets, sheetCodes: s.sheetCodes, frameListSha256: s.frameListSha256, previewFrames: s.previewFrames, receipt: s.receipt ?? null, promptSha256: s.promptSha256, replayed: s.replayed === true,
   };
 }
