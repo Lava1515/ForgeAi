@@ -3,6 +3,11 @@
     "id": "default",
     "name": "ForgeAI (Primary)",
     "genre": "general",
+    "profile": {
+      "niche": "map explainers about people, places and routes",
+      "language": "en",
+      "avoid": ["current wars", "disputed borders"]
+    },
     "description": "Primary production channel for automated short-form content",
     "youtube_channel_id": "UCrYSf42sxY0hEa2pWSZ140w",
     "api_key": "",
@@ -17,7 +22,7 @@
     "name": "Profile example",
     "genre": "general",
     "profile": {
-      "niche": "everyday objects and surprising mechanisms",
+      "niche": "map explainers about people, places and routes",
       "language": "en",
       "avoid": [
         "dangerous stunts"
