@@ -5,9 +5,11 @@ inside the frame can still run off the screen edge (the 46.5 s clipped equation 
 This module projects the real text box through the camera and fails any shot whose text leaves
 the safe area. It also holds the shot-variety rule that generated builds must follow.
 
-run_qa() is the consumer: one pass over a sample of the rendered frames (every QA_STEP-th frame plus the middle and the end
-of each shot). The checks are text in frame, readouts, and shot variety (the shot target is the one stage.Camera.set recorded,
-never derived from mesh positions). The top-third check is advisory only. A passing run opens a render gate bound to the exact
+run_qa() is the consumer: preview QA samples frames (every QA_STEP-th frame plus the middle and end of each shot), while
+final QA checks every rendered frame (hold=1). Preview failures are reported beside the pictures and are advisory except
+missing targets and uncheckable shots, which still block; final failures are a hard gate. The checks are text in frame, readouts,
+and shot variety (the shot target is the one stage.Camera.set recorded, never derived from mesh positions). The top-third check
+is advisory only. A passing run opens a render gate bound to the exact
 apply function; renderloop.render_frames(require_qa=True) spends the gate once, at its start, so a generated build cannot
 render around its QA, render a different build, or render twice on one pass.
 
@@ -436,11 +438,12 @@ def _marks(content, texts):
 
 def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, safe=TEXT_SAFE, min_top=UPPER_MIN_TOP,
                 step=None, extra_frames=()):
-    """One pass over a sample of the rendered frames: every step-th (default QA_STEP, rounded up to a multiple of hold),
+    """One pass over preview frames sampled every step-th frame (default QA_STEP, rounded up to a multiple of hold),
+    or every rendered frame in a final run (step=hold),
     plus the middle and last rendered frame of every shot. probe supplies update(), text_objects(), text_box(o), content(),
     cam_pose() (position, lens) and cam_target() (what stage.Camera.set recorded, or None); BlenderProbe is the real one.
-    extra_frames (the preview frames) are posed only to measure framing; no check runs on them, so the preview and the final
-    render judge the same frames. Returns a report dict. Closes the render gate first; only enforce() opens it.
+    extra_frames (the preview frames) are posed only to measure framing; no check runs on them. They do not change which
+    sampled preview frames or final frames receive checks. Returns a report dict. Closes the render gate first; only enforce() opens it.
     Failures: text_clipped, readout_too_wide, readout_behind_subject, same_composition (reported in a preview, blocking in
     the final), missing_target and uncheckable_shots (always blocking). Advisory: upper_warnings, cameras, framing."""
     reset_qa()

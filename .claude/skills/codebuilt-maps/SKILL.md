@@ -19,7 +19,7 @@ h = world_map.build(origin=(x, y, z), detail="50m", palette="relief", highlight=
 wm = h['map']        # maps.WorldMap; h['countries'] = {ISO code: mesh object}; h['sea']; h['collection']; h['lights']
 ```
 
-Default: `projection="equirectangular", relief=True`, with real bundled Natural Earth hillshading on country faces. UVs use world longitude/latitude, independent of sea margin and object origin. Blue sea stays solid. Bright highlights retain hillshading. Missing raster raises; no noise fallback. Equal Earth and Mercator require `relief=False`; equirectangular distorts areas so do not infer area from its apparent size.
+Default: `projection="equirectangular", relief=True`, with real bundled Natural Earth hillshading on country faces. UVs use world longitude/latitude, independent of sea margin and object origin. The sea is dark blue-black with bathymetric detail. Bright highlights retain hillshading. `wm.highlight(...)` returns a fill handle; call `hit["fill"].pose(t)` per frame to animate the fill, and use `wm.highlight_group(keys, label=...)` to highlight several countries together. Missing raster raises; no noise fallback. Equal Earth and Mercator require `relief=False`; equirectangular distorts areas so do not infer area from its apparent size.
 
 `world_map.build` returns the usual set handles (`collection`, `origin`, `subject`, `lights`) plus the map. Register `h['collection']` as the place collection like any other set and link your extra objects into it. Options: `detail` "110m" (177 countries, fast, coarse coasts) or "50m" (242 countries, includes small ones such as Singapore, Malta, Monaco; builds in about one second; use it whenever the camera comes close or a small country matters), `projection` "equal_earth" (requires relief=False; areas are honest), "equirectangular" or "mercator", `palette` "relief" (default, bright fills with real hillshading), "continents" (colourful), "muted" (calm blue-grey: use it when one country must pop) or "flat", `highlight` (a country to colour and lift at once), `only=[...]` or `bbox=(lon0, lat0, lon1, lat1)` to build a region only, `hide=("ATA",)` (Antarctica is hidden by default), `scale` (world units per earth radius, default 4: equirectangular world is 25.13 wide, 1 km = 0.00063 units), `thickness`, `sides=False`.
 
@@ -58,7 +58,9 @@ Dim the rest when one country is the story: use `palette="muted", relief=True` a
 
 ## Look and light
 
-`world_map.build` adds a sun and a fill light and uses a dark blue world colour. Standard view transform, exposure 0. Highlight emission above 0.3 washes the colour to white: keep the default. Text and markers are emissive. Production uses Cycles CPU; do not assume EEVEE matches. A world or region map is a table-top: never leave it unchanged for more than about 3 seconds.
+`world_map.build` adds a sun and a fill light and uses a dark blue world colour. Standard view transform, exposure 0. Highlights preserve the relief shading and use a restrained default emission. Text and markers are emissive. Production uses Cycles CPU; do not assume EEVEE matches. A world or region map is a table-top: never leave it unchanged for more than about 3 seconds.
+
+The `globe` set uses the bundled Natural Earth relief raster by default, with its default sun and space lighting. Its handles include `h["real_earth"]`, `h["face_lon"](lon)` to rotate a longitude toward the camera, and `h["lonlat"](lon, lat)` to place a marker on the globe (use `r=5.1` to float it above the radius-5 surface).
 
 ## One new thing per phrase
 

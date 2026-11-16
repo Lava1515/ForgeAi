@@ -60,7 +60,7 @@ SPECS = (
         SceneParams(note=_STANDARD + " Sun 3.0 plus 14 kW fill; sky dome is emissive.")),
     SetSpec(
         "globe",
-        "Spinning Earth globe in space with clouds, equator ring, thin atmosphere and a star field.",
+        "Spinning real Earth globe in space using the bundled Natural Earth relief raster by default, lit by its default sun and rim lights, with clouds, equator ring, thin atmosphere and a star field; the h['face_lon'](lon) and h['lonlat'](lon, lat) handles face a longitude and place a marker.",
         ("earth", "globe", "planet", "space", "rotation", "spin", "world", "orbit", "day", "night"),
         (0.0, -5.0, 0.0),
         (Angle("front", (0.0, -31.0, -1.0), (0.0, 0.0, -1.2), 50),

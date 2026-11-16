@@ -1,7 +1,7 @@
 """Set: world_map. Runs inside Blender. Optional kit for topics that are about where a country is, how big it is or how it borders.
 
-Flat map of the world made of real country shapes (Natural Earth, public domain), one mesh per country, with real Natural Earth hillshading on country surfaces and a blue sea, lit by a low sun that
-casts shadows of raised countries. The map is `maps.WorldMap` and sits in the XY plane, north = +Y, camera on the south side. Highlight, lift, colour, label,
+Flat map of the world made of real country shapes (Natural Earth, public domain), one mesh per country, with real Natural Earth hillshading on country surfaces and dark blue-black sea with bathymetric detail, lit by a low sun that
+casts shadows of raised countries. The map is `maps.WorldMap` and sits in the XY plane, north = +Y, camera on the south side. Highlight fills keep the hillshading and animate with `hit["fill"].pose(t)`; `wm.highlight_group(keys, label=...)` fills a set of countries together. Default emission is subtle; no blanket 0.3 limit applies. Highlight, lift, colour, label,
 true-size moves and camera flights: see blender_worker/codebuilt/maps.py and the skill codebuilt-maps. Build options: world_map.build(origin, detail="110m"|"50m",
 projection="equal_earth"|"equirectangular"|"mercator", palette="relief"|"continents"|"muted"|"flat", highlight="BRA", only=[...], bbox=(lon0, lat0, lon1, lat1), relief=True).
 Handles: map (the WorldMap), countries (iso -> object), sea.
