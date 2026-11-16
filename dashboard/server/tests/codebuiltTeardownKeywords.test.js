@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadCodebuiltPathPack } from '../episode/codebuilt/planner.js';
+import { loadCodebuiltPathPack, validateBuildScript } from '../episode/codebuilt/planner.js';
 import { topicGuideNamesFor } from '../episode/codebuilt/skills.js';
 
 test('teardown keywords match singular, plural and reworded stealth topics at direction and build steps', () => {
@@ -51,4 +51,9 @@ test('unrelated topics do not select codebuilt-teardown', () => {
       `expected build NOT to match teardown for: "${topic}", got: ${JSON.stringify(buildSkills)}`
     );
   }
+});
+
+test('a teardown build is refused unless it calls the stealth jet teardown set', () => {
+  const reasons = validateBuildScript('', { nframes: 1, shotStarts: [0], places: null, type: 'teardown' });
+  assert.ok(reasons.includes('teardown builds must call stealth_jet_teardown.build(origin)'));
 });

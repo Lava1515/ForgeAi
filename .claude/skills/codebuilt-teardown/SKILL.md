@@ -1,11 +1,13 @@
 ---
 name: codebuilt-teardown
-description: How to use the teardown kit (stylized stealth jet how-it-works, procedural disassembly, illustrative part names, exploded views, X-ray cutaway, subsystem highlights, and camera framing) in a code-built explainer short. Loaded by topic at the direction and build steps.
+description: How to use the teardown kit (stylized stealth jet how-it-works, procedural disassembly, illustrative part names, exploded views, X-ray cutaway, subsystem highlights, and camera framing) in a code-built explainer short. Loaded for an explicitly selected teardown type at script, direction, and build steps, as well as by topic.
 ---
 
 # Code-built teardown: stylized stealth jet
 
 Topic kit for "how it works" engineering explainer shorts. Features a stylized stealth jet built entirely from procedural shapes (no downloaded models or external assets). The parts are illustrative design choices, not verified F-117 specifications. Do not narrate their names or mechanisms as facts about a real aircraft without independent source verification.
+
+When the owner explicitly selects video type `teardown`, this skill is loaded by type at the script, direction, and build steps even if the topic does not contain a stealth keyword. The registered `stealth_jet_teardown` set is mandatory as the main scene: build it with `stealth_jet_teardown.build(origin)` and use its returned `jet` handle for the assembled and exploded views. Do not replace it with another set or a generic jet. Auto and every other video type keep their existing selection behavior.
 
 > **Illustrative reconstruction disclaimer:**
 > Illustrative schematic reconstruction for educational and how-it-works explanation; not dimensionally exact, operational, or maintenance CAD geometry. Do not copy protected diagrams, marks, or proprietary geometry.

@@ -20,7 +20,7 @@ import { SET_PICKER_TEXT, SET_MANUAL_TEXT, SET_NAMES, PROPS_MANUAL_TEXT, PROPS_P
 import { normalizeProductionChoices, scriptChoicesPrompt, buildChoicesPrompt, briefChoicesLine, isWhatIfTopic } from './productionChoices.js';
 import { planShotCadence, shotCountRange, MIN_SHOT_S, MAX_SHOT_S, TARGET_SHOT_S } from './cadence.js';
 import { storyDirection } from './storyDirection.js';
-import { loadCodebuiltBuildSkill, loadCodebuiltGuides } from './skills.js';
+import { loadCodebuiltBuildSkill, loadCodebuiltGuides, guideNamesFor } from './skills.js';
 import { phrasesOf, directionPrompt, checkDirection, directionShotStarts, directionMarkdown, directionLookShots, fallbackDirection, DirectionError } from './direction.js';
 
 export const PLANNER_VERSION = 'codebuilt-planner-v2';
@@ -255,15 +255,12 @@ const compact = (pack) => ({ id: pack.id, skills: pack.skills.map((s) => s.skill
 // The checked registry snapshot (setCatalog.js) keeps planner import independent of Python and the working directory.
 
 /** Guidance text for one step from the pack's project skills; '' when the pack assigns none or a file is missing (a prompt never fails on guidance). */
-function guidesFor(pack, step, topic, type) {
-  try {
-    const base = loadCodebuiltGuides({ pack, step, topic });
-    // Type skills (rules.typeSkills[type][step]) load only when the owner's or channel's type says so, never from the topic text.
-    const names = type ? pack?.rules?.typeSkills?.[type]?.[step] : null;
-    if (!Array.isArray(names) || !names.length) return base;
-    const extra = loadCodebuiltGuides({ pack: { ...pack, rules: { ...pack.rules, skillsByStep: { [step]: names }, topicSkills: [] } }, step });
-    return [base, extra].filter(Boolean).join('\n\n');
-  } catch { return ''; }
+export function guidesFor(pack, step, topic, type) {
+  const names = type === 'teardown'
+    ? ['codebuilt-teardown', ...(pack?.rules?.typeSkills?.teardown?.[step] ?? [])]
+    : type ? pack?.rules?.typeSkills?.[type]?.[step] : [];
+  const combined = [...guideNamesFor(pack, step), ...(Array.isArray(names) ? names : [])];
+  return loadCodebuiltGuides({ pack: { ...pack, rules: { ...pack.rules, skillsByStep: { ...pack.rules.skillsByStep, [step]: combined } } }, step, topic });
 }
 
 /** The block a rewrite gets after a fact check (data, never instructions). '' without corrections, so a first script prompt is unchanged. */
@@ -591,7 +588,7 @@ function settingProblems(code, key, accept, label, { required = true } = {}) {
 }
 
 const MESH_CALL = /\bmeshes\.(?:ball|box|lathe|sweep|grid|mk|plane)\s*\(|\bfigures\.make_person\s*\(|\bprops\.(?!puffs|streaks)[a-z_]+\s*\(/g;
-const SET_BUILD = /\b(?:city_street|globe|polar_penguin|tunnel|cutaway_planet|xray_body|room|bathroom|world_map)\s*\.\s*build\s*\(|\bmaps\.WorldMap\s*\(/g;
+const SET_BUILD = /\b(?:city_street|globe|polar_penguin|tunnel|cutaway_planet|xray_body|room|bathroom|world_map|stealth_jet_teardown)\s*\.\s*build\s*\(|\bmaps\.WorldMap\s*\(/g;
 const HELPER_CAP = 3; // one call of a mesh-building helper stands for at most three mesh calls, like a set build
 
 /**
@@ -638,7 +635,7 @@ export function sceneWeightOf(bare) {
 }
 
 /** Static checks on a generated script. Returns a list of reasons; empty means it passed. */
-export function validateBuildScript(code, { nframes, shotStarts, places }) {
+export function validateBuildScript(code, { nframes, shotStarts, places, type }) {
   const why = [];
   const src = String(code ?? '');
   if (src.length < 600 || src.length > 90000) why.push('script must be a complete program between 600 and 90000 characters');
@@ -648,6 +645,7 @@ export function validateBuildScript(code, { nframes, shotStarts, places }) {
   for (const mod of imports) if (!okRoot.has(mod.split('.')[0])) why.push(`import not allowed: ${mod}`);
   // Comments never satisfy a check: calls and names are looked for in `code` (comments and string contents blanked), string-valued constants in `noComments`.
   const { code: bare, noComments } = stripPython(src);
+  if (type === 'teardown' && !/\bstealth_jet_teardown\s*\.\s*build\s*\(/.test(bare)) why.push('teardown builds must call stealth_jet_teardown.build(origin)');
   const kitImport = [...bare.matchAll(/from\s+blender_worker\.codebuilt\s+import\s+(\([^)]*\)|[^\n]*)/g)].map((m) => m[1]).join(',');
   if (!kitImport) why.push('must import the kit with: from blender_worker.codebuilt import ...');
   else if (!/\bshotcheck\b/.test(kitImport)) why.push('must import shotcheck from the kit: from blender_worker.codebuilt import ..., shotcheck');
@@ -885,7 +883,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   let qaStructureState = 'not_checked';
   const check = (text) => {
     const code = extractPython(text);
-    const why = validateBuildScript(code, { nframes, shotStarts, places });
+    const why = validateBuildScript(code, { nframes, shotStarts, places, type: choices?.type });
     if (!why.length) { const bad = syntax(code); if (bad) why.push(`Python syntax error, ${bad}`); }
     if (!why.length) {
       const structure = qaStructure(code, { expect: { shotStarts, nframes } });
@@ -899,7 +897,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
     return code;
   };
   let skillGuidance;
-  try { skillGuidance = loadCodebuiltGuides({ pack, step: 'build', topic: `${topic} ${input.script}` }); }
+  try { skillGuidance = guidesFor(pack, 'build', `${topic} ${input.script}`, choices?.type); }
   catch { throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid'); }
   if (!skillGuidance) throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid');
   const buildScript = await asker.run(buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices, skillGuidance, direction }), check, input.signal);
