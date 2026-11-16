@@ -23,13 +23,13 @@ export const THEME_RULES = Object.freeze([
   { key: 'numbers_checkable', label: 'A true answer that can be checked, with at least three real numbers', gate: false },
   { key: 'shots_locations', label: 'Seven to nine visually different shots and at least three locations', gate: false },
   { key: 'hook', label: 'A hook that works in the first second (a number, a question or a point of view)', gate: false },
-  { key: 'not_repeat', label: "Not close to the channel's last 20 videos, in topic or in main setting", gate: true },
+  { key: 'not_repeat', label: "Not close to any past draft on the channel, in topic or main setting", gate: true },
   { key: 'set_fit', label: 'Fits sets already in the set library (lower cost), unless the owner asks for something new', gate: false },
   { key: 'fact_safety', label: "Clear of the channel's fact and safety rules", gate: true },
 ]);
 
 export const DEFAULT_OPTIONS = Object.freeze({
-  history_window: 20,            // rule 4: how many of the newest videos count
+  history_window: 0,             // rule 4: zero means every saved video is checked
   topic_similarity_limit: 0.5,   // rule 4: share of the shorter word set that overlaps (needs two shared words) at which a topic counts as a repeat
   setting_window: 3,             // rule 4: the main setting may not match one of this many newest videos
   history_setting_min_hits: 2,   // rule 4: theme words a past video needs to be placed in a set
@@ -178,7 +178,7 @@ function ruleHook(c, o) {
 function prepareHistory(history, o, index) {
   const ordered = history.map((v, i) => ({ v, i, t: Date.parse(v.published_at) }))
     .sort((a, b) => (Number.isNaN(b.t) ? -Infinity : b.t) - (Number.isNaN(a.t) ? -Infinity : a.t) || a.i - b.i)
-    .slice(0, o.history_window).map(({ v }) => v);
+    .slice(0, o.history_window > 0 ? o.history_window : undefined).map(({ v }) => v);
   return ordered.map((v) => {
     const tokens = wordSet(v.title, v.theme, ...(o.profile ? [v.subject, v.topic] : []));
     return { video_id: text(v.video_id), title: text(v.title), ...(o.profile ? { subject: text(v.subject) } : {}), tokens, setting: bestSet(index, tokens, o.history_setting_min_hits) };
@@ -286,11 +286,14 @@ export function rulePremise(c, avoid = [], language = 'en') {
   const subjectStems = [...stems(subject)];
   const sentence = title.endsWith('?') || !english || QUESTION_WORD.test(title) || PREDICATE.test(title);
   const checks = [
-    ['title_length', count >= 6 && count <= 10 && title.length <= 100, `${count} words, ${title.length} characters; need 6 to 10 words and at most 100 characters`],
+    ['title_length', count >= 4 && count <= 8 && title.length <= 100, `${count} words, ${title.length} characters; need 4 to 8 words and at most 100 characters`],
+    ['title_units', !/\b(?:mm|cm|km|m|inches?|feet|ft|miles?|mi|grams?|kg|kilograms?|pounds?|lb|lbs|seconds?|minutes?|hours?|days?|years?|°[cf]|celsius|fahrenheit)\b/i.test(title), 'Plain title without measurement units'],
     ['hashtag', !title.includes('#'), 'Plain title without hashtags'],
     ['list', !LIST_START.test(title) && !(english && LIST_WORDS.test(title)), 'One premise, no list'],
     ['subject', subjectStems.length > 0 && subjectStems.length <= 6 && subjectStems.every((w) => titleStems.has(w)), 'One named subject, present in the title'],
     ['stake', text(c.stake).trim().length >= 12, text(c.stake) || 'Missing concrete stake'],
+    ['person_or_you', /\b(?:you|your|we|our|people|person|family|travell?er|travell?ers|sailor|driver|builder|worker|child|children|city|country|community|passenger|crew|farmer|soldier|king|queen|emperor|engineer|scientist|explorer|resident|citizen)\b/i.test(`${title} ${subject} ${text(c.stake)}`), 'Name a person, group, place or viewer with something at stake'],
+    ['familiar_place', /\b(?:home|house|school|street|road|city|town|country|kitchen|classroom|workplace|harbor|port|bridge|river|coast|neighborhood|neighbourhood|map|route|border|canal)\b/i.test(`${title} ${subject} ${text(c.stake)} ${text(c.payoff)}`), 'Anchor it in a recognizable place or route'],
     ['sentence', sentence, 'Full question or claim'],
     ['answer', text(c.answer).trim().length >= 12, text(c.answer) || 'Missing one-sentence answer'],
     ['payoff', text(c.payoff).trim().length >= 12, text(c.payoff) || 'Missing visual payoff'],
@@ -351,7 +354,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
 
 // Reads a saved channel report (the shape the channel scan saves: { videos: [{ video_id, title, theme, published_at, ... }] }).
 // The file is only read. Newest first, at most `limit` videos, only the fields the scoring needs.
-export function loadChannelHistory({ file, limit = DEFAULT_OPTIONS.history_window } = {}) {
+export function loadChannelHistory({ file, limit = DEFAULT_OPTIONS.history_window || Infinity } = {}) {
   if (typeof file !== 'string' || !file) fail('history file must be a path string');
   let report;
   try { report = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { fail('channel history cannot be read or is not JSON'); }
