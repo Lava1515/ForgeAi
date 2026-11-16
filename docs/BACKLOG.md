@@ -1,4 +1,4 @@
-# ForgeAi backlog
+﻿# ForgeAi backlog
 
 One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude-pro Â· claude-sonnet-5-5.
 `READY` = nothing outside the code blocks it; the fleet can take it. `OWNER` = waits on the owner. `PARKED` = the
@@ -43,11 +43,11 @@ Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan
 | L2 | First-look defect census and pre-check | MERGED receipts 02e00c0; extra pre-check PARKED, existing readiness gate already covers proposal | Part 1 (read-only): count the round-0 findings in every `output/agent-jobs/*/visual_loop.json` by kind and say which a code check could catch. Part 2 (after part 1): add those checks before the first look so a build with them is repaired without a model call. `blender_worker/codebuilt/shotcheck.py` and the look-loop caller only; not the look-review skill (X1 owns it). Target: one look round fewer on average |
 | C1 | Earth image licence check | COMPLETE; Natural Earth source checked and registered by X1; NASA unused | Check at the source whether Natural Earth raster relief and NASA Blue Marble or similar may be used in monetized videos; write the finding and add allowed ones to `licenses/register.json` on a branch. Feeds X1 |
 | R1 | Final review panel | DONE: verdict FIX 2026-11-16 | Three Fable seats, two rounds. Verdict and reports: `output/agent-jobs/final-panel-2026-11-16/VERDICT.md`. One fix round F1 to F5 below; leftovers are listed at the end of the verdict |
-| F1 | Map routing and a real Earth on the globe | BUILDING (Fable) | A map flag from the topic pick loads `codebuilt-maps` and offers the map sets; the globe set uses the registered Natural Earth relief by default. `episode/codebuilt/autoTopic.js`, `skills.js`, `setCatalog.js`, `paths/codebuilt.json`, `sets/globe.py`, `sets/common.py`. Target: 3 of 3 map topics call the map kit; no noise Earth |
-| F2 | Preview checks report instead of stopping | BUILDING (Fable) | Kit checks no longer kill a preview; camera and framing numbers reach the look; a new target counts as a new composition. `shotcheck.py`, `visualLoop.js`, `visualLoopPrompts.js`. Target: rounds without pictures 37% to under 15%, mean look rounds 5.2 to 4 |
-| F3 | Builder prompt and refusals | BUILDING (Astra) | `hold` checked as a keyword argument, `world_map` in the import line, the "3 words per second" line removed. `planner.js` only. Target: 0 false refusals |
-| F4 | Direction repair and map phrase rule | BUILDING (Opus) | A direction with a timing slip is repaired in code, no fallback; skill rule that on a map something new lands with every phrase. `direction.js`, `.claude/skills/codebuilt-direction/SKILL.md`, `.claude/skills/codebuilt-maps/SKILL.md`. Target: 0 fallback directions |
-| F5 | The winners' map look | BUILDING (Opus) | Dark sea, stronger relief, bright country fill with outline, country labels on the flat map. `maps.py`, `materials.py`. Target: country identifiable in a small tile next to the reference frame |
+| F1 | Map routing and a real Earth on the globe | MERGED; fix proof pending | A map flag from the topic pick loads `codebuilt-maps` and offers the map sets; the globe set uses the registered Natural Earth relief by default. `episode/codebuilt/autoTopic.js`, `skills.js`, `setCatalog.js`, `paths/codebuilt.json`, `sets/globe.py`, `sets/common.py`. Target: 3 of 3 map topics call the map kit; no noise Earth |
+| F2 | Preview checks report instead of stopping | MERGED; fix proof pending | Kit checks no longer kill a preview; camera and framing numbers reach the look; a new target counts as a new composition. `shotcheck.py`, `visualLoop.js`, `visualLoopPrompts.js`. Target: rounds without pictures 37% to under 15%, mean look rounds 5.2 to 4 |
+| F3 | Builder prompt and refusals | MERGED; fix proof pending | `hold` checked as a keyword argument, `world_map` in the import line, the "3 words per second" line removed. `planner.js` only. Target: 0 false refusals |
+| F4 | Direction repair and map phrase rule | MERGED; fix proof pending | A direction with a timing slip is repaired in code, no fallback; skill rule that on a map something new lands with every phrase. `direction.js`, `.claude/skills/codebuilt-direction/SKILL.md`, `.claude/skills/codebuilt-maps/SKILL.md`. Target: 0 fallback directions |
+| F5 | The winners' map look | MERGED; fix proof pending | Dark sea, stronger relief, bright country fill with outline, country labels on the flat map. `maps.py`, `materials.py`. Target: country identifiable in a small tile next to the reference frame |
 
 ## Publish and grow
 
@@ -112,3 +112,6 @@ Updated 2026-11-16 10:15 +02:00 by codex · gpt-6.1-sol: X1 merged after review 
 Updated 2026-11-16 10:48 +02:00 by codex · gpt-6.1-sol: A1 two research passes failed full factual/shape quality; retain44 audited edited candidates in ForgeBrain/research/trend-review-2026-11-16/reviewed-candidates.md with16missing and explicit caveats, park target rather than claim60verified. C1 complete via source check and existing X1 Natural Earth asset entry; no NASA asset used. Combined proof still active; no production merge/restart.
 
 Updated 2026-11-16 14:45 +02:00 by claude-pro · claude-fable-5-2: final review panel verdict FIX; one fix round F1 to F5 (ForgeBrain/fleet/ORDERS.md). Leftovers for later lanes are listed at the end of output/agent-jobs/final-panel-2026-11-16/VERDICT.md.
+
+Updated 2026-11-16 16:46 +02:00 by codex · gpt-6.1-sol: F1-F5 and contract followups merged through fd16776 after cross-family review. Integrated server173/Python198+6subtests/licence36 pass; applied CPU fence proofs retain explicit audit limitations. Single3Auto fix proof pending; no quality approval yet.
+
