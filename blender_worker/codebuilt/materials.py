@@ -1,4 +1,6 @@
 """Materials (runs inside Blender 5.2; Principled BSDF input names are the 5.x ones)."""
+import os
+
 import bpy
 
 
@@ -553,6 +555,233 @@ def earth_relief(name="earth_relief", image_path=None, color=None):
         out = mix.outputs[0]
     nt.links.new(out, b.inputs['Base Color'])
     return m
+
+
+# ---------------------------------------------------------------- F5 map look (dark sea, strong relief, bright fills)
+# Same registered Natural Earth II raster as earth_relief; only the grading differs. Values are tuned on Cycles CPU, Standard view.
+EARTH_RASTER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mapdata", "ne2_50m_sr_w_4096.jpg")
+MAP_SEA = (0.010, 0.032, 0.070)          # deep water: dark blue-black
+MAP_SHELF = (0.030, 0.100, 0.170)        # shallow water and the raster's undersea relief
+MAP_BORDER = (0.82, 0.84, 0.80)          # thin pale border lines between unhighlighted countries
+_RASTER_TEXEL = (1.0 / 4096, 1.0 / 2048)
+
+
+def no_light(m):
+    """Keep a self-lit surface (map, label, outline) out of Cycles' light sampling: it still shows its colour but is not treated as a
+    lamp, which saves render time and noise. Returns the material."""
+    try:
+        m.cycles.emission_sampling = 'NONE'
+    except Exception as ex:  # older Blender
+        print("emission_sampling skipped:", ex)
+    return m
+
+
+def _image(nt, path, uv_socket, offset=None, name=None):
+    """Image texture node of the raster, sampled at uv (+ offset in UV units)."""
+    tex = nt.nodes.new('ShaderNodeTexImage')
+    tex.image = bpy.data.images.load(path, check_existing=True)
+    tex.extension = 'EXTEND'
+    tex.interpolation = 'Linear'
+    if name:
+        tex.name = name
+    if offset is None:
+        nt.links.new(uv_socket, tex.inputs['Vector'])
+    else:
+        add = nt.nodes.new('ShaderNodeVectorMath')
+        add.operation = 'ADD'
+        add.inputs[1].default_value = (offset[0], offset[1], 0.0)
+        nt.links.new(uv_socket, add.inputs[0])
+        nt.links.new(add.outputs[0], tex.inputs['Vector'])
+    return tex
+
+
+def _math(nt, op, a, b=None, clamp=False):
+    n = nt.nodes.new('ShaderNodeMath')
+    n.operation = op
+    n.use_clamp = clamp
+    for i, v in enumerate((a, b)):
+        if v is None:
+            continue
+        if isinstance(v, (int, float)):
+            n.inputs[i].default_value = float(v)
+        else:
+            nt.links.new(v, n.inputs[i])
+    return n.outputs[0]
+
+
+def _relief_shade(nt, uv, image_path, relief, radius=3.0):
+    """Hillshade boost: 1 + relief * (lum - local mean of lum), the local mean from two raster samples `radius` texels away
+    on the diagonal.
+    A local-contrast filter on the real pre-shaded raster: mountain ranges stand out, flat plains stay flat. No invented terrain.
+    Returns (colour socket of the centre sample, luminance socket, shade factor socket)."""
+    c = _image(nt, image_path, uv, name="relief_center")
+    bw = nt.nodes.new('ShaderNodeRGBToBW')
+    nt.links.new(c.outputs['Color'], bw.inputs[0])
+    lum = bw.outputs[0]
+    acc = None
+    du, dv = _RASTER_TEXEL[0] * radius, _RASTER_TEXEL[1] * radius
+    for off in ((du, dv), (-du, -dv)):     # two diagonal taps: enough for a local mean, half the texture reads of four
+        t = _image(nt, image_path, uv, offset=off)
+        b = nt.nodes.new('ShaderNodeRGBToBW')
+        nt.links.new(t.outputs['Color'], b.inputs[0])
+        acc = b.outputs[0] if acc is None else _math(nt, 'ADD', acc, b.outputs[0])
+    mean = _math(nt, 'MULTIPLY', acc, 0.5)
+    high = _math(nt, 'SUBTRACT', lum, mean)
+    shade = _math(nt, 'MULTIPLY_ADD', high, float(relief))
+    # MULTIPLY_ADD = a * b + c; c = 1
+    shade.node.inputs[2].default_value = 1.0
+    shade = _math(nt, 'MINIMUM', _math(nt, 'MAXIMUM', shade, 0.35), 1.45)   # no black pits, no white ridges
+    return c.outputs['Color'], lum, shade
+
+
+def map_land(name, color=None, image_path=None, relief=4.5, saturation=1.25, value=0.62, glow=0.2):
+    """Land top face for the flat map: the registered Natural Earth II raster graded to a restrained natural tone, with the real
+    hillshading strengthened by a local-contrast filter (`relief`, 0 = raster as is). Needs geographic UVs (as earth_relief).
+
+    A fill colour is built in: node 'country_tint' (RGB) holds it and node 'hl_mix' (Value, 0..1) blends from the natural land
+    (0) to the fill (1), keeping the hillshading in the fill. With `color` given the material starts filled (hl_mix 1).
+    The base colour is also fed to the emission at `glow` strength (Principled Emission Strength), so a pre-shaded map reads
+    the same in any light. Missing raster raises."""
+    image_path = image_path or EARTH_RASTER
+    if not os.path.exists(image_path):
+        raise RuntimeError(f"Natural Earth raster missing: {image_path}")
+    m = pbr(name, color or (1, 1, 1), rough=0.9)
+    nt, b = m.node_tree, _principled(m)
+    uv = nt.nodes.new('ShaderNodeTexCoord').outputs['UV']
+    col, lum, shade = _relief_shade(nt, uv, image_path, relief)
+    hs = nt.nodes.new('ShaderNodeHueSaturation')
+    hs.inputs['Saturation'].default_value = saturation
+    hs.inputs['Value'].default_value = value
+    nt.links.new(col, hs.inputs['Color'])
+    natural = nt.nodes.new('ShaderNodeMix')
+    natural.data_type = 'RGBA'
+    natural.blend_type = 'MULTIPLY'
+    natural.inputs['Factor'].default_value = 1.0
+    nt.links.new(hs.outputs['Color'], natural.inputs['A'])
+    nt.links.new(shade, natural.inputs['B'])
+    # fill: tint * (0.55 .. 1.1 by the raster's light) * relief shade
+    rgb = nt.nodes.new('ShaderNodeRGB')
+    rgb.name = 'country_tint'
+    rgb.outputs[0].default_value = (*(color or (1.0, 0.45, 0.05)), 1)
+    lit = nt.nodes.new('ShaderNodeMapRange')
+    lit.inputs['From Min'].default_value, lit.inputs['From Max'].default_value = 0.35, 0.95
+    lit.inputs['To Min'].default_value, lit.inputs['To Max'].default_value = 0.62, 1.05
+    nt.links.new(lum, lit.inputs['Value'])
+    k = _math(nt, 'MULTIPLY', lit.outputs['Result'], shade)
+    fill = nt.nodes.new('ShaderNodeMix')
+    fill.data_type = 'RGBA'
+    fill.blend_type = 'MULTIPLY'
+    fill.inputs['Factor'].default_value = 1.0
+    nt.links.new(rgb.outputs[0], fill.inputs['A'])
+    nt.links.new(k, fill.inputs['B'])
+    mixv = nt.nodes.new('ShaderNodeValue')
+    mixv.name = 'hl_mix'
+    mixv.outputs[0].default_value = 1.0 if color is not None else 0.0
+    mix = nt.nodes.new('ShaderNodeMix')
+    mix.data_type = 'RGBA'
+    nt.links.new(mixv.outputs[0], mix.inputs['Factor'])
+    nt.links.new(natural.outputs['Result'], mix.inputs['A'])
+    nt.links.new(fill.outputs['Result'], mix.inputs['B'])
+    nt.links.new(mix.outputs['Result'], b.inputs['Base Color'])
+    nt.links.new(mix.outputs['Result'], b.inputs['Emission Color'])
+    b.inputs['Emission Strength'].default_value = glow
+    return no_light(m)
+
+
+def map_sea(name, color=MAP_SEA, shelf=MAP_SHELF, image_path=None, geographic=True, glow=1.0):
+    """Sea plate: dark blue-black water. With geographic=True (equirectangular UVs, as map_land) the raster's own undersea relief
+    and shelves are kept as a faint lighter texture (shelf colour); land, ice and anything outside the raster fall back to `color`.
+    geographic=False is plain `color` with a soft noise. Mostly emissive so the sea stays dark blue rather than black in any light."""
+    # Nearly all of the sea's colour is emission: lights and their highlights would turn it grey.
+    m = pbr(name, color, rough=0.9, Specular_IOR_Level=0.05)
+    nt, b = m.node_tree, _principled(m)
+    b.inputs['Base Color'].default_value = (*[v * 0.2 for v in color], 1)
+    if not geographic:
+        no = nt.nodes.new('ShaderNodeTexNoise')
+        no.inputs['Scale'].default_value = 0.35
+        nt.links.new(nt.nodes.new('ShaderNodeTexCoord').outputs['Object'], no.inputs['Vector'])
+        ramp = nt.nodes.new('ShaderNodeValToRGB')
+        ramp.color_ramp.elements[0].color = (*[v * 0.8 for v in color], 1)
+        ramp.color_ramp.elements[1].color = (*[min(1.0, v * 1.3) for v in color], 1)
+        nt.links.new(no.outputs[0], ramp.inputs[0])
+        nt.links.new(ramp.outputs[0], b.inputs['Emission Color'])
+        b.inputs['Emission Strength'].default_value = glow
+        return no_light(m)
+    image_path = image_path or EARTH_RASTER
+    if not os.path.exists(image_path):
+        raise RuntimeError(f"Natural Earth raster missing: {image_path}")
+    uv = nt.nodes.new('ShaderNodeTexCoord').outputs['UV']
+    c = _image(nt, image_path, uv, name="sea_center")        # one sample: the sea needs no relief boost
+    col = c.outputs['Color']
+    bw = nt.nodes.new('ShaderNodeRGBToBW')
+    nt.links.new(col, bw.inputs[0])
+    lum = bw.outputs[0]
+    sep = nt.nodes.new('ShaderNodeSeparateColor')
+    nt.links.new(col, sep.inputs[0])
+    # water mask: the raster's sea is clearly bluer than red; land, ice and the clamped border are not
+    bmr = _math(nt, 'SUBTRACT', sep.outputs[2], sep.outputs[0])
+    water = _math(nt, 'MULTIPLY', _math(nt, 'SUBTRACT', bmr, 0.16), 10.0, clamp=True)
+    # inside the raster only (u, v in 0..1)
+    sx = nt.nodes.new('ShaderNodeSeparateXYZ')
+    nt.links.new(uv, sx.inputs[0])
+    inside = None
+    for comp in (sx.outputs[0], sx.outputs[1]):
+        lo = _math(nt, 'GREATER_THAN', comp, 0.0)
+        hi = _math(nt, 'LESS_THAN', comp, 1.0)
+        both = _math(nt, 'MULTIPLY', lo, hi)
+        inside = both if inside is None else _math(nt, 'MULTIPLY', inside, both)
+    depth = nt.nodes.new('ShaderNodeMapRange')       # deep water ~0.50 luminance in the raster, shelves ~0.62
+    depth.inputs['From Min'].default_value, depth.inputs['From Max'].default_value = 0.50, 0.66
+    nt.links.new(lum, depth.inputs['Value'])
+    t = _math(nt, 'MULTIPLY', _math(nt, 'MULTIPLY', depth.outputs['Result'], water), inside)
+    ramp = nt.nodes.new('ShaderNodeMix')
+    ramp.data_type = 'RGBA'
+    ramp.inputs['A'].default_value = (*color, 1)
+    ramp.inputs['B'].default_value = (*shelf, 1)
+    nt.links.new(t, ramp.inputs['Factor'])
+    nt.links.new(ramp.outputs['Result'], b.inputs['Emission Color'])
+    b.inputs['Emission Strength'].default_value = glow
+    return no_light(m)
+
+
+def map_outline(name, color=MAP_BORDER, strength=0.8):
+    """Emissive line colour for country borders and highlight outlines (strength 0 = plain dark line)."""
+    return no_light(emit(name, color, strength))
+
+
+def map_glow(name, color, strength=2.0):
+    """Additive soft glow for a ribbon whose UV v runs 0 (at the outline) to 1 (outer edge): emission fading with (1 - v)^2
+    added to a fully transparent surface. Node 'glow_strength' (Emission) carries the strength, so it can be animated."""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    uv = nt.nodes.new('ShaderNodeTexCoord').outputs['UV']
+    sx = nt.nodes.new('ShaderNodeSeparateXYZ')
+    nt.links.new(uv, sx.inputs[0])
+    fall = _math(nt, 'POWER', _math(nt, 'SUBTRACT', 1.0, sx.outputs[1], clamp=True), 2.0)
+    e = nt.nodes.new('ShaderNodeEmission')
+    e.name = 'glow_strength'
+    e.inputs[0].default_value = (*color, 1)
+    e.inputs[1].default_value = strength
+    # scale emission by the falloff through a Mix Shader with a black (zero) emission
+    zero = nt.nodes.new('ShaderNodeEmission')
+    zero.inputs[1].default_value = 0.0
+    mixs = nt.nodes.new('ShaderNodeMixShader')
+    nt.links.new(fall, mixs.inputs[0])
+    nt.links.new(zero.outputs[0], mixs.inputs[1])
+    nt.links.new(e.outputs[0], mixs.inputs[2])
+    tr = nt.nodes.new('ShaderNodeBsdfTransparent')
+    add = nt.nodes.new('ShaderNodeAddShader')
+    nt.links.new(mixs.outputs[0], add.inputs[0])
+    nt.links.new(tr.outputs[0], add.inputs[1])
+    o = nt.nodes.new('ShaderNodeOutputMaterial')
+    nt.links.new(add.outputs[0], o.inputs[0])
+    try:
+        m.surface_render_method = 'BLENDED'
+    except Exception:
+        pass
+    return no_light(m)
 
 
 _cache = {}
