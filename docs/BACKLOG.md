@@ -32,8 +32,8 @@ Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan
 | M4 | History video type | MERGED; initial proof 1/3 done, repaired proof pending | A `history` type next to `factual` and `whatif`: period places and people, sourced dates and numbers. `episode/codebuilt/productionChoices.js`, `planner.js`, `autoTopic.js`, new skill `codebuilt-history` |
 | M5 | Teardown, stylized first | MERGED; teardown proof pending | The simple "how it works" version of one subject (the stealth jet), built from our own shapes, every part name sourced. Realistic and detailed teardown comes later. Own `blender_worker/codebuilt/` files and a skill |
 | M6 | Apply the YouTube research | MERGED; proof pending | Turn `ForgeBrain/research/youtube-shorts-2026-11-14` findings into pipeline rules (first two seconds, length, title). The owner confirms the list before it merges. `episode/codebuilt/` prompts and skills |
-| T1 | Teardown as a real video type | READY after the five finals (owner 2026-11-15 23:04) | A `teardown` type next to factual/whatif/history; choosing it always loads the `codebuilt-teardown` skill and the `stealth_jet_teardown` set. `productionChoices.js`, `planner.js`, `autoTopic.js` |
-| E4 | One more ending attempt | READY after the five finals (owner exception 2026-11-15 23:04) | E2/E3 stay parked. Plan first; same blind cross-family test, criterion declared beforehand. Decision: `ForgeBrain/decisions/2026-11-15-owner-answers-2310.md` |
+| T1 | Teardown as a real video type | REVIEW PASS; merge after active 15Auto ends | Branch `t3/teardown-video-type` at `8b40750`; server126/client build/licence pass. Runtime set proof remains pending. `productionChoices.js`, `planner.js`, `autoTopic.js` |
+| E4 | One more ending attempt | PARKED; single attempt failed schema gate | Exact `1793f44`: 24 primary calls, 23 valid outputs; NEW pair5 BAD_JSON. No resampling, blind comparison or factual-support verdict. Evidence: `output/agent-jobs/e4-attempt/`. E1 remains live; E2/E3 stay parked. |
 
 ## Publish and grow
 
@@ -78,3 +78,5 @@ Updated 2026-11-15 18:05 +02:00 by codex · gpt-6.1-sol: reviewed batch merged t
 
 
 Updated 2026-11-15 23:27 +02:00 by codex · gpt-6.1-sol: G6 cross-family reviewed exact0d4dc28, merged idle cb8db7e; client build/licence33 pass and premerge server120 pass. Factual final31.47s complete, whatif retrieval failure under diagnosis; history final running. T1/E4 wait for finals and push.
+
+Updated 2026-11-16 04:56 +02:00 by codex · gpt-6.1-sol: T1 reviewed and held until15Auto terminal; E4 single attempt parked after NEWpair5 schema failure. No production ending change merged.
