@@ -446,7 +446,7 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
     reset_qa()
     started = time.perf_counter()
     hold = max(1, int(hold))
-    step = hold * max(1, -(-int(QA_STEP if step is None else step) // hold))
+    step = hold * max(1, -(-int(hold if step is None else step) // hold))
     samples = shot_pose_frames(ranges, hold)
     uncheckable = [ranges[i][0] for i, f in enumerate(samples) if f is None or not 0 <= f < nframes]
     pose_at = {f: i for i, f in enumerate(samples) if f is not None and 0 <= f < nframes}
@@ -684,6 +684,7 @@ def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
     preview = preview_mode()
     probe = BlenderProbe(scene, cam)
     report = run_qa_with(probe, apply, nframes, shot_frame_ranges(shots, nframes, fps), hold=hold,
+                         step=QA_STEP if preview else hold,
                          extra_frames=_preview_frames() if preview else ())
     report["bounds_source"] = getattr(probe, "bounds_source", None)
     report["mode"] = "preview" if preview else "final"
