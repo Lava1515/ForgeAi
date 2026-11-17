@@ -46,13 +46,25 @@ export const RUN_ACTIVE_STATUSES = Object.freeze(['queued', 'running', 'aborting
 export const isActiveRun = (run) => !!run && RUN_ACTIVE_STATUSES.includes(run.status);
 const TEXT_CHOICE = /^[\p{L}\p{N} ,.'&/+()-]{1,60}$/u;
 
-/** Body of POST /api/codebuilt/start. Throws on a bad topic or duration; the server checks both again. */
-export function buildCodebuiltStartBody({ topic, duration, buildModel, channelId }) {
+// "How it is made": Classic (3D text, the default), Text after render (overlay), One author (authored).
+export const CODEBUILT_ROUTE_OPTIONS = Object.freeze([
+  Object.freeze({ value: 'classic', label: 'Classic' }),
+  Object.freeze({ value: 'overlay', label: 'Text after render' }),
+  Object.freeze({ value: 'authored', label: 'One author' }),
+]);
+const routeKey = (route) => {
+  if (route === undefined || route === 'classic') return {};
+  if (!CODEBUILT_ROUTE_OPTIONS.some((option) => option.value === route)) throw new Error('Invalid how it is made choice');
+  return { route };
+};
+
+/** Body of POST /api/codebuilt/start. Throws on a bad topic or duration; the server checks both again. Classic sends no route key. */
+export function buildCodebuiltStartBody({ topic, duration, buildModel, channelId, route }) {
   const text = typeof topic === 'string' ? topic.trim() : '';
   if (!text || text.length > 200 || /[\x00-\x1F\x7F]/.test(text)) throw new Error('Topic must be between 1 and 200 characters');
   if (!CODEBUILT_DURATIONS.includes(duration)) throw new Error('Duration must be 30, 45, 60 or 90 seconds');
   if (buildModel !== undefined && !BUILD_MODELS.includes(buildModel)) throw new Error('Invalid build model');
-  return { topic: text, duration, ...(buildModel !== undefined ? { buildModel } : {}), ...(channelId ? { channelId } : {}) };
+  return { topic: text, duration, ...(buildModel !== undefined ? { buildModel } : {}), ...(channelId ? { channelId } : {}), ...routeKey(route) };
 }
 
 const blankOrAuto = (v) => v === undefined || v === null || (typeof v === 'string' && (!v.trim() || v.trim().toLowerCase() === 'auto'));
@@ -105,7 +117,7 @@ export function runFormProblem({ count = 1, topic, type, channels, channelId = '
 }
 
 /** Body of POST /api/codebuilt/runs. Auto and blank fields are left out (the server resolves them for every video). The server checks everything again. */
-export function buildCodebuiltRunBody({ count = 1, topic, genre, theme, type, voice, duration, autoDuration, buildModel, channelId } = {}) {
+export function buildCodebuiltRunBody({ count = 1, topic, genre, theme, type, voice, duration, autoDuration, buildModel, channelId, route } = {}) {
   if (!CODEBUILT_COUNTS.includes(count)) throw new Error('Number of videos must be a whole number from 1 to 10');
   const body = { count };
   const typed = typeof topic === 'string' ? topic.trim() : '';
@@ -137,6 +149,7 @@ export function buildCodebuiltRunBody({ count = 1, topic, genre, theme, type, vo
     body.buildModel = buildModel;
   }
   if (channelId) body.channelId = channelId;
+  Object.assign(body, routeKey(route));
   return body;
 }
 
@@ -179,8 +192,11 @@ export function runLabel(run) {
 }
 
 // --- React Component ---
-export default function CodebuiltStart() {
+// One author is shown only when the server reports author mode (FORGEAI_AUTHOR_MODE=1). No endpoint reports it yet,
+// so the option stays hidden until a report is passed in as authorModeAvailable.
+export default function CodebuiltStart({ authorModeAvailable = false } = {}) {
   const [topic, setTopic] = useState('');
+  const [route, setRoute] = useState('classic');
   const [duration, setDuration] = useState(60);
   const [autoDuration, setAutoDuration] = useState(false);
   const [buildModel, setBuildModel] = useState('Auto');
@@ -247,7 +263,8 @@ export default function CodebuiltStart() {
       setError(channelLoadError || channelAssignment.error || 'Loading channel assignments.');
       return;
     }
-    const form = { count, topic, genre, theme, type, voice, duration, autoDuration, buildModel, channelId: channelAssignment.channel.id };
+    const chosenRoute = authorModeAvailable || route !== 'authored' ? route : 'classic';
+    const form = { count, topic, genre, theme, type, voice, duration, autoDuration, buildModel, channelId: channelAssignment.channel.id, route: chosenRoute };
     setBusy(true);
     try {
       if (usesRunRoute(form)) {
@@ -255,7 +272,7 @@ export default function CodebuiltStart() {
         setJob(null);
         setRun(await api.startCodebuiltRun(body));
       } else {
-        const body = buildCodebuiltStartBody({ topic, duration, buildModel, channelId: channelAssignment.channel.id });
+        const body = buildCodebuiltStartBody({ topic, duration, buildModel, channelId: channelAssignment.channel.id, route: chosenRoute });
         setRun(null);
         setJob(await api.startCodebuiltJob(voice !== 'Auto' ? { ...body, voice } : body));
       }
@@ -344,6 +361,13 @@ export default function CodebuiltStart() {
               <select value={type} onChange={(e) => setType(e.target.value)} disabled={active} aria-label="Video type" data-codebuilt-type
                 className="rounded bg-ink-900 border border-ink-700 px-2 py-1 text-xs text-ink-100">
                 {CODEBUILT_TYPES.map((t) => (<option key={t} value={t}>{t === 'whatif' ? 'What if' : t === 'factual' ? 'Factual' : t === 'history' ? 'History' : t === 'teardown' ? 'Teardown' : 'Auto'}</option>))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span>How it is made</span>
+              <select value={route} onChange={(e) => setRoute(e.target.value)} disabled={active} aria-label="How it is made" data-codebuilt-route
+                className="rounded bg-ink-900 border border-ink-700 px-2 py-1 text-xs text-ink-100">
+                {CODEBUILT_ROUTE_OPTIONS.filter((option) => option.value !== 'authored' || authorModeAvailable).map((option) => (<option key={option.value} value={option.value}>{option.label}</option>))}
               </select>
             </label>
             <label className="flex flex-col gap-1">
