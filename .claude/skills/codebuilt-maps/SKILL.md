@@ -84,3 +84,14 @@ One `WorldMap` is one mesh per country (about 250 objects at 50m, 90 000 faces w
 ## Licence
 
 The shapes are Natural Earth, public domain, no credit required (licenses/register.json). Adding "Map data: Natural Earth" to the video description is optional and polite.
+
+## When text is drawn after the render
+
+This applies only when the job's route is `overlay` or `authored`, where text is drawn after the render. Then the scene carries no text at all: no letters, no numbers, no country names in 3D. The overlay step draws every label, so a text change needs no new render. Where this section differs from the text above (the view transform and the labels), this section wins for those routes.
+
+- Country names and place names are overlay labels, never 3D text. Do not call `wm.label` or `highlight(..., label=...)`; the overlay code check refuses them.
+- Mark each country's anchor with `WorldMap.anchor_point(key)` when it exists (a plain function that returns three numbers) and pass the point to `anchors.mark`. Use `WorldMap.point(lon, lat, z)` only for a free point that is not a country.
+- A running year or distance is the counter, drawn by the overlay. The big payoff number goes on its own word.
+- The camera slows at each landmark and holds about half a second after it arrives, so the label can be read before the camera leaves.
+- The view transform is AgX with look `AgX - Medium High Contrast` for these routes, not Standard exposure 0. Check one half-size frame under that look: the sea and land must still read.
+- Surfaces are written for the shot: large patterns that read on a phone, no plain flat sea or ground where the viewer looks. Keep the subject clear of the place a label will sit.
