@@ -18,7 +18,7 @@ function wavFixture() {
   return bytes;
 }
 
-for (const attack of ['readonly', 'orphan', 'receipt-directory']) test(`resume preserves host receipts and reuse under ${attack}`, async () => {
+for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) test(`resume preserves host receipts and reuse under ${attack}`, async () => {
   const scratch = path.resolve('../../output/temp');
   fs.mkdirSync(scratch, { recursive: true });
   const root = fs.mkdtempSync(path.join(scratch, 'codebuilt-resume-regression-'));
@@ -29,7 +29,10 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory']) test(`resume p
   try {
     const script = 'The careful narration validates every measured word boundary before saved scene code continues after a paused job resumes safely today';
     const brief = '# Cached brief';
-    const pathPack = { id: 'codebuilt', skills: [] };
+    const overlay = attack === 'overlay';
+    const pathPack = { id: 'codebuilt', skills: [], ...(overlay ? {rules:{formats:{journey:{overlay:true}}}} : {}) };
+    const newBuild = "from blender_worker.codebuilt import anchors\ndef shot(t):\n anchors.mark('new_point',(0,0,0))\n";
+    const overlaySpec = {version:1,labels:[{anchor:'new_point',title:'NEW',from:0,to:1}]};
     const wav = wavFixture();
     fs.writeFileSync(path.join(state, 'script.txt'), script);
     fs.writeFileSync(path.join(state, 'brief.md'), brief);
@@ -52,21 +55,22 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory']) test(`resume p
     fs.writeFileSync(path.join(forged, 'look.json'), JSON.stringify({ status: 'complete', reply: { findings: ['forged finding'] }, buildSha256: hash('forged history') }));
     fs.writeFileSync(path.join(state, 'cost_calls.json'), JSON.stringify({ calls: [{ step: 'previous', provider: 'claude', model: 'sonnet', wall_s: 1, input_tokens: 12, output_tokens: 3, retries: 0 }] }));
     fs.writeFileSync(path.join(state, 'status.json'), JSON.stringify({
-      version: START_VERSION, id, topic: 'Cached regression', duration: 30, voice: 'aiden', status: 'failed', step: 'looking',
+      version: START_VERSION, id, topic: 'Cached regression', duration: 30, voice: 'aiden', ...(overlay ? {formats:['journey']} : {}), status: 'failed', step: 'looking',
       steps: [{ step: 'looking', at: '2026-11-13T00:00:00.000Z' }], createdAt: '2026-11-13T00:00:00.000Z', updatedAt: '2026-11-13T00:00:00.000Z',
       draftId: null, error: { code: 'look_failed', message: 'failed' },
     }));
 
-    let scriptCalls = 0; let voiceCalls = 0; let plannerCalls = 0; let loopBuild = null;
+    let scriptCalls = 0; let voiceCalls = 0; let plannerCalls = 0; let loopBuild = null; let finalRequest = null;
     const starter = createCodebuiltStarter({
       jobsDir: root, episodesRoot: path.join(root, 'episodes'), draftsDir: path.join(root, 'drafts'),
       planner: {
         planCodebuiltScript: async () => { scriptCalls += 1; throw new Error('script should be reused'); },
-        planCodebuiltBuild: async () => { plannerCalls += 1; throw new Error('planner should be skipped'); },
+        planCodebuiltBuild: async () => { plannerCalls += 1; if (overlay) return {buildScript:newBuild,overlaySpec,shotStarts:[0],nframes:955,calls:[]}; throw new Error('planner should be skipped'); },
       },
       voiceStage: async () => { voiceCalls += 1; throw new Error('voice should be reused'); },
       validateReusableBuild: () => [],
-      composeRunner: async () => ({ runner: { run: async () => {
+      composeRunner: async () => ({ runner: { run: async (req) => {
+        finalRequest = req;
         if (attack === 'orphan') {
           fs.mkdirSync(path.join(root, '.cb6-locks'));
           fs.writeFileSync(path.join(root, '.cb6-locks', `${id}.lock`), JSON.stringify({ quarantined: true }));
@@ -83,6 +87,7 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory']) test(`resume p
         validate: () => [],
         runLoop: async (input) => {
           loopBuild = input.buildScript;
+          if (overlay) assert.equal(input.startRound,2); // Preserve prior round folders; contract 2.6 replans without an overlay pair.
           assert.deepEqual(input.resumeHistory, []);
           return { accepted: true, buildScript: input.buildScript, sha256: hash(input.buildScript), receipt: { model: 'HOST' }, calls: [] };
         },
@@ -93,19 +98,23 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory']) test(`resume p
 
     const queued = starter.resume(id);
     assert.equal(queued.id, id);
-    assert.equal(queued.resumes.at(-1).fromStep, 'visual_loop');
-    assert.deepEqual(queued.resumes.at(-1).reused, ['script', 'voice', 'buildScript']);
+    assert.equal(queued.resumes.at(-1).fromStep, overlay ? 'planning' : 'visual_loop');
+    assert.deepEqual(queued.resumes.at(-1).reused, overlay ? ['script', 'voice'] : ['script', 'voice', 'buildScript']);
     await starter.idle();
 
     const finished = starter.get(id);
-    assert.equal(finished.status, attack === 'readonly' ? 'done' : 'failed');
+    assert.equal(finished.status, attack === 'readonly' || overlay ? 'done' : 'failed');
     if (attack === 'readonly') assert.equal(JSON.parse(fs.readFileSync(path.join(root, id, 'visual_loop.json'), 'utf8')).model, 'HOST');
     if (attack === 'orphan') assert.equal(fs.existsSync(path.join(root, id, 'cost_calls.json')), false);
-    if (attack !== 'readonly') assert.equal(finished.draftId, null);
+    if (attack !== 'readonly' && !overlay) assert.equal(finished.draftId, null);
     assert.equal(scriptCalls, 0);
     assert.equal(voiceCalls, 0);
-    assert.equal(plannerCalls, 0);
-    assert.equal(loopBuild, cachedBuild);
+    assert.equal(plannerCalls, overlay ? 1 : 0);
+    assert.equal(loopBuild, overlay ? newBuild : cachedBuild);
+    if (overlay) {
+      assert.equal(finalRequest.buildScript,newBuild);
+      assert.deepEqual(finalRequest.overlaySpec,{...overlaySpec,labels:overlaySpec.labels.map(label=>({...label,side:'auto'})),measures:[],bars:[],big:[]});
+    }
     const calls = JSON.parse(fs.readFileSync(path.join(state, 'cost_calls.json'), 'utf8')).calls;
     assert.equal(calls[0].step, 'previous');
   } finally {
