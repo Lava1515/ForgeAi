@@ -64,7 +64,7 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     # Both are resolved inside the job (a link out of it fails here); run.finish reads them with their strict readers.
     spec = media.inside(job, job / "inputs" / "overlay.json")
     marks = media.inside(job, job / "work" / "anchors.json")
-    overlay_args = {"overlay_spec": spec, "anchors": marks if marks.exists() else None} if spec.exists() else {}
+    overlay_args = {"overlay_spec": spec, "anchors": marks if marks.exists() else None, "job_root": job} if spec.exists() else {}
     paths = {name: media.inside(out, out / name) for name in
              ("video.mp4", "subtitles.srt", "contact_sheet.png", "report.json")}
     out.mkdir(parents=True, exist_ok=True)

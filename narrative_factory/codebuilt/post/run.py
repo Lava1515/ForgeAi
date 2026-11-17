@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
+import math
 from PIL import Image
 
 from . import anchors_file, captions, grade, media, overlay, sheet, subtitles
@@ -60,7 +61,7 @@ def _graded_frame(path, width, height, vig):
 
 
 def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, width=None, height=None, crf=17, preset="medium",
-           sheet_count=12, sheet_cols=6, overlay_spec=None, anchors=None):
+           sheet_count=12, sheet_cols=6, overlay_spec=None, anchors=None, job_root=None):
     """Run the whole post step. Returns the report dict (also written to OUT/NAME.post.json).
 
     Guards first, before anything is written: `name` must be a bare file name, `out_dir` has no '..', every output path must resolve
@@ -86,11 +87,12 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
     track = captions.Track(words, width, height, lead=lead)
     ov = None
     if overlay_spec is not None:
-        # The host checked the times against the video length when it stored the file; an element that runs past the last frame is
-        # simply not drawn there, so the length check is not repeated here.
-        spec = overlay.load_spec(media.input_file(overlay_spec))
+        if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0:
+            raise media.MediaError("overlay.json: fps must be positive and finite")
+        root = Path(job_root).resolve() if job_root is not None else Path(frames_dir).absolute().parent.resolve()
+        spec = overlay.load_spec(overlay_spec, video_seconds=len(files) / fps, job_root=root)
         if anchors is not None:
-            marks = anchors_file.load(media.input_file(anchors), len(files))
+            marks = anchors_file.load(anchors, len(files), job_root=root)
         elif any(overlay.names_used(spec).values()):
             raise media.MediaError("overlay.json names anchors or running numbers but anchors.json is missing")
         else:

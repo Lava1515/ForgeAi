@@ -28,7 +28,7 @@ def test_plan_example_reads():
 def test_load_reads_a_file(tmp_path):
     p = tmp_path / "anchors.json"
     p.write_text(json.dumps(doc()), encoding="utf-8")
-    assert af.load(p, 5).point(0, "lid")[2] is True
+    assert af.load(p, 5, job_root=tmp_path).point(0, "lid")[2] is True
 
 
 def test_p_and_v_may_be_absent():
@@ -96,7 +96,7 @@ def test_size_cap(tmp_path):
     p = tmp_path / "anchors.json"
     p.write_bytes(b" " * (af.MAX_BYTES + 1))
     with pytest.raises(af.AnchorsError, match="8 MB"):
-        af.load(p, 10)
+        af.load(p, 10, job_root=tmp_path)
 
 
 def test_a_file_never_carries_text():

@@ -2,9 +2,10 @@
 import json
 
 import numpy as np
+import pytest
 from PIL import Image
 
-from narrative_factory.codebuilt.post import anchors_file, captions, overlay
+from narrative_factory.codebuilt.post import anchors_file, captions, overlay, media
 
 W, H = 540, 960       # half size keeps the tests quick; every size scales with the frame
 
@@ -165,7 +166,8 @@ def test_measure_between_two_anchors():
     x, y, w, h = p["box"]
     assert y + h <= 0.5 * H
     one_missing = {str(f): {"p": {"l": [0.3, 0.5, 1]}} for f in range(30)}
-    assert overlay.Overlay(spec(measures=[{"a": "l", "b": "r", "text": "23 cm", "from": 0, "to": 1}]), anchors(one_missing), W, H).pieces(20, 0.6) == []
+    with pytest.raises(media.MediaError, match="missing referenced names: r"):
+        overlay.Overlay(spec(measures=[{"a": "l", "b": "r", "text": "23 cm", "from": 0, "to": 1}]), anchors(one_missing), W, H)
 
 
 def test_bar_fill_follows_its_value():

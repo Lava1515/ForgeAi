@@ -17,6 +17,7 @@ import os
 import re
 import stat
 from pathlib import Path
+from . import media
 
 MAX_BYTES = 8 * 1024 * 1024
 MAX_POINT_NAMES, MAX_VALUE_NAMES, MAX_POINTS_PER_FRAME = 64, 4, 24
@@ -164,12 +165,12 @@ def parse(raw, nframes):
     return Anchors(data["width"], data["height"], points, values)
 
 
-def load(path, nframes):
+def load(path, nframes, *, job_root):
     """Read and check an anchors.json file. The size is checked before a byte is read."""
     text = os.fspath(path)
     if not text or "\x00" in text:
         _fail("path is empty or has a NUL")
-    resolved = Path(text).resolve()
+    resolved = media.inside(job_root, text)
     try:
         st = resolved.stat()
     except OSError:

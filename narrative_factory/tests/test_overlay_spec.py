@@ -34,7 +34,7 @@ def test_shared_fixture(case):
 def test_load_spec_reads_a_file_and_fills_defaults(tmp_path):
     p = tmp_path / "overlay.json"
     p.write_text(json.dumps({"version": 1, "labels": [{"anchor": "a", "title": "A", "from": 0, "to": 1}]}), encoding="utf-8")
-    spec = overlay.load_spec(p, video_seconds=2)
+    spec = overlay.load_spec(p, video_seconds=2, job_root=tmp_path)
     assert spec["labels"][0]["side"] == "auto"
     assert spec["counter"] is None and spec["tag"] is None and spec["bars"] == []
 
@@ -43,13 +43,13 @@ def test_load_spec_refuses_a_big_file_before_reading(tmp_path):
     p = tmp_path / "overlay.json"
     p.write_bytes(b" " * (overlay.MAX_SPEC_BYTES + 1))
     with pytest.raises(overlay.SpecError) as err:
-        overlay.load_spec(p)
+        overlay.load_spec(p, job_root=tmp_path)
     assert err.value.code == "too_large"
 
 
 def test_load_spec_needs_a_regular_file(tmp_path):
     with pytest.raises(FileNotFoundError):
-        overlay.load_spec(tmp_path)
+        overlay.load_spec(tmp_path, job_root=tmp_path)
 
 
 def test_names_used_lists_every_anchor_and_value():

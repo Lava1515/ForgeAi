@@ -22,7 +22,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from . import captions
+from . import captions, media
 
 # ---------------------------------------------------------------- the spec (contract 2.3)
 
@@ -155,12 +155,12 @@ def parse_spec(raw, video_seconds=None):
     return validate_spec(data, video_seconds)
 
 
-def load_spec(path, video_seconds=None):
+def load_spec(path, video_seconds=None, *, job_root):
     """Read and check the host-owned overlay.json. The size is checked before a byte is read."""
     text = os.fspath(path)
     if not text or "\x00" in text:
         raise SpecError("not_json", "", "path is empty or has a NUL")
-    resolved = Path(text).resolve()
+    resolved = media.inside(job_root, text)
     try:
         st = resolved.stat()
     except OSError:
@@ -338,6 +338,10 @@ class Overlay:
 
     def __init__(self, spec, anchors, width, height, captions_track=None, fps=30, nframes=None):
         self.spec, self.anchors, self.width, self.height = spec, anchors, width, height
+        required = names_used(spec)
+        missing = (required["points"] - anchors.point_names) | (required["values"] - anchors.value_names)
+        if missing:
+            raise media.MediaError("anchors.json: missing referenced names: " + ", ".join(sorted(missing)))
         self.track, self.fps, self.nframes = captions_track, fps, nframes
         self.s, self.sy = width / BASE_W, height / BASE_H
         self.safe = captions.safe_zone(width, height)

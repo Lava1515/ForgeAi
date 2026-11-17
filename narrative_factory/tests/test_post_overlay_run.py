@@ -98,6 +98,49 @@ def test_spec_naming_anchors_needs_the_anchors_file(tmp_path):
         run.finish(frames, words, audio, tmp_path / "out", "short", overlay_spec=spec)
 
 
+def test_overlay_readers_refuse_outside_job_and_symlink(tmp_path):
+    from narrative_factory.codebuilt.post import anchors_file, overlay
+    job = tmp_path / "job"
+    job.mkdir()
+    outside = write(tmp_path / "outside.json", {"version": 1})
+    for path in (outside, job / ".." / "outside.json"):
+        with pytest.raises(media.MediaError, match="would leave"):
+            overlay.load_spec(path, job_root=job)
+        with pytest.raises(media.MediaError, match="would leave"):
+            anchors_file.load(path, 30, job_root=job)
+    link = job / "link.json"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        return  # Windows may not grant symlink creation; direct traversal is still checked above.
+    with pytest.raises(media.MediaError, match="would leave"):
+        overlay.load_spec(link, job_root=job)
+    with pytest.raises(media.MediaError, match="would leave"):
+        anchors_file.load(link, 30, job_root=job)
+
+
+def test_finish_checks_overlay_duration_and_input_root(tmp_path):
+    from narrative_factory.codebuilt.post import overlay
+    frames, words, audio = job_inputs(tmp_path)
+    spec = write(tmp_path / "overlay.json", {"version": 1, "tag": {"text": "OK", "from": 0, "to": 999}})
+    with pytest.raises(overlay.SpecError, match="bad_time"):
+        run.finish(frames, words, audio, tmp_path / "out", "short", overlay_spec=spec)
+    with pytest.raises(media.MediaError, match="would leave"):
+        run.finish(frames, words, audio, tmp_path / "out", "short", overlay_spec=spec, job_root=tmp_path / "frames")
+    for fps in (0, -1, float("nan"), float("inf"), True):
+        with pytest.raises(media.MediaError, match="fps"):
+            run.finish(frames, words, audio, tmp_path / "out", "short", overlay_spec=spec, fps=fps)
+    assert not (tmp_path / "out" / "short.mp4").exists()
+
+
+def test_missing_counter_value_is_a_named_error(tmp_path):
+    frames, words, audio = job_inputs(tmp_path)
+    spec = write(tmp_path / "overlay.json", {"version": 1, "counter": {"value": "n", "format": "int", "from": 0, "to": 0.5}})
+    marks = write(tmp_path / "anchors.json", {"version": 1, "width": W, "height": H, "frames": {}})
+    with pytest.raises(media.MediaError, match="anchors.json: missing referenced names: n"):
+        run.finish(frames, words, audio, tmp_path / "out", "short", overlay_spec=spec, anchors=marks)
+
+
 def _fake_cb5_job(tmp_path, monkeypatch):
     job = tmp_path / "job"
     frames, words, audio = job_inputs(job.mkdir() or job)
