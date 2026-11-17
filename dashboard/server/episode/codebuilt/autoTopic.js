@@ -133,7 +133,7 @@ export function sanitizeCandidates(answer, { type = 'factual', profile = null, f
     if (out.length >= (profile ? 12 : MAX_CANDIDATES_ASKED) + 2) break;
     if (!c || typeof c !== 'object') continue;
     const topic = clean(c.topic, TOPIC_MAX);
-    const journey = formats.includes('journey') || (Array.isArray(profile?.formats) && profile.formats.includes('journey'));
+    const journey = formats.includes('journey') || (type !== 'teardown' && Array.isArray(profile?.formats) && profile.formats.includes('journey'));
     if (journey && type === 'teardown') continue;
     const rawLandmarks = Array.isArray(c.landmarks) ? c.landmarks : [];
     const landmarks = rawLandmarks.length <= 4 ? rawLandmarks.filter((landmark) => landmark && clean(landmark.name, 100)

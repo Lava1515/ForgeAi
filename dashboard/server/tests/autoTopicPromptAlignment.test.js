@@ -117,6 +117,7 @@ test('journey premise gate rejects a missing question, ending answer, short turn
   }
   assert.equal(sanitizeCandidates({ candidates: [{ ...valid, turn: 'An unexpected event suddenly stops everything at the worst possible moment.' }] }, { formats: ['journey'] }).length, 0);
   assert.equal(sanitizeCandidates({ candidates: [valid] }, { type: 'teardown', formats: ['journey'] }).length, 0);
+  assert.equal(sanitizeCandidates({ candidates: [{ ...valid, topic: 'How does a stealth jet hide?' }] }, { type: 'teardown', profile: { formats: ['journey'] } }).length, 1);
   const flat = { ...valid, landmarks: valid.landmarks.map((point) => ({ ...point, number: 1 })) };
   assert.equal(sanitizeCandidates({ candidates: [flat] }, { formats: ['journey'] }).length, 0);
 });
