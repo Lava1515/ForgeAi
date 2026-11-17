@@ -20,6 +20,15 @@ test('phrases end at punctuation and cover every word once, in order', () => {
   assert.deepEqual(phrases.map((p) => p.firstWord), [0, 5, 10, 15, 20, 25, 30, 35]);
 });
 
+test('journey format accepts one place and a 14 second shot while an ordinary job refuses both', () => {
+  const journeyPhrases = Array.from({ length: 12 }, (_, i) => ({ i, start: i * 2.5, end: i * 2.5 + 2.3, text: `line ${i}` }));
+  const input = JSON.stringify({ look: 'Navy, amber and teal with a soft key light and a quiet mood.', places: [place('track')], shots: [
+    { ...shot(0, 'track'), from: 0 }, { ...shot(6, 'track'), from: 6 },
+  ] });
+  assert.equal(checkDirection({ phrases: journeyPhrases, videoSeconds: 29, parse: parseModelJson, formats: ['journey'] })(input).places.length, 1);
+  assert.throws(() => checkDirection({ phrases: journeyPhrases, videoSeconds: 29, parse: parseModelJson })(input), (error) => /places must list 2 to 5/.test(error.message));
+});
+
 test('a direction whose cuts sit on phrase starts is accepted and gives frame-aligned starts', () => {
   const d = check(reply([shot(0, 'street'), shot(2, 'space'), shot(4, 'street'), shot(6, 'space')]));
   const starts = directionShotStarts(d, phrases);
