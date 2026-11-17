@@ -168,6 +168,37 @@ def test_unknown_ids_raise_instead_of_doing_nothing():
     jet.highlight("exhaust_nozzle")
 
 
+def test_anchor_point_is_the_parts_world_centre_and_follows_the_explode():
+    jet = teardown.StealthJet(None, origin=(1.0, 2.0, 3.0))
+    pid = "exhaust_nozzle"
+    p = jet.anchor_point(pid)
+    assert len(p) == 3 and all(isinstance(c, float) for c in p)
+    # assembled: the centre of the part's authored box, moved by the set origin
+    authored, _ = teardown.build_part_geometry(pid)
+    expected = (authored.min(axis=0) + authored.max(axis=0)) / 2 + np.array([1.0, 2.0, 3.0])
+    assert p == pytest.approx(tuple(expected))
+    # exploded: it moved by the part's explode vector
+    jet.pose(1.0, "exploded")
+    moved = jet.anchor_point(pid)
+    assert moved == pytest.approx(tuple(np.array(p) + np.array(teardown.PARTS[pid].explode_vec)))
+    assert moved != pytest.approx(p)
+    jet.pose(1.0, "assembled")
+    assert jet.anchor_point(pid) == pytest.approx(p)
+    # a hinged part still gives three finite floats
+    jet.pose(1.0)
+    assert all(math.isfinite(c) for c in jet.anchor_point("canopy"))
+    for pid in teardown.PARTS:
+        assert len(jet.anchor_point(pid)) == 3
+
+
+def test_anchor_point_unknown_id_raises_key_error_like_its_neighbours():
+    jet = teardown.StealthJet(None)
+    with pytest.raises(KeyError):
+        jet.anchor_point("platypus_exhaust")        # a facts() key, not a part id
+    with pytest.raises(KeyError):
+        jet.anchor_point("propulsion")              # a subsystem is not a part
+
+
 def skill_text():
     return SKILL.read_text(encoding="utf-8")
 
