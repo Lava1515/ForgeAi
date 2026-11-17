@@ -85,11 +85,12 @@ export function jobUsesOverlay(pack, formats) {
   return cleanJobFormats(formats).some((name) => pack?.rules?.formats?.[name]?.overlay === true);
 }
 
-/** Merge only direction limits explicitly declared by the formats on this job. */
-export function formatDirectionLimits(formats, root = REPO_ROOT) {
+/** Route defaults first, then each format override in job order. root remains the second argument for existing callers. */
+export function formatDirectionLimits(formats, root = REPO_ROOT, route = 'classic', pathPack = null) {
   let configured = {};
   try {
-    const pack = JSON.parse(fs.readFileSync(path.join(root, 'paths', 'codebuilt.json'), 'utf8'));
+    const pack = pathPack ?? JSON.parse(fs.readFileSync(path.join(root, 'paths', 'codebuilt.json'), 'utf8'));
+    if (route === 'overlay' || route === 'authored') configured = { ...pack?.rules?.routes?.overlay?.direction };
     for (const name of cleanJobFormats(formats)) {
       const limits = pack?.rules?.formats?.[name]?.direction;
       if (limits && typeof limits === 'object' && !Array.isArray(limits)) configured = { ...configured, ...limits };

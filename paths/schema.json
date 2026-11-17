@@ -25,6 +25,88 @@
       "description": "Optional plain JSON rule table. The validator additionally enforces a 32 KB serialized limit, maximum depth 6, strings up to 2,000 characters, arrays up to 100 items, objects up to 200 properties, and no prototype-related keys.",
       "type": "object",
       "properties": {
+        "routes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "overlay": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "direction",
+                "render"
+              ],
+              "properties": {
+                "direction": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "minPlaces": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "maxPlaces": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "maxShotSeconds": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  }
+                },
+                "render": {
+                  "type": "object",
+                  "required": [
+                    "engine",
+                    "device",
+                    "viewTransform",
+                    "look",
+                    "samples",
+                    "status",
+                    "RENDER_BUDGET_S_PER_FRAME"
+                  ],
+                  "properties": {
+                    "engine": {
+                      "const": "CYCLES"
+                    },
+                    "device": {
+                      "const": "GPU"
+                    },
+                    "viewTransform": {
+                      "type": "string"
+                    },
+                    "look": {
+                      "type": "string"
+                    },
+                    "samples": {
+                      "type": "integer",
+                      "minimum": 8,
+                      "maximum": 16
+                    },
+                    "status": {
+                      "const": "pending_review"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "measuredSecondsPerFrame": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "RENDER_BUDGET_S_PER_FRAME": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "formats": {
           "type": "object",
           "additionalProperties": {
