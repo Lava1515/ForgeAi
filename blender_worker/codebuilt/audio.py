@@ -131,11 +131,50 @@ class _Synth:
         t = self.tt(d)
         return (np.sin(2 * np.pi * f * t) + 0.4 * np.sin(2 * np.pi * f * 2.01 * t)) * self.env(d, 0.002, 6)
 
+    def tone(self, f0, f1, d, freqs=None):
+        """Continuous phase from interpolated (seconds, Hz) knots; only window edges fade."""
+        if isinstance(d, bool) or not isinstance(d, (int, float)) or not math.isfinite(d) or not 0 < d <= 7200:
+            raise AudioKitError("tone duration must be finite in (0, 7200]")
+        def frequency(f):
+            if isinstance(f, bool) or not isinstance(f, (int, float)) or not math.isfinite(f) or not 0 < f <= self.sr * .45:
+                raise AudioKitError("tone frequencies must be finite and below Nyquist")
+        frequency(f0); frequency(f1)
+        if freqs is None:
+            freqs = [(0, f0), (d, f1)]
+        if not isinstance(freqs, (list, tuple)) or not 2 <= len(freqs) <= 216002:
+            raise AudioKitError("tone curve must have 2 to 216002 knots")
+        prev = -1
+        for knot in freqs:
+            if not isinstance(knot, (list, tuple)) or len(knot) != 2:
+                raise AudioKitError("tone curve knots must be (time, frequency)")
+            t, f = knot
+            if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or not prev < t <= d:
+                raise AudioKitError("tone curve times must increase inside the window")
+            frequency(f)
+            prev = t
+        if freqs[0][0] != 0 or freqs[-1][0] != d:
+            raise AudioKitError("tone curve must span its window")
+        t = self.tt(d)
+        f = np.interp(t, *np.asarray(freqs).T)
+        phase = 2 * np.pi * np.cumsum(f) / self.sr
+        envelope = np.clip(np.minimum(t, d-t) / .004, 0, 1)
+        return .25 * np.sin(phase) * envelope
+
     def thud(self):
         a = self.sweep(140, 45, 0.35) * self.env(0.35, 0.002, 5) * 1.4
         b = self.noise(0.06, 300, 4000) * self.env(0.06, 0.001, 6)
         a[: b.size] += b
         return a
+
+    def boom(self, d=0.8):
+        """Low, short impact with a restrained noisy attack."""
+        if isinstance(d, bool) or not isinstance(d, (int, float)) or not math.isfinite(d) or d <= 0:
+            raise AudioKitError("boom duration must be positive and finite")
+        low = self.sweep(105, 38, d) * self.env(d, 0.003, 4.5)
+        attack_d = min(0.08, d)
+        attack = self.noise(attack_d, 180, 3200) * self.env(attack_d, 0.001, 6) * 0.65
+        low[:attack.size] += attack
+        return low
 
     def screech(self, d=0.4):
         t = self.tt(d)
@@ -161,7 +200,7 @@ class _Synth:
 
 
 EFFECT_NAMES = ("whoosh", "pop", "gulp", "plop", "splash", "squelch", "boing", "blip", "ping", "thud", "screech",
-                "rumble", "wind")
+                "rumble", "wind", "boom", "tone")
 
 # Sneaky pizzicato progression from the gum short: (bass root note, eight plucked notes per bar), MIDI numbers.
 DEFAULT_PROGRESSION = (
@@ -291,13 +330,15 @@ def mix_stems(voice, music, effects, *, sr: int = DEFAULT_SR,
               music_below_voice_db: float = MUSIC_BELOW_VOICE_DB,
               effects_below_voice_db: float = EFFECTS_BELOW_VOICE_DB,
               voice_peak: float | None = 0.85, voice_offset_s: float = 0.0,
-              peak_ceiling: float = 0.92) -> MixResult:
+              peak_ceiling: float = 0.92, tone=None) -> MixResult:
     """Scale music and effects so they sit the stated number of dB under the voice, then sum.
 
     voice, music, effects: (samples, sample_rate); samples 1-D, or 2-D (frames, channels).
     music_below_voice_db / effects_below_voice_db: positive dB under the voice (effects must be 10 to 13).
     voice_peak: peak-normalise the voice to this first (None leaves its level). The voice keeps this level in the
     mix; only the master gain below can lower it.
+    tone: optional independent counter stem at the effects target (never masked by
+    transient gating); omitted keeps the legacy stems and report unchanged.
     peak_ceiling: the mix peak is held at or under this by one uniform master gain."""
     for label, v in (("music_below_voice_db", music_below_voice_db), ("effects_below_voice_db", effects_below_voice_db)):
         if not (isinstance(v, (int, float)) and math.isfinite(v) and v > 0):
@@ -315,7 +356,10 @@ def mix_stems(voice, music, effects, *, sr: int = DEFAULT_SR,
         raise AudioKitError("voice_peak must be None or a positive finite number")
 
     mono, info = {}, {}
-    for name, stem in (("voice", voice), ("music", music), ("effects", effects)):
+    inputs = [("voice", voice), ("music", music), ("effects", effects)]
+    if tone is not None:
+        inputs.append(("tone", tone))
+    for name, stem in inputs:
         mono[name], info[name] = _prepare(name, stem, sr)
 
     v_peak = float(np.abs(mono["voice"]).max()) if mono["voice"].size else 0.0
@@ -327,7 +371,9 @@ def mix_stems(voice, music, effects, *, sr: int = DEFAULT_SR,
 
     warnings, status, gains = [], {"voice": "reference"}, {"voice": 0.0}
     targets = {"music": -music_below_voice_db, "effects": -effects_below_voice_db}
-    for name in ("music", "effects"):
+    if tone is not None:
+        targets["tone"] = -effects_below_voice_db
+    for name in targets:
         level = rms_dbfs(mono[name])
         if not math.isfinite(level):
             status[name] = "silent-skipped"
@@ -340,6 +386,8 @@ def mix_stems(voice, music, effects, *, sr: int = DEFAULT_SR,
 
     offset = int(round(voice_offset_s * sr))
     placed = {"voice": np.concatenate([np.zeros(offset), mono["voice"]]), "music": mono["music"], "effects": mono["effects"]}
+    if tone is not None:
+        placed["tone"] = mono["tone"]
     n = max(len(a) for a in placed.values())
     stems = {k: np.pad(a, (0, n - len(a))) for k, a in placed.items()}
     mix = sum(stems.values())
@@ -356,9 +404,9 @@ def mix_stems(voice, music, effects, *, sr: int = DEFAULT_SR,
 
     final = {k: rms_dbfs(a) for k, a in stems.items()}
     timeline = {k: rms_dbfs(a, gate_rel=0) for k, a in stems.items()}
-    timeline_rel = {k: timeline[k] - timeline["voice"] if math.isfinite(timeline[k]) else None for k in ("music", "effects")}
-    rel = {k: (final[k] - final["voice"]) if math.isfinite(final[k]) else None for k in ("music", "effects")}
-    within = all(abs(rel[k] - targets[k]) <= TOLERANCE_DB for k in ("music", "effects") if rel[k] is not None)
+    timeline_rel = {k: timeline[k] - timeline["voice"] if math.isfinite(timeline[k]) else None for k in targets}
+    rel = {k: (final[k] - final["voice"]) if math.isfinite(final[k]) else None for k in targets}
+    within = all(abs(rel[k] - targets[k]) <= TOLERANCE_DB for k in targets if rel[k] is not None)
     report = {
         "basis": BASIS,
         "whole_timeline": {
@@ -397,6 +445,9 @@ def format_levels(report: dict) -> str:
              "effects %s dBFS | vs voice %s | target -%g dB" % (f["effects"], show(r["effects"]), t["effects_below_voice_db"]),
              "master gain %.2f dB | mix peak %.3f | within +/-%g dB: %s" % (
                  report["master_gain_db"], report["mix_peak"], t["tolerance_db"], report["within_tolerance"])]
+    if "tone" in r:
+        lines.append("tone    %s dBFS | vs voice %s | target -%g dB" %
+                     (f["tone"], show(r["tone"]), t["effects_below_voice_db"]))
     if "whole_timeline" in report:
         whole = report["whole_timeline"]["relative_to_voice_db"]
         lines.append("Whole timeline (including silence), vs voice: music %s; effects %s" % (show(whole["music"]), show(whole["effects"])))

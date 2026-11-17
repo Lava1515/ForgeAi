@@ -61,7 +61,7 @@ def _graded_frame(path, width, height, vig):
 
 
 def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, width=None, height=None, crf=17, preset="medium",
-           sheet_count=12, sheet_cols=6, overlay_spec=None, anchors=None, job_root=None):
+           sheet_count=12, sheet_cols=6, overlay_spec=None, anchors=None, job_root=None, audio_lead=None):
     """Run the whole post step. Returns the report dict (also written to OUT/NAME.post.json).
 
     Guards first, before anything is written: `name` must be a bare file name, `out_dir` has no '..', every output path must resolve
@@ -70,6 +70,7 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
     Overlay (KO1): with `overlay_spec` (the host's overlay.json) the text of contract 2.3 is drawn on every graded frame, under the
     captions, at the positions in `anchors` (the kit's anchors.json, read as untrusted). The report gets an `overlay` block and `ok` is
     false on a blocking layout finding. `anchors` may be None only when the spec names no anchor and no running number.
+    audio_lead optionally overrides only the mux delay for already padded mixes; None uses lead.
     Without `overlay_spec` nothing changes: same frames, same report keys.
     """
     out_root = media.safe_out_dir(out_dir)
@@ -109,7 +110,11 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
     # by `lead` and padded with silence up to the video length (apad whole_dur; an unbounded apad stalls ffmpeg 7 on a piped video), so the
     # file is as long as the frames and -shortest never cuts the video.
     # The audio file itself is not touched; only this mux changes it.
-    delay_ms = max(0, int(round(float(lead) * 1000)))
+    # Overlay premixes contain the voice lead; captions continue to use lead above.
+    mux_lead = lead if audio_lead is None else audio_lead
+    if audio_lead is not None and (isinstance(mux_lead, bool) or not isinstance(mux_lead, (int, float)) or not math.isfinite(mux_lead) or mux_lead < 0):
+        raise ValueError("audio_lead must be finite and non-negative")
+    delay_ms = max(0, int(round(float(mux_lead) * 1000)))
     afilter = (f"adelay={delay_ms}:all=1," if delay_ms else "") + f"apad=whole_dur={len(files) / fps:.6f}"
     # `-f wav` before the audio input: ffmpeg must read it as WAV only, never probe a file the job folder holds for another demuxer.
     cmd = [media.resolve_ffmpeg(), "-hide_banner", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
