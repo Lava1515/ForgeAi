@@ -15,11 +15,11 @@ Avoid current wars and disputed borders. The shapes are Natural Earth's default 
 import sys; sys.path.insert(0, '/kit')
 from blender_worker.codebuilt import maps
 from blender_worker.codebuilt.sets import world_map
-h = world_map.build(origin=(x, y, z), detail="50m", palette="relief", highlight=None)   # a ready, lit map place, like any set
+h = world_map.build(origin=(x, y, z), detail="50m", palette="relief")   # a ready, lit map place, like any set
 wm = h['map']        # maps.WorldMap; h['countries'] = {ISO code: mesh object}; h['sea']; h['collection']; h['lights']
 ```
 
-Default: `projection="equirectangular", relief=True`, with real bundled Natural Earth hillshading on country faces. UVs use world longitude/latitude, independent of sea margin and object origin. The sea is dark blue-black with bathymetric detail. Bright highlights retain hillshading. `wm.highlight(...)` returns a fill handle; call `hit["fill"].pose(t)` per frame to animate the fill, and use `wm.highlight_group(keys, label=...)` to highlight several countries together. Missing raster raises; no noise fallback. Equal Earth and Mercator require `relief=False`; equirectangular distorts areas so do not infer area from its apparent size.
+Default: `projection="equirectangular", relief=True`, with real bundled Natural Earth hillshading on country faces. UVs use world longitude/latitude, independent of sea margin and object origin. The sea is dark blue-black with bathymetric detail. Bright highlights retain hillshading. `wm.highlight(...)` returns a fill handle; call `hit["fill"].pose(t)` per frame to animate the fill, and use `wm.highlight_group(keys, label=...)` to highlight several countries together. Missing raster raises; no noise fallback. Equal Earth and Mercator require `relief=False`; equirectangular distorts areas so do not infer area from its apparent size. A regional `bbox` adds one box-width of country context on every side and clips the sea to that padded crop. Its relief boost scales down for close crops.
 
 `world_map.build` returns the usual set handles (`collection`, `origin`, `subject`, `lights`) plus the map. Register `h['collection']` as the place collection like any other set and link your extra objects into it. Options: `detail` "110m" (177 countries, fast, coarse coasts) or "50m" (242 countries, includes small ones such as Singapore, Malta, Monaco; builds in about one second; use it whenever the camera comes close or a small country matters), `projection` "equal_earth" (requires relief=False; areas are honest), "equirectangular" or "mercator", `palette` "relief" (default, bright fills with real hillshading), "continents" (colourful), "muted" (calm blue-grey: use it when one country must pop) or "flat", `highlight` (a country to colour and lift at once), `only=[...]` or `bbox=(lon0, lat0, lon1, lat1)` to build a region only, `hide=("ATA",)` (Antarctica is hidden by default), `scale` (world units per earth radius, default 4: equirectangular world is 25.13 wide, 1 km = 0.00063 units), `thickness`, `sides=False`.
 
@@ -29,7 +29,18 @@ The 1080x1920 frame is tall and the world is wide: the whole world fills the fra
 
 ## Recipes
 
-Colour and lift one country (a small one also gets a marker ring and pin automatically):
+For close-ups, choose the camera first, then set the border and add the highlight. The automatic lift is about 2% of the country's width and is recomputed when `set_border` changes it. `label=True` places the country name at the shot's label scale. Keep neighboring countries in the bbox context; do not pass `highlight=` to `build` for a close-up because that happens before the close-up border is chosen.
+
+```python
+pose = wm.view("GRC", tilt=64, margin=1.9, up=-0.05)
+span = maps.view_span(pose)
+wm.set_border(0.002 * span)
+hit = wm.highlight("GRC", color=(1.0, 0.55, 0.08), glow=0.6,
+                   marker_below_km=0, label=True, label_span=span)
+cam.set(*pose)
+```
+
+World-view colour and lift (a small one also gets a marker ring and pin automatically):
 
 ```python
 hit = wm.highlight("BRA", color=(1.0, 0.55, 0.08), lift=0.25)    # hit['obj'], hit['marker']
