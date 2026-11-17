@@ -80,6 +80,24 @@ export function cleanJobFormats(value) {
   return [...new Set((Array.isArray(value) ? value : []).filter((name) => typeof name === 'string' && FORMAT_RE.test(name)))].slice(0, 4);
 }
 
+/** Whether any of the job's configured formats opts into the host-drawn overlay path. */
+export function jobUsesOverlay(pack, formats) {
+  return cleanJobFormats(formats).some((name) => pack?.rules?.formats?.[name]?.overlay === true);
+}
+
+/** Merge only direction limits explicitly declared by the formats on this job. */
+export function formatDirectionLimits(formats, root = REPO_ROOT) {
+  let configured = {};
+  try {
+    const pack = JSON.parse(fs.readFileSync(path.join(root, 'paths', 'codebuilt.json'), 'utf8'));
+    for (const name of cleanJobFormats(formats)) {
+      const limits = pack?.rules?.formats?.[name]?.direction;
+      if (limits && typeof limits === 'object' && !Array.isArray(limits)) configured = { ...configured, ...limits };
+    }
+  } catch {}
+  return configured;
+}
+
 /** Runs fn with the job's formats in scope, so every guide loaded while the job's steps run sees them without each caller passing them on. */
 export function runWithJobFormats(formats, fn) {
   return formatScope.run(cleanJobFormats(formats), fn);
