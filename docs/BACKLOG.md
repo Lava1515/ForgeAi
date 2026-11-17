@@ -279,3 +279,15 @@ Updated 2026-11-17 18:13 +02:00 by codex · gpt-6.1-sol: G1 capacity BLOCKED aft
 Updated 2026-11-17 18:14 +02:00 by codex · gpt-6.1-sol: G16 capacity blocked after all accounts.
 
 Updated 2026-11-17 18:14 +02:00 by codex · gpt-6.1-sol: G17 capacity blocked after all accounts, no probe output.
+
+### O1a review follow-ups · 2026-11-17 18:58 +02:00 · claude-pro · claude-sonnet-5-5
+
+O1a 52449eb reviewed MERGE by Sonnet (no S, no L), merged as 246a433. Five C findings.
+
+| Id | State | Follow-up |
+|---|---|---|
+| O1a-C1 | FOLLOW-UP C MEDIUM | HTTP handlers `routes/codebuilt.js` and `RUN_BODY_KEYS` in `routes/codebuiltRuns.js` do not list `route`, so over HTTP every route value returns 400 and the client selector (G9) cannot work yet. Fails closed. No lane owned these files; the O1c integration lane takes them. |
+| O1a-C2 | FOLLOW-UP C LOW | An authored job with the flag off still reports `resumable: true`, then refuses the resume. |
+| O1a-C3 | FOLLOW-UP C LOW | Author tests miss three reviewer mutations: execute-time flag check removed, preview runner losing `route`, validator losing `route`. |
+| O1a-C4 | FOLLOW-UP C LOW | New tests leave scratch folders under `output/agent-jobs/o1a-tests` and hard-code the path. |
+| O1a-C5 | INFO | Journey-profile channels now save route `overlay` and get `picture:true` topic prompts; `route` is a new key in `status.json`. Both follow contract 2.1. |
