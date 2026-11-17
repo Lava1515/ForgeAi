@@ -52,3 +52,20 @@ Always find the cause in the script before writing an edit. Read the place's ori
 - When an earlier fix did not work, do not repeat it with different numbers: the diagnosis was wrong. Re-derive the camera and subject positions.
 - Do not introduce new risk in shots that are fine.
 - A pass means you would be content to publish every tile.
+
+## When text is drawn after the render
+
+For a short whose text is drawn after the render, the frame you review already has its text on it. The 3D frames under it carry no text. Judge each frame the way a phone viewer sees it: small, for a few seconds.
+
+Check every frame and the final sheet for these faults:
+
+1. Phone size: each caption, label, counter and number reads at 1080 pixels wide. A label on a busy surface with no contrast is a fault.
+2. Cover: text must not hide the main subject or the point the caption names. A label sits beside its subject with a short line to it.
+3. Safe area: keep text out of the top 8 percent and the bottom 20 percent of the frame (the Shorts buttons). Counters and big numbers stay inside it.
+4. Pointing: the label's line ends on the named thing in that frame, not on a neighbour or on empty space. A label that appears after the camera has left its subject points at nothing.
+5. Collisions: two texts never touch or overlap. Check a counter against a payoff number, and a title against its value.
+6. Visibility: the thing a label names is on screen in that frame, not cut by the edge or behind the camera. A ruler or line drawn while its target is off screen is a fault.
+
+Report each fault with the frame number (the `o_NNNN` number), what is wrong, and what to move: the label position, the text size, the word time it appears on, or the camera hold. For example: "frame 117: the ruler shows while the seed is off screen; draw it only while the seed is in frame."
+
+If a label needs more time to read, slow the camera at that landmark rather than shortening the label. Fix text in the overlay (position, size, timing) when that solves it; a text-only change needs no new 3D render. Text that hides the subject or a number is P1. Text that cannot be read at all is P0.
