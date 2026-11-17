@@ -168,36 +168,36 @@ Binding plan: ForgeBrain/plans/2026-11-17-kola-main-way-refactor-plan.md section
 
 | Id | State | Owned files or scope |
 |---|---|---|
-| U1a | REVIEWING 315e0b5 | dashboard/server/episode/codebuilt/start.js; dashboard/server/episode/codebuilt/visualLoop.js (preview id only); dashboard/server/episode/codebuilt/overlaySpec.js; dashboard/server/episode/engines/codebuilt/jobFolder.js; dashboard/server/episode/codebuilt/runCoordinator.js; new resume integration test file dashboard/server/episode/codebuilt/overlayResume.test.js |
-| U1b | REVIEWED e9ad0ba, awaits U1 integration | blender_worker/codebuilt/shotcheck.py; blender_worker/codebuilt/test_shotcheck.py; dashboard/server/episode/codebuilt/visualLoopPrompts.js (KIT_CHECKS name only) |
-| U1c | REVIEWED 464c938, awaits U1 integration | dashboard/server/episode/codebuilt/planner.js (overlay parts only); dashboard/server/episode/codebuilt/overlaySpec.test.js |
-| T1 | DISPATCHING wave 1 | dashboard/server/episode/codebuilt/autoTopic.js; dashboard/server/episode/codebuilt/theme.js; their dedicated tests; output/agent-jobs/t1-topics/ |
-| RL1 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/rl1-render-look/ only |
+| U1a | MERGED in 4a8aacf; reviewed 508b5ff | dashboard/server/episode/codebuilt/start.js; dashboard/server/episode/codebuilt/visualLoop.js (preview id only); dashboard/server/episode/codebuilt/overlaySpec.js; dashboard/server/episode/engines/codebuilt/jobFolder.js; dashboard/server/episode/codebuilt/runCoordinator.js; new resume integration test file dashboard/server/episode/codebuilt/overlayResume.test.js |
+| U1b | MERGED in 4a8aacf; reviewed e9ad0ba | blender_worker/codebuilt/shotcheck.py; blender_worker/codebuilt/test_shotcheck.py; dashboard/server/episode/codebuilt/visualLoopPrompts.js (KIT_CHECKS name only) |
+| U1c | MERGED in 4a8aacf; reviewed 464c938 | dashboard/server/episode/codebuilt/planner.js (overlay parts only); dashboard/server/episode/codebuilt/overlaySpec.test.js |
+| T1 | CODE MERGED 00ac1be; H1 proof BLOCKED, no router retry | dashboard/server/episode/codebuilt/autoTopic.js; dashboard/server/episode/codebuilt/theme.js; their dedicated tests; output/agent-jobs/t1-topics/ |
+| RL1 | REPORT ACCEPTED with C follow-ups; H2 OPEN | C:/code/ForgeAi/output/agent-jobs/rl1-render-look/ only |
 | A0 | ACCEPTED design, review2 MERGE | C:/code/ForgeAi/output/agent-jobs/a0-design/ only |
-| G1 | DISPATCHING wave 1 | .claude/skills/codebuilt-scene-generation/SKILL.md |
+| G1 | BLOCKED server capacity on all three accounts | .claude/skills/codebuilt-scene-generation/SKILL.md |
 | G2 | DISPATCHING wave 1 | .claude/skills/codebuilt-look-review/SKILL.md |
 | G3 | DISPATCHING wave 1 | .claude/skills/codebuilt-maps/SKILL.md |
 | G4 | DISPATCHING wave 1 | .claude/skills/codebuilt-teardown/SKILL.md |
 | G5 | DISPATCHING wave 1 | .claude/skills/codebuilt-direction/SKILL.md |
 | G6 | DISPATCHING wave 1 | .claude/skills/codebuilt-script/SKILL.md |
-| G7 | DISPATCHING wave 1 | blender_worker/codebuilt/maps.py; new blender_worker/codebuilt/test_maps_anchor_point.py |
-| G8 | DISPATCHING wave 1 | blender_worker/codebuilt/teardown.py; new blender_worker/codebuilt/test_teardown_anchor_point.py |
+| G7 | BLOCKED server capacity on all three accounts | blender_worker/codebuilt/maps.py; new blender_worker/codebuilt/test_maps_anchor_point.py |
+| G8 | BLOCKED server capacity on all three accounts | blender_worker/codebuilt/teardown.py; new blender_worker/codebuilt/test_teardown_anchor_point.py |
 | G9 | DISPATCHING wave 1 | dashboard/client/src/components/episode/CodebuiltStart.jsx only |
-| G10 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/map/ only |
+| G10 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/map/ only |
 | G11 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/teardown/ only |
-| G12 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/handmade-1118/RUNBOOK.md only |
-| G13 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/g13-captions/ only |
-| G14 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/g14-stages/ only |
+| G12 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/handmade-1118/RUNBOOK.md only |
+| G13 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/g13-captions/ only |
+| G14 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/g14-stages/ only |
 | G15 | RETRYING on clash | C:/code/ForgeAi/output/agent-jobs/classic-baseline/ only |
-| U1 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| U1 | MERGED 4a8aacf; integrated gates pass | Binding plan sections 4 and 13. |
 | O1 | WAITING for dependencies | Binding plan sections 4 and 13. |
-| O1a | WAITING for dependencies | Binding plan sections 4 and 13. |
-| O1b | WAITING for dependencies | Binding plan sections 4 and 13. |
-| O1c | WAITING for dependencies | Binding plan sections 4 and 13. |
-| P1 | WAITING for dependencies | Binding plan sections 4 and 13. |
-| T2 | WAITING for dependencies | Binding plan sections 4 and 13. |
-| G16 | WAITING for dependencies | Binding plan sections 4 and 13. |
-| G17 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| O1a | BUILDING wave 2 | Binding plan sections 4 and 13. |
+| O1b | BUILDING wave 2 | Binding plan sections 4 and 13. |
+| O1c | PREPARING integration; G dependencies pending | Binding plan sections 4 and 13. |
+| P1 | RUNNING fenced proof only | Binding plan sections 4 and 13. |
+| T2 | BLOCKED missing ranked topics; H1 unavailable | Binding plan sections 4 and 13. |
+| G16 | BLOCKED server capacity on all three accounts | Binding plan sections 4 and 13. |
+| G17 | BLOCKED server capacity on all three accounts | Binding plan sections 4 and 13. |
 | A1 | OWNER | Binding plan sections 4 and 13. |
 | A2 | OWNER | Binding plan sections 4 and 13. |
 | A3 | OWNER | Binding plan sections 4 and 13. |
@@ -252,3 +252,30 @@ T1 code33732cf review2 MERGE, noS/noL. Branch not merged yet. Real proofH1 and T
 | T1-C4 | FOLLOW-UP C LOW | Any future authorized proof rerun needs pre-call askRoleFn counter and preserved cause; current two-call budget possibly spent. |
 | T1-C5 | FOLLOW-UP C LOW | Add derived short journey field coverage when fixing that bug. |
 
+
+### RL1 report follow-ups · 2026-11-17 18:07 +02:00 · codex · gpt-6.1-sol
+
+RL1 independent Sonnet review permits report acceptance, no S or L. H2 remains open. Report clarifications added by supervisor; no rerender authorized for these follow-ups now.
+
+| Id | State | Follow-up |
+|---|---|---|
+| RL1-C1 | FOLLOW-UP C MEDIUM | Kola comparison lacks Earth texture at frames 640 and 760; report now discloses mismatch and unmeasured cost effect. |
+| RL1-C2 | FOLLOW-UP C MEDIUM | Eight-frame post proxy omits listed overlays and changes caption words; report now names gaps, no parity claim. |
+| RL1-C3 | DOCUMENTED C LOW | AgX versus Standard preference weak at sheet size; recommendation provisional. |
+| RL1-C4 | DOCUMENTED C LOW | Earlier empty, failed and aborted case folders retained and disclosed. |
+| RL1-C5 | FOLLOW-UP C LOW | Measurement runner tmpfs, nofile and label differ from production fence; preserve fence, disclose fidelity limit. |
+| RL1-C6 | DOCUMENTED C LOW | KR1 timeline substitution disclosed; poses match prior replay. |
+
+Updated 2026-11-17 18:07 +02:00 by codex · gpt-6.1-sol: reconciled U1 and T1 merges, RL1 review acceptance with explicit limitations, wave 2 dispatch and G12 capacity blocker. Proof and owner hold points remain open as stated.
+
+Updated 2026-11-17 18:08 +02:00 by codex · gpt-6.1-sol: G13 captions comparison capacity BLOCKED after all three accounts; existing RL1 evidence preserved.
+
+Updated 2026-11-17 18:12 +02:00 by codex · gpt-6.1-sol: G7, G10 and G14 capacity blocked after all accounts; G1/G17 alternate-account work continues.
+
+Updated 2026-11-17 18:13 +02:00 by codex · gpt-6.1-sol: G8 capacity BLOCKED after all accounts; O1c integration remains blocked.
+
+Updated 2026-11-17 18:13 +02:00 by codex · gpt-6.1-sol: G1 capacity BLOCKED after all accounts; G16/G17 final alternate accounts active.
+
+Updated 2026-11-17 18:14 +02:00 by codex · gpt-6.1-sol: G16 capacity blocked after all accounts.
+
+Updated 2026-11-17 18:14 +02:00 by codex · gpt-6.1-sol: G17 capacity blocked after all accounts, no probe output.
