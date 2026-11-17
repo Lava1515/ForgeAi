@@ -52,3 +52,16 @@ def test_bad_preview_anchors_keep_named_error_and_write_no_sheet(tmp_path, capsy
     assert body["status"] == "error"
     assert body["error"].startswith("anchors.json: frame key")
     assert not list(out.glob("sheet_*.jpg"))
+
+
+def test_cli_reports_bad_words_and_outside_paths_without_traceback(tmp_path, capsys):
+    frames, out = tmp_path / "frames", tmp_path / "out"
+    frames.mkdir(); frame(frames, 12)
+    words = tmp_path / "words.json"
+    words.write_text('{"words": [null]}')
+    args = ["preview_sheet.py", "sheets", str(frames), str(out), "ABCDE", "--words", str(words)]
+    assert preview_sheet.main(args) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+    assert preview_sheet.main(args + ["--job-root", str(frames)]) == 1
+    assert "would leave" in json.loads(capsys.readouterr().out)["error"]
+    assert not out.exists()

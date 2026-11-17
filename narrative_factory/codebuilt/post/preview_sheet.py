@@ -32,6 +32,7 @@ COLORS = {"red": (220, 30, 30), "green": (30, 170, 60), "blue": (30, 60, 220), "
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 # `python -I` intentionally ignores the working directory. Load the checked-in post kit from this script's repository root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from narrative_factory.codebuilt.post import media
 
 
 class SheetError(Exception):
@@ -114,11 +115,12 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
     if not isinstance(code, str) or not CODE_RE.match(code):
         raise SheetError("code must be 5 characters A-Z or 0-9")
     frames = _list_frames(frames_dir)
+    root = Path(job_root or Path(frames_dir).parent).resolve()
     track = ov = None
     layout_findings = []
     if words is not None:
         from narrative_factory.codebuilt.post import captions
-        _, word_list = captions.load_words(words)
+        _, word_list = captions.load_words(media.inside(root, words))
         if isinstance(lead, bool) or not isinstance(lead, (int, float)) or not math.isfinite(lead):
             raise SheetError("lead must be finite")
         with _open_png(frames[0][1]) as first:
@@ -197,7 +199,7 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
         name = f"sheet_{index}.jpg"
         sheet.save(out_dir / name, format="JPEG", quality=85, optimize=False)
         sheets.append({"file": name, "code": code, "tiles": tiles, "w": sheet.width, "h": sheet.height,
-                       "layout_findings": [f for f in layout_findings if f["frame"] < 0 or f["frame"] in {x["frame"] for x in tiles}]})
+                       "layout_findings": [f for f in layout_findings if (f["frame"] < 0 and index == 1) or f["frame"] in {x["frame"] for x in tiles}]})
     return sheets
 
 
@@ -235,7 +237,7 @@ def main(argv):
         else:
             print(json.dumps({"status": "error", "error": "usage: preview_sheet.py sheets <frames dir> <out dir> <CODE> [--words FILE --lead SEC] [--overlay FILE --anchors FILE --nframes N --job-root DIR] | canary <nonce> <out.png>"}))
             return 2
-    except (SheetError, OSError, ValueError) as error:
+    except (SheetError, media.MediaError, OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(json.dumps({"status": "error", "error": str(error)[:200]}))
         return 1
     print(json.dumps(result))
