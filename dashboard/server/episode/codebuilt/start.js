@@ -37,7 +37,7 @@ import { sanitizeRouterCall } from './routerCalls.js';
 import { defaultFactCheckStage } from './factCheckStage.js';
 import { normalizeProductionChoices } from './productionChoices.js';
 import { jobUsesOverlay, overlayPair, validateOverlayPair } from './overlaySpec.js';
-import { frameCountFor, shotStartsFor, validateBuildScript } from './planner.js';
+import { frameCountFor, shotStartsFor, validateBuildScript, loadCodebuiltPathPack } from './planner.js';
 import { jobWriteBlockedReason, writeHostJobReceipt } from './hostJobReceipts.js';
 
 // Production default is the real router. Under `node --test` (NODE_TEST_CONTEXT is set by the runner) the default refuses before any CLI
@@ -52,6 +52,18 @@ const defaultAskLook = (...args) => (process.env.NODE_TEST_CONTEXT ? NO_MODEL_UN
 const defaultAskText = (prompt, { model, timeoutMs } = {}) => (process.env.NODE_TEST_CONTEXT ? NO_MODEL_UNDER_TEST() : askClaude(prompt, { model, timeoutMs, structured: true }));
 const LOOP_START_CODES = new Set(['look_unavailable', 'look_failed', 'loop_timeout', 'preview_failed']);
 const clip = (v, max) => (typeof v === 'string' ? v.replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, max) : '');
+
+// codex · gpt-6.1-sol · 2026-11-17 18:03 +02:00: exact route contract, shared with the batch boundary.
+export const JOB_ROUTES = Object.freeze(['classic', 'overlay', 'authored']);
+export function checkJobRoute(route, ErrorType = StartError) {
+  if (route !== undefined && !JOB_ROUTES.includes(route)) throw new ErrorType('bad_request');
+  const value = route ?? 'classic';
+  if (value === 'authored' && process.env.FORGEAI_AUTHOR_MODE !== '1') throw new ErrorType('author_mode_disabled', 409);
+  return value;
+}
+export function effectiveJobRoute(route, formats) {
+  return route === 'classic' && formats?.length && jobUsesOverlay(loadCodebuiltPathPack(), formats, route) ? 'overlay' : route;
+}
 
 export const START_VERSION = 'codebuilt-start-v1';
 export const DURATIONS = Object.freeze([30, 45, 60, 90]);
@@ -89,6 +101,7 @@ const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
 // 30 s is about 900 frames (60 minutes -> 1.5 h) and 45 s about 1350 frames (90 minutes -> 2.25 h).
 export const TIMEOUT_MS = Object.freeze({ 30: 1.5 * 60 * 60 * 1000, 45: 2.25 * 60 * 60 * 1000, 60: 3 * 60 * 60 * 1000, 90: 4.5 * 60 * 60 * 1000 });
 const MESSAGES = Object.freeze({
+  author_mode_disabled: 'Author mode is disabled',
   bad_request: 'Invalid request', invalid_id: 'Invalid job id', not_found: 'Not found', conflict: 'The job is not in a state that allows this',
   launch_not_approved: 'The code-built launch is not approved yet (waiting for the security activation); nothing was started',
   planner_unavailable: 'The code-built planner is not available', script_unavailable: 'The code-built script writer is not available',
@@ -179,8 +192,9 @@ async function withGpu(signal, jobsDir, action) {
 /** Validates a start request: topic text and a supported duration. Duration is requested, never silently changed. */
 export function checkStartRequest(input) {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new StartError('bad_request');
-  if (Object.keys(input).some((k) => !['topic', 'duration', 'voice', 'channelId', 'buildModel', 'type', 'formats'].includes(k))) throw new StartError('bad_request');
+  if (Object.keys(input).some((k) => !['topic', 'duration', 'voice', 'channelId', 'buildModel', 'type', 'formats', 'route'].includes(k))) throw new StartError('bad_request');
   if (input.type !== undefined && (typeof input.type !== 'string' || !['auto', 'factual', 'whatif', 'history'].includes(input.type.trim().toLowerCase()))) throw new StartError('bad_request');
+  const route = checkJobRoute(input.route);
   const topic = typeof input.topic === 'string' ? input.topic.trim() : '';
   if (!topic || topic.length > TOPIC_MAX || /[\x00-\x1F\x7F]/.test(topic)) throw new StartError('bad_request');
   const duration = input.duration === undefined ? 60 : input.duration;
@@ -195,14 +209,14 @@ export function checkStartRequest(input) {
     buildModel = match;
   }
   if (buildModel === 'Codex Sol') throw new StartError('build_model_unavailable', 422);
-  return { topic, duration, voice: input.voice ?? 'aiden', channelId: input.channelId, buildModel };
+  return { route, topic, duration, voice: input.voice ?? 'aiden', channelId: input.channelId, buildModel };
 }
 
 // The shape that leaves the server: no path, no stack, only the generic message.
 export function publicJob(rec) {
   if (!rec) return null;
   const { id, topic, duration, status, step, createdAt, updatedAt, error, draftId, steps, buildModel, length_check: lengthCheckRec, runId, batchIndex } = rec;
-  return { id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message } : null, ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}) };
+  return { route: rec.route ?? 'classic', id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message } : null, ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}) };
 }
 
 export function createCodebuiltStarter({
@@ -319,7 +333,7 @@ export function createCodebuiltStarter({
             const pairFile = file.endsWith('build.py') ? file.slice(0,-8) + 'overlay.json' : null;
             try { overlaySpec = validateOverlayPair(JSON.parse(readSafe(pairFile) || 'null'), code, {videoSeconds:nframes/30}); } catch { continue; }
           }
-          const why = validateReusableBuild(code, { nframes, shotStarts, places, ...(overlay ? {overlay:true,overlaySpec} : {}) });
+          const why = validateReusableBuild(code, { route: rec?.route ?? 'classic', nframes, shotStarts, places, ...(overlay ? {overlay:true,overlaySpec} : {}) });
           if (!why.length) {
             let startRound = 0; const match = file.match(/[\\/]r(\d+)[\\/]build\.py$/);
             if (match) startRound = Number(match[1]) + 1;
@@ -489,21 +503,21 @@ export function createCodebuiltStarter({
     const places = Array.isArray(plan.places) && plan.places.length ? plan.places : undefined;
     const validate = typeof plan.validate === 'function' ? plan.validate : injected.validate ?? ((code) => {
       if (typeof pl.validateBuildScript !== 'function') return ['no build validator is available'];
-      const why = [...pl.validateBuildScript(code, { nframes, shotStarts, places, overlay: jobUsesOverlay(pathPack,rec.formats,rec.route), overlaySpec: plan.overlaySpec })];
+      const why = [...pl.validateBuildScript(code, { route: rec.route ?? 'classic', nframes, shotStarts, places, overlay: jobUsesOverlay(pathPack,rec.formats,rec.route), overlaySpec: plan.overlaySpec })];
       if (!why.length && typeof pl.pythonSyntaxCheck === 'function') { const bad = pl.pythonSyntaxCheck(code); if (bad) why.push(`Python syntax error, ${bad}`); }
       if (!why.length && typeof pl.pythonQaStructureCheck === 'function') { const structure = pl.pythonQaStructureCheck(code); if (Array.isArray(structure)) why.push(...structure); }
       return why;
     });
     const sheetMaker = injected.sheetMaker ?? createPreviewSheetMaker({ execFileFn: hostExecFile });
-    const basePreview = injected.runPreview ?? createPreviewRunFn({ runner: plan.overlaySpec ? {run: request => runtime.runner.run({...request, overlaySpec:plan.overlaySpec})} : runtime.runner, inputs: { script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}) }, jobRoot: jobsDir });
+    const basePreview = injected.runPreview ?? createPreviewRunFn({ runner: {run: request => runtime.runner.run({...request, route: rec.route ?? 'classic', ...(plan.overlaySpec ? {overlaySpec:plan.overlaySpec} : {})})}, inputs: { script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}) }, jobRoot: jobsDir });
     const run = injected.runLoop ?? runVisualBuildLoop;
     const overlay = jobUsesOverlay(pathPack,rec.formats,rec.route);
     const runPreview = overlay ? async request => {
       const round = Number(request.jobId.match(/-pv([0-9]+)$/)[1])-1;
       const dir = path.join(stage,'loop',`r${round}`);
       savePair(dir,'build.py','overlay.json',request.buildScript,plan.overlaySpec,nframes);
-      return basePreview(request);
-    } : basePreview;
+      return basePreview({...request, route: rec.route ?? 'classic'});
+    } : request => basePreview({...request, route: rec.route ?? 'classic'});
     const makeSheets = async args => {
       if (!overlay) return sheetMaker.makeSheets(args);
       const dir = path.dirname(args.outDir);
@@ -518,10 +532,10 @@ export function createCodebuiltStarter({
     };
     try {
       return await run({
-        jobId: rec.id, ...(overlay ? {previewAttempt:rec.resumes?.length ?? 0} : {}), stageDir: stage, brief: typeof plan.directionMarkdown === 'string' && plan.directionMarkdown ? `${scripted.brief}
+        route: rec.route ?? 'classic', jobId: rec.id, ...(overlay ? {previewAttempt:rec.resumes?.length ?? 0} : {}), stageDir: stage, brief: typeof plan.directionMarkdown === 'string' && plan.directionMarkdown ? `${scripted.brief}
 
 ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: resumeBuild?.code ?? plan.buildScript, startRound: overlay ? nextOverlayRound(stage) : resumeBuild?.startRound ?? 0, resumeHistory: resumeBuild?.history ?? [], kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
-        validate, probe, lookModel: 'sonnet', signal, lookGuides: (() => { try { return typeof pl.loadCodebuiltGuides === 'function' ? pl.loadCodebuiltGuides({ pack: pathPack, step: 'look' }) : ''; } catch { return ''; } })(),
+        validate, probe, lookModel: 'sonnet', signal, lookGuides: (() => { try { return typeof pl.loadCodebuiltGuides === 'function' ? pl.loadCodebuiltGuides({ pack: pathPack, step: 'look', route: rec.route ?? 'classic' }) : ''; } catch { return ''; } })(),
       }, {
         runPreview, makeSheets, askLook: injected.askLook ?? defaultAskLook, askText: injected.askText ?? defaultAskText,
         onCall: addCall, onPhase,
@@ -538,6 +552,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
   }
 
   async function execute(rec, controller) {
+    checkJobRoute(rec.route);
     const { signal } = controller;
     let verifiedFactCheck = null;
     const resume = resumeData.get(rec.id) ?? null;
@@ -589,7 +604,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     try {
       const fn = scriptStage ?? pl.planCodebuiltScript;
       if (typeof fn !== 'function') throw new StartError('script_unavailable', 501);
-      scripted = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(rec.autoDuration && !rec.durationSelected ? { autoDuration: true } : {}), ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
+      scripted = await fn({ route: rec.route ?? 'classic', topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(rec.autoDuration && !rec.durationSelected ? { autoDuration: true } : {}), ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
     } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
     }
     if (!scripted || typeof scripted.script !== 'string' || !scripted.script.trim() || typeof scripted.brief !== 'string') throw new StartError('script_failed', 502);
@@ -645,7 +660,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
           let again;
           try {
             const fn = scriptStage ?? pl.planCodebuiltScript;
-            again = await fn({ topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, corrections, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
+            again = await fn({ route: rec.route ?? 'classic', topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, corrections, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
           } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
           if (again && typeof again.script === 'string' && again.script.trim() && typeof again.brief === 'string' && again.pathPack?.id === 'codebuilt') {
             for (const call of again.calls ?? []) addCall(call);
@@ -752,7 +767,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     if (!plan) try {
       step(rec, 'planning');
       if (typeof pl.planCodebuiltBuild !== 'function') throw new StartError('planner_unavailable', 501);
-      plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, formats: rec.formats, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
+      plan = await pl.planCodebuiltBuild({ route: rec.route ?? 'classic', topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, formats: rec.formats, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
       try {
         if (jobUsesOverlay(pathPack,rec.formats,rec.route)) plan.overlaySpec = savePair(stage, 'planner.build.py', 'planner.overlay.json', plan.buildScript, plan.overlaySpec, plan.nframes);
         else fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript);
@@ -809,7 +824,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       step(rec, 'building');
       try {
         await runtime.runner.run({
-          jobId: rec.id, kind: 'generated-code', timeoutMs: TIMEOUT_MS[rec.duration] ?? 60 * 60 * 1000, signal,
+          route: rec.route ?? 'classic', jobId: rec.id, kind: 'generated-code', timeoutMs: TIMEOUT_MS[rec.duration] ?? 60 * 60 * 1000, signal,
           script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, buildScript, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}),
         });
       } catch (error) {
@@ -881,7 +896,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const type = typeof input?.type === 'string' ? input.type.trim().toLowerCase() : choices?.type;
       const id = newId();
       if (!JOB_ID.test(id)) throw new StartError('internal', 500);
-      const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
+      const rec = { version: START_VERSION, route: req.route, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
         ...(batch ? { autoDuration: internal.autoDuration === true, factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : internal.contentMode === 'history' ? 'history' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
       // F1: the job's formats (from the topic pick, else from the channel profile) choose format skills and sets at every step.
       const formats = cleanJobFormats([...(Array.isArray(input?.formats) ? input.formats : []), ...(Array.isArray(internal?.premise?.formats) ? internal.premise.formats : channelJobFormats(req.channelId ?? defaultChannelId, type))]);
@@ -889,6 +904,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       if (formats.includes('journey')) {
         if (type === 'teardown' || !batch || !internal.premise || !['thing','move','story_question','ending_answer','turn','who','want'].every(k => typeof internal.premise[k] === 'string' && internal.premise[k].trim()) || !Array.isArray(internal.premise.landmarks) || internal.premise.landmarks.length < 3 || !internal.premise.counter || !Number.isFinite(internal.premise.last_number)) throw new StartError('bad_request');
       }
+      rec.route = effectiveJobRoute(req.route, formats);
       if (formats.length) { rec.formats = formats; if (rec.premise) rec.premise = {...rec.premise,formats}; }
       if (type === 'history') {
         rec.contentMode = 'history';
@@ -913,8 +929,10 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       if (!rec) throw new StartError('not_found', 404);
       if (!['failed', 'aborted'].includes(rec.status)) throw new StartError('conflict', 409);
       if (running.size > 0 || waiting.some((queuedId) => queuedId !== id) || [...live.values()].some(({ rec: item }) => item.id !== id && ACTIVE.includes(item.status))) throw new StartError('conflict', 409);
+      const route = effectiveJobRoute(checkJobRoute(rec.route), rec.formats);
       const artifacts = reusable(id);
       if (artifacts.blockedReason) throw new StartError('conflict', 409);
+      rec.route = route;
       rec.resumes = Array.isArray(rec.resumes) ? rec.resumes : [];
       rec.resumes.push({ at: clock(), fromStep: artifacts.resumeFrom, reused: artifacts.reused });
       rec.status = 'queued'; rec.step = 'queued'; rec.error = null; rec.resumeFrom = artifacts.resumeFrom; resumeData.set(rec.id, artifacts);
