@@ -12,6 +12,19 @@ run with the spare workers, one worker or two each, and never on a file another 
 
 ## Make the videos better and cheaper
 
+### Kola phase 1 · 2026-11-17 13:15 +02:00 · codex · gpt-6.1-sol
+
+Owner order 13:14; binding contracts, lane requirements and proofs: `ForgeBrain/plans/2026-11-17-kola-into-pipeline-fleet-plan.md` sections 2–5. Exactly these six lanes; no video run, dashboard start, publishing or phase 2 work.
+
+| Id | Lane | State | Files and done when |
+|---|---|---|---|
+| KA1 | Kit saves screen positions | BUILDING | `blender_worker/codebuilt/anchors.py`, `renderloop.py`, tests; strict per-frame anchors, resume and fenced CPU cross-position proof. |
+| KO1 | Overlay layer in post | BUILDING | `post/overlay.py`, `anchors_file.py`, `run.py`, `cb5.py`, shared fixtures/tests; strict readers, six elements, layout findings, eight-frame Kola replay. |
+| KJ1 | Journey format and premise gate | BUILDING | journey skill, paths JSON, `autoTopic.js`, `theme.js`, `direction.js`, `skills.js`, tests; format-specific behavior and five sourced premises. |
+| KR1 | Render look measurement | BUILDING; report only | Eight Kola frames host EEVEE/container Cycles/container EEVEE; timing, sheet and recommendation under `output/agent-jobs/kr1-render-look/`. |
+| KB1 | Builder overlay contract | WAITING KA1 + KO1 | `planner.js`, `overlaySpec.js`, `start.js`, `runJob.js`, `jobFolder.js`, tests; validated immutable overlay input, bounded repair, unchanged old path. |
+| KP1 | Previews show final text | WAITING KA1 + KO1 | `post/preview_sheet.py`, `previewSheet.js`, `visualLoop.js`, `visualLoopPrompts.js`, tests; captions/overlay on tiles and smoke proof. |
+
 Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan: ForgeBrain/plans/2026-11-15-parallel-lanes.md. All branch changes require cross-family review and zero active jobs before merge; GPU proofs remain serial.
 
 | Id | Lane | State | Files and done when |
