@@ -109,3 +109,8 @@ test('picture-enabled pick returns picture and five story fields in premise', as
   assert.deepEqual(result.premise.picture, picture);
   for (const key of Object.keys(story)) assert.equal(result.premise[key], story[key]);
 });
+
+test('a failing planner call keeps its cause in the theme_provider_failed diagnostics', async () => {
+  const pick = createAutoTopicProvider({ history: () => ({ videos: [], available: false }), askRoleFn: async () => { throw Object.assign(new Error('usage limit\nreset at 22:17'), { code: 'usage_limit' }); } });
+  await assert.rejects(() => pick({}), (e) => e.code === 'theme_provider_failed' && e.diagnostics?.cause === 'usage_limit: usage limit reset at 22:17');
+});

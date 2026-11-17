@@ -134,7 +134,7 @@ function withoutLegacyLoopDefault(channel) {
 }
 
 // codex · gpt-6.1-sol · 2026-11-16 10:36 +02:00: expose persisted all-rejected evidence on failed videos.
-const publicError = (e) => (e ? { code: e.code, message: e.message, ...(e.stage ? { stage: e.stage } : {}), ...(e.diagnostics && e.code === 'theme_all_rejected' ? { diagnostics: e.diagnostics } : {}) } : null);
+const publicError = (e) => (e ? { code: e.code, message: e.message, ...(e.stage ? { stage: e.stage } : {}), ...(e.diagnostics && (e.code === 'theme_all_rejected' || e.code === 'theme_provider_failed') ? { diagnostics: e.diagnostics } : {}) } : null);
 const countsOf = (videos) => {
   const c = { done: 0, failed: 0, aborted: 0, pending: 0, running: 0 };
   for (const v of videos) {
@@ -197,7 +197,7 @@ export function createCodebuiltRunCoordinator({
       return rec;
     } catch { return null; }
   };
-  const fail = (video, code, stage, diagnostics = null) => { video.status = 'failed'; video.error = { code, message: MESSAGES[code] || MESSAGES.internal, ...(stage ? { stage } : {}), ...(code === 'theme_all_rejected' && diagnostics ? { diagnostics } : {}) }; };
+  const fail = (video, code, stage, diagnostics = null) => { video.status = 'failed'; video.error = { code, message: MESSAGES[code] || MESSAGES.internal, ...(stage ? { stage } : {}), ...((code === 'theme_all_rejected' || code === 'theme_provider_failed') && diagnostics ? { diagnostics } : {}) }; };
 
   /** Auto resolution for one video. Every field records who decided it (owner or auto) and why. */
   async function resolveVideo(rec, index, previousTopics, onCallRecord) {

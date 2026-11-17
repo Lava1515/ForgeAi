@@ -108,3 +108,22 @@ test('coordinator persists and reloads actual Auto rejection diagnostics in publ
   assert.deepEqual(reloaded.error, video.error);
   checkDiagnostics(reloaded.error.diagnostics);
 });
+
+test('coordinator keeps the planner call cause on theme_provider_failed, with paths and long tokens redacted', async (t) => {
+  const base = 'C:/code/ForgeAi/output/agent-jobs/theme-rejection-diagnostics';
+  fs.mkdirSync(base, { recursive: true });
+  const runsDir = fs.mkdtempSync(path.join(base, 'theme-provider-'));
+  t.after(() => fs.rmSync(runsDir, { recursive: true, force: true }));
+  const pickTopic = createAutoTopicProvider({
+    getChannel: () => channel, history: () => ({ videos: [], available: false }),
+    askRoleFn: async () => { throw Object.assign(new Error('cannot write C:\\Users\\Someone\\.claude\\x.json then /home/u/y token abcdefghijklmnopqrstuvwxyz0123456789ABCDEF'), { code: 'EACCES' }); },
+  });
+  const coordinator = createCodebuiltRunCoordinator({ runsDir, getChannel: () => channel, getChannels: () => [channel], pickTopic, starter: { start() { assert.fail('no production'); } } });
+  const run = coordinator.startRun({ count: 1, channelId: channel.id, type: 'factual', voice: 'aiden', duration: 30 });
+  await coordinator.idle();
+  const video = coordinator.getRun(run.id).videos[0];
+  assert.equal(video.error.code, 'theme_provider_failed');
+  assert.equal(video.error.diagnostics.cause, 'EACCES: cannot write <path> then <path> token <redacted>');
+  const saved = JSON.parse(fs.readFileSync(path.join(runsDir, run.id, 'run.json'), 'utf8'));
+  assert.deepEqual(saved.videos[0].error, video.error);
+});
