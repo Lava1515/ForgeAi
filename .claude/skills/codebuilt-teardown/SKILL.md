@@ -168,3 +168,15 @@ A strong 30–45 second teardown explainer short follows this structure:
 - **Framing:** Exploded, the jet is about 20 m wide, so in a 9:16 frame it fills the width and about 40 percent of the height at `exploded_wide`. Do not zoom in on the whole exploded jet; cut to a close pose instead.
 
 Narration constraint: the example shot beats above illustrate generic mechanisms only. Never infer a real F-117 configuration from this geometry. Fact-check every specific assertion independently; omit unsupported details.
+
+## When text is drawn after the render
+
+Use this section when the job route is `overlay` or `authored`. On those routes the part names are overlay labels, drawn on the finished frames after the render. They are never 3D text: add no text object to the scene. The kit's text check fails any visible text object, and the render stops.
+
+- **Mark each part.** For every part a label names, get its world point with `anchor_point(part_id)` (use it when it exists; it is a plain function that returns three numbers) and pass that point to `anchors.mark` in the shot that shows the part. Do not hand-place points on screen.
+- **Slow at each part.** Hold the camera on the part until its label has been on screen for about a second. Never cut away on the word that names it, and never let the camera leave while the label is still fading in.
+- **Write the surfaces for the shot.** Every part on screen gets a node material with dark and bright patches, wear or edge highlights, and patterns large enough to read on a phone. No plain grey and no default material.
+- **Render profile for these routes:** AgX with look `AgX - Medium High Contrast`, Cycles at 16 samples, not `Standard`. Use a low warm key light and a cool fill so the frame keeps its depth.
+- **Keep text clear.** Labels stay out of the top 8 percent and the bottom 20 percent of the frame. Two labels never touch, and a label never covers the part it names.
+- **One label, short.** Each label is a title and, if it helps, one value. Spell numbers the way the voice reads them, and keep the label to the words the narration uses.
+- **Check the sheet.** Before the full render, look at a contact sheet with the text on. Ask of each label: can it be read at phone size, and does it cover the part.
