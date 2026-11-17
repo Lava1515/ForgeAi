@@ -65,3 +65,17 @@ A subject that moves or explodes needs a wider framing than one that stands stil
 ## Premise at the opening and ending
 
 The subject and the premise text are on screen in the first frame. No logo or title card. End on the payoff and stop. No call to action.
+
+## When text is drawn after the render
+
+This section applies only to the `overlay` and `authored` routes, where the text is drawn after the render and no text is built into the 3D scene. For these routes plan 1 to 4 places. The classic route keeps the 2 to 5 places above. A shot lasts at most 16 seconds.
+
+Each shot carries one overlay element that fits what the narration needs:
+
+- A label (a country name, a part name, a planet name) for each landmark the shot names. The label sticks to that landmark's screen point.
+- A counter (a running year, distance or speed) for a shot that counts up from the first frame of the move.
+- A big number on its word for the payoff, usually in the last shot.
+
+Each landmark gets a pause long enough to read its label. The camera slows at the landmark and holds there for at least 2.2 seconds, which is the direction limit the planner enforces. Write the hold into the shot as a beat with its start time, so it is not left to the camera.
+
+Mark the screen point of every landmark the shot names, so that the overlay can place the label on it. Do not put any letter into the 3D scene itself. Keep the subject out of the top 8 percent and the bottom 20 percent of the frame, where the captions and the Shorts buttons sit. The view still changes every 2 to 4 seconds, and a 2.2 second hold at a landmark counts as one of those changes.
