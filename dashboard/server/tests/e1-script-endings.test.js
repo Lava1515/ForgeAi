@@ -12,17 +12,19 @@ test('script ending resolves to Haiku and cannot enter the agy light chain', () 
 
 const script = (ending) => {
   const sentences = [
-    'Could a paper boat cross an ocean?',
-    'You fold one sheet beside a quiet harbor.',
-    'The first wave lifts its pointed bow.',
-    'Wind carries it beyond the breakwater.',
-    'Salt water softens every folded edge.',
-    'A gull follows the bright little sail.',
-    'The boat drifts past the last fishing lights.',
-    'Morning finds it near a distant island.',
+    'Paper sinks, yet this boat keeps sailing.',
+    'Can a paper boat reach the far shore?',
+    'Child wants it home.',
+    'Then the wind shifts.',
+    'Rain darkens the sail as waves carry the hull past the harbor wall.',
+    'Gulls circle rough water.',
+    'Harbor lights vanish behind the boat.',
+    'At dawn, a pale island appears through the mist.',
+    'The child watches as a gull follows the sail out to sea.',
+    'Not yet.',
+    'Now the boat reaches land.',
     ending,
   ];
-  while (sentences.join(' ').split(/\s+/).length < 80) sentences.splice(1, 0, 'Small ripples rock the paper boat beneath the open sky.');
   return sentences.join(' ');
 };
 const shotsFor = (text) => text.split(/(?<=[.!?])\s+/).map((narration) => ({ narration, subject: 'paper boat', action: 'drifts across the harbor', feel: 'curious' }));
@@ -31,7 +33,7 @@ const reply = (text) => { const shots = shotsFor(text); shots[0].feel = 'intrigu
 test('a flat banned final line triggers one focused ending check and rewrite', async () => {
   const calls = [];
   const original = script('Its paper hull still stays soft.');
-  const replacement = 'The gull carries the tiny sail beyond the island.';
+  const replacement = 'The gull carries the paper boat safely ashore.';
   const result = await planCodebuiltScript({ topic: 'paper boats', duration: 30 }, {
     askFn: async () => reply(original),
     askRoleFn: async (_role, prompt, options) => {
@@ -59,7 +61,7 @@ test('checker failure keeps original script and records degraded evidence', asyn
 });
 
 test('passing ending checks make no rewrite call', async () => {
-  const original = script('The gull carries the tiny sail into the sunrise.');
+  const original = script('The gull carries that paper boat safely ashore.');
   let count = 0;
   const result = await planCodebuiltScript({ topic: 'paper boats', duration: 30 }, {
     askFn: async () => reply(original),
