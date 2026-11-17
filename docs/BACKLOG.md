@@ -240,3 +240,15 @@ U1a508b5ff review2 MERGE; noS/noL, only C LOW. Integration gates still pending.
 | U1a-F4d | FOLLOW-UP C LOW | Document overlay history reset and fresh look budget on resume. |
 | U1a-F5 | DOCUMENTED C LOW | Fence-stub anchors prove wrapper pass-through; real fenced P1 proof remains required. |
 
+
+### T1 accepted code follow-ups · 2026-11-17 17:57 +02:00 · codex · gpt-6.1-sol
+
+T1 code33732cf review2 MERGE, noS/noL. Branch not merged yet. Real proofH1 and T2 BLOCKED, no router rerun.
+
+| Id | State | Follow-up |
+|---|---|---|
+| T1-C2 | FOLLOW-UP C LOW | Short valid journey thing/move yields picture null; reconcile without changing classic gate. |
+| T1-C3 | FOLLOW-UP C LOW | Picture+journey prompt redundantly asks for code-derived picture. |
+| T1-C4 | FOLLOW-UP C LOW | Any future authorized proof rerun needs pre-call askRoleFn counter and preserved cause; current two-call budget possibly spent. |
+| T1-C5 | FOLLOW-UP C LOW | Add derived short journey field coverage when fixing that bug. |
+
