@@ -291,3 +291,14 @@ O1a 52449eb reviewed MERGE by Sonnet (no S, no L), merged as 246a433. Five C fin
 | O1a-C3 | FOLLOW-UP C LOW | Author tests miss three reviewer mutations: execute-time flag check removed, preview runner losing `route`, validator losing `route`. |
 | O1a-C4 | FOLLOW-UP C LOW | New tests leave scratch folders under `output/agent-jobs/o1a-tests` and hard-code the path. |
 | O1a-C5 | INFO | Journey-profile channels now save route `overlay` and get `picture:true` topic prompts; `route` is a new key in `status.json`. Both follow contract 2.1. |
+
+### O1b review follow-ups · 2026-11-17 19:20 +02:00 · claude-pro · claude-sonnet-5-5
+
+O1b 44b9b36 reviewed MERGE (review 2, no S, no L), merged as ec5b93d. The O1a snapshot test no longer lists `direction.js` as unchanged since 717d65f (it is changed on purpose); full server suite 375 of 375.
+
+| Id | State | Follow-up |
+|---|---|---|
+| O1b-C1 | FOLLOW-UP C LOW | Outside a job scope `planCodebuiltDirection` takes journey limits from `input.formats`; no production effect (start.js runs the plan in a job scope). |
+| O1b-C2 | FOLLOW-UP C LOW | `codebuilt-direction/SKILL.md` line 16 says 2 to 5 places while the overlay route says 1 to 4; the G5 skill section should reconcile it. |
+| O1b-C3 | FOLLOW-UP C LOW | An overlay or authored job whose `premise.formats` is a truthy non-array throws a TypeError in `scriptPrompt`; the server always sets an array. |
+| O1b-C4 | FOLLOW-UP C LOW | No length cap on premise fields; schema pins `render.status` to `pending_review` and `device` to `GPU` (H2 approval needs a schema edit); the overlay JSON repair prompt carries the RL1 text. |

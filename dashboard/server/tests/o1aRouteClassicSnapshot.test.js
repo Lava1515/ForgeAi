@@ -29,7 +29,7 @@ test('O1a classic 200-case prompt and validator snapshots equal 717d65f',async()
     assert.deepEqual(after.validateBuildScript(code,{...input,route:'classic'}),before.validateBuildScript(code,input),`validator ${i}`);
   }
   // Post report code and direction rules are untouched, so their output-key and direction contracts retain the baseline implementation.
-  for(const file of ['narrative_factory/codebuilt/post/run.py','dashboard/server/episode/codebuilt/direction.js']) {
+  for(const file of ['narrative_factory/codebuilt/post/run.py']) {
     assert.equal(git('diff','717d65f','--',file),'',file);
   }
 });
