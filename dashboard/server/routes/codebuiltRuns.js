@@ -5,7 +5,7 @@ import { codebuiltRunCoordinator, RunError } from '../episode/codebuilt/runCoord
 import { StartError } from '../episode/codebuilt/start.js';
 
 const BODY_CAP = 4 * 1024;
-export const RUN_BODY_KEYS = Object.freeze(['count', 'genre', 'theme', 'topic', 'type', 'voice', 'duration', 'buildModel', 'channelId']);
+export const RUN_BODY_KEYS = Object.freeze(['count', 'genre', 'theme', 'topic', 'type', 'voice', 'duration', 'buildModel', 'channelId', 'route']);
 
 function runBody(req) {
   const value = req.body === undefined ? {} : req.body;
