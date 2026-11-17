@@ -678,7 +678,8 @@ export function sceneWeightOf(bare) {
 }
 
 // codex · gpt-6.1-sol · 2026-11-17 13:53 +02:00
-// Fail closed for the overlay contract. Canonical module names are deliberately required:
+// Overlay early feedback only; visible FONT objects are checked by the kit at posed frames.
+// Canonical module names are deliberately required:
 // storing modules/functions in aliases or using reflection would bypass an allowlist of calls.
 const OVERLAY_STRUCTURE_PY = String.raw`import ast,json,sys
 try:
@@ -687,12 +688,18 @@ except SyntaxError:
  print(json.dumps(['overlay script must parse']));sys.exit(0)
 parents={c:n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
 problems=set(); points=set(); values=set()
+allowed_roots={'bpy','math','sys','os','numpy','mathutils','blender_worker'}
 for n in ast.walk(tree):
+ if isinstance(n,(ast.Import,ast.ImportFrom)):
+  modules=[a.name for a in n.names] if isinstance(n,ast.Import) else [n.module or '']
+  for module in modules:
+   if module.split('.')[0] not in allowed_roots or (isinstance(n,ast.ImportFrom) and n.level): problems.add('import not allowed: '+module)
  if isinstance(n,ast.ImportFrom):
   if n.module and n.module.startswith('blender_worker.codebuilt.'): problems.add('overlay kit submodules cannot be imported directly')
   if n.module and 'anchors' in n.module: problems.add('import anchors only from blender_worker.codebuilt without aliases')
   for a in n.names:
    if a.name in ('anchors','stage') and (n.module!='blender_worker.codebuilt' or a.asname): problems.add('overlay kit modules must use canonical imports')
+   if a.name=='modules': problems.add('overlay builds cannot import module registries')
    if a.name=='*': problems.add('overlay imports cannot use star imports')
  if isinstance(n,ast.Import) and any('anchors' in a.name or 'stage' in a.name for a in n.names): problems.add('overlay kit modules must use canonical imports')
  if isinstance(n,ast.Name) and n.id in ('anchors','stage'):
@@ -700,9 +707,9 @@ for n in ast.walk(tree):
   if not isinstance(parent,ast.Attribute) or parent.value is not n or not isinstance(n.ctx,ast.Load): problems.add('overlay kit modules cannot be aliased or reassigned')
  if isinstance(n,ast.Attribute):
   if n.attr=='modules': problems.add('overlay builds cannot access module registries')
-  if n.attr in ('label','callout','_make_callout_label'): problems.add('overlay builds must not use kit text helpers')
+  if n.attr in ('callout','_make_callout_label') or (n.attr=='label' and not isinstance(n.ctx,ast.Store)): problems.add('overlay builds must not use kit text helpers')
   if n.attr in ('highlight','highlight_group') and (not isinstance(parents.get(n),ast.Call) or parents[n].func is not n): problems.add('overlay map highlight helpers cannot be aliased')
-  if n.attr=='add':
+  if n.attr=='add' and isinstance(n.value,ast.Attribute) and n.value.attr=='object' and isinstance(n.value.value,ast.Attribute) and n.value.value.attr=='ops' and isinstance(n.value.value.value,ast.Name) and n.value.value.value.id=='bpy':
    call=parents.get(n)
    typ=next((k.value for k in call.keywords if k.arg=='type'),None) if isinstance(call,ast.Call) and call.func is n else None
    if not isinstance(typ,ast.Constant) or not isinstance(typ.value,str) or typ.value=='FONT' or any(k.arg is None for k in call.keywords): problems.add('overlay add type must be a literal non-FONT string')
@@ -728,7 +735,7 @@ for n in ast.walk(tree):
   if not isinstance(typ,ast.Constant) or typ.value not in ('CURVE','SURFACE'): problems.add('overlay curve type must be literal CURVE or SURFACE')
  if isinstance(n,ast.Constant) and n.value=='FONT': problems.add('overlay builds must not create FONT curves')
  if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr in ('highlight','highlight_group'):
-  if len(n.args)>1 or any(k.arg is None or (k.arg=='label' and not (isinstance(k.value,ast.Constant) and k.value.value in (None,False))) for k in n.keywords): problems.add('overlay map highlights must not create labels')
+  if any(isinstance(a,ast.Starred) for a in n.args) or len(n.args)>2 or any(k.arg is None or (k.arg=='label' and not (isinstance(k.value,ast.Constant) and k.value.value in (None,False))) for k in n.keywords): problems.add('overlay map highlights must not create labels')
  if isinstance(n,ast.Name) and (n.id in ('getattr','setattr','delattr','globals','locals','vars') or n.id.startswith('__')): problems.add('overlay builds cannot use dynamic attribute access')
  if isinstance(n,ast.Attribute) and n.attr.startswith('__'): problems.add('overlay builds cannot use dynamic attribute access')
 needed=json.loads(sys.argv[1])
@@ -752,7 +759,7 @@ export function validateBuildScript(code, { nframes, shotStarts, places, type, o
   for (const [re, msg] of FORBIDDEN) if (re.test(src)) why.push(msg);
   const imports = [...src.matchAll(/^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w., ]+))/gm)].flatMap((m) => (m[1] ? [m[1]] : m[2].split(',').map((x) => x.trim().split(/\s+as\s+/)[0])));
   const okRoot = new Set(['bpy', 'math', 'sys', 'os', 'numpy', 'mathutils', 'blender_worker']);
-  for (const mod of imports) if (!okRoot.has(mod.split('.')[0])) why.push(`import not allowed: ${mod}`);
+  for (const mod of overlay ? [] : imports) if (!okRoot.has(mod.split('.')[0])) why.push(`import not allowed: ${mod}`);
   // Comments never satisfy a check: calls and names are looked for in `code` (comments and string contents blanked), string-valued constants in `noComments`.
   const { code: bare, noComments } = stripPython(src);
   if (type === 'teardown' && !/\bstealth_jet_teardown\s*\.\s*build\s*\(/.test(bare)) why.push('teardown builds must call stealth_jet_teardown.build(origin)');
@@ -1057,8 +1064,10 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   if (!skillGuidance) throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid');
   let initialPrompt = buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices, skillGuidance, direction });
   if (overlay) {
-    initialPrompt = initialPrompt.split('\n').filter(line => !/\.label\(|\.callout\(|readout text|label\s*=|^- (?:Text framing:|Put dark plates behind readouts|Depth of field must not blur readouts)/i.test(line) && (!/stage\.(?:text|hud_text|hud|fit_text)\(/.test(line) || /stage\.Camera/.test(line))).join('\n')
+    initialPrompt = initialPrompt.split('\n').map(line => /^(?:cutaway_planet|polar_penguin|tunnel)\.build\(/.test(line) ? line.replace(/, (?:clock|label|readouts)\b/g, '').replace(' and readout text', '') : line).filter(line => !/\.label\(|\.callout\(|readout text|label\s*=|^- (?:Text framing:|Put dark plates behind readouts|Depth of field must not blur readouts)/i.test(line) && (!/stage\.(?:text|hud_text|hud|fit_text)\(/.test(line) || /stage\.Camera/.test(line))).join('\n')
       .replace(/;  stage\.text\(c, name, body[^\n]*/g, '.')
+      .replace('pops a label or dot in', 'pops a dot in; mark label points with anchors.mark and put their text in overlay.json')
+      .replace('The text safe area and the 70 percent readout width of shotcheck still apply to every label.', 'Put labels in overlay.json; keep their anchors in frame and leave room for the overlay text.')
       .replace('Output ONLY the Python source in one ```python block.', 'Output the Python source in one ```python block and the overlay spec in one ```json block.');
     initialPrompt += `\nNo text in 3D and no FONT curves. Import anchors from blender_worker.codebuilt. Only these generated APIs are allowed, inside shot functions:\nanchors.mark(name, world_point)\nanchors.value(name, number)\nNames are literal lowercase identifiers, max 24 characters. Return ONE python block and ONE json block (overlay.json). Use version 1, optional counter {value,format,unit,label,from,to}, labels [{anchor,title,value,side,from,to}], measures [{a,b,text,from,to}], bars [{value,label,min,max,from,to}], big [{text,sub,from,to}], tag {text,from,to}. Limits: 12 labels, 4 measures, 2 bars, 3 big. Text max 28 characters (sub 40), ASCII letters/digits/space and . , % \u00b0 \u00d7 - + / : ' ( ). Formats: int,int_commas,one_decimal,two_decimals,year,times. Side: left,right,auto. Times from measured words + ${LEAD_S}, 0 <= from < to <= ${nframes / FPS}. Mark every point and value referenced. Never call kit anchor write/reset/begin/capture/document/usage/discard helpers. Never alias kit modules or functions or use reflection.`;
   }
