@@ -5,7 +5,10 @@ import { planCodebuiltScript, wordWindow, scriptShotRange, AUTO_SCRIPT_DURATIONS
 import { FEELS, planBeatDeliveries } from '../episode/codebuilt/voice.js';
 
 function reply(duration, { count = wordWindow(duration).target, returnedDuration = duration, shots = scriptShotRange(duration).target } = {}) {
-  const tokens = Array.from({ length: count }, (_, i) => `place${i}`);
+  const opening = 'Roads vanish. Where will the traveler find the coast? You need a way home. Then maps turn. A marked footpath opens beside the river.'.split(' ');
+  const longRun = 'You follow the river past the old mill, cross a narrow bridge near the pines, climb the hillside toward a village, ask a ferryman which road leads west, leave the marked trail when it reaches the marsh, find a stone path beneath the trees, cross another stream where the wooden footbridge returns, follow the coast until a lighthouse appears, turn toward the harbor as the wind rises, and keep walking while the shoreline curves back into view'.split(' ');
+  const tokens = Array.from({ length: count }, (_, i) => i < opening.length ? opening[i] : longRun[(i - opening.length) % longRun.length]);
+  tokens[count - 1] = `${tokens[count - 1]}?`;
   const beats = Array.from({ length: shots }, (_, i) => ({
     narration: tokens.slice(Math.floor(i * count / shots), Math.floor((i + 1) * count / shots)).join(' '),
     subject: 'you beside a familiar country', action: 'cross a blocked route', feel: FEELS[i % FEELS.length],
