@@ -87,7 +87,7 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) tes
         validate: () => [],
         runLoop: async (input) => {
           loopBuild = input.buildScript;
-          if (overlay) assert.equal(input.startRound,0);
+          if (overlay) assert.equal(input.startRound,2); // Preserve prior round folders; contract 2.6 replans without an overlay pair.
           assert.deepEqual(input.resumeHistory, []);
           return { accepted: true, buildScript: input.buildScript, sha256: hash(input.buildScript), receipt: { model: 'HOST' }, calls: [] };
         },
@@ -98,8 +98,8 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) tes
 
     const queued = starter.resume(id);
     assert.equal(queued.id, id);
-    assert.equal(queued.resumes.at(-1).fromStep, 'visual_loop');
-    assert.deepEqual(queued.resumes.at(-1).reused, ['script', 'voice', 'buildScript']);
+    assert.equal(queued.resumes.at(-1).fromStep, overlay ? 'planning' : 'visual_loop');
+    assert.deepEqual(queued.resumes.at(-1).reused, overlay ? ['script', 'voice'] : ['script', 'voice', 'buildScript']);
     await starter.idle();
 
     const finished = starter.get(id);
@@ -113,7 +113,7 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) tes
     assert.equal(loopBuild, overlay ? newBuild : cachedBuild);
     if (overlay) {
       assert.equal(finalRequest.buildScript,newBuild);
-      assert.deepEqual(finalRequest.overlaySpec,overlaySpec);
+      assert.deepEqual(finalRequest.overlaySpec,{...overlaySpec,labels:overlaySpec.labels.map(label=>({...label,side:'auto'})),measures:[],bars:[],big:[]});
     }
     const calls = JSON.parse(fs.readFileSync(path.join(state, 'cost_calls.json'), 'utf8')).calls;
     assert.equal(calls[0].step, 'previous');
