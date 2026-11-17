@@ -19,12 +19,12 @@ Owner orders 13:14 and 13:34; binding contracts, lane requirements and proofs: `
 | Id | Lane | State | Files and done when |
 |---|---|---|---|
 | KA1 | Kit saves screen positions | BUILDING | `blender_worker/codebuilt/anchors.py`, `renderloop.py`, tests; strict per-frame anchors, resume and fenced CPU cross-position proof. |
-| KO1 | Overlay layer in post | BUILDING | `post/overlay.py`, `anchors_file.py`, `run.py`, `cb5.py`, shared fixtures/tests; strict readers, six elements, layout findings, eight-frame Kola replay. |
+| KO1 | Overlay layer in post | MERGED 63dc91d; review/replay pass | `post/overlay.py`, `anchors_file.py`, `run.py`, `cb5.py`, shared fixtures/tests; strict readers, six elements, layout findings, eight-frame Kola replay. |
 | KJ1 | Journey format and premise gate | BUILDING | journey skill, paths JSON, `autoTopic.js`, `theme.js`, `direction.js`, `skills.js`, tests; format-specific behavior and five sourced premises. |
-| KR1 | Render look measurement | BUILDING; report only | Eight Kola frames host EEVEE/container Cycles/container EEVEE; timing, sheet and recommendation under `output/agent-jobs/kr1-render-look/`. |
+| KR1 | Render look measurement | DONE report; Sonnet review pass, caveats recorded | Eight Kola frames host EEVEE/container Cycles/container EEVEE; timing, sheet and recommendation under `output/agent-jobs/kr1-render-look/`. |
 | KB1 | Builder overlay contract | WAITING KA1 + KO1 | `planner.js`, `overlaySpec.js`, `start.js`, `runJob.js`, `jobFolder.js`, tests; validated immutable overlay input, bounded repair, unchanged old path. |
 | KP1 | Previews show final text | WAITING KA1 + KO1 | `post/preview_sheet.py`, `previewSheet.js`, `visualLoop.js`, `visualLoopPrompts.js`, tests; captions/overlay on tiles and smoke proof. |
-| KS1 | Sound follows the story | WAITING KO1 | `post/cb5.py` cue part, `blender_worker/codebuilt/audio.py`, tests; overlay-derived ping/boom/whoosh and counter tone, measured levels/stems, legacy sound unchanged; nobody listened. |
+| KS1 | Sound follows the story | BUILDING | `post/cb5.py` cue part, `blender_worker/codebuilt/audio.py`, tests; overlay-derived ping/boom/whoosh and counter tone, measured levels/stems, legacy sound unchanged; nobody listened. |
 | KE0 | Author design note | WAITING PHASE 1 DONE + push | Reviewed design before code; section 6 restrictions binding, Sonnet author, KR1 render recommendation and measured token cap. |
 | KE1 | One author session | WAITING KE0 approval | `authorLoop.js`, `authorCall.js`, `start.js` switch; host-run fenced previews, no command/network tools, mode off by default. |
 | KE2 | Author validator profile | WAITING KE0 approval | `planner.js` second profile; keep forbidden list, fence and previewed-hash gate. |
@@ -148,4 +148,5 @@ Updated 2026-11-17 10:17 +02:00 by codex · gpt-6.1-sol: S3 merged after Sonnet 
 
 
 Updated 2026-11-17 10:45 +02:00 by codex · gpt-6.1-sol: SP2 merged after final Sonnet security PASS and 187 server tests. Split fences join only when the longest fails syntax and the join passes. Scoped repair covers only sample-count refusals in editable definitions/assignments; every other refusal still uses full rewriting. Failed scoped edits fall back safely, bounded to two full replies plus one scoped call. Original Corinth reply is missing; no 14–18-minute or 105k-token saving was proved. Four lanes complete; no video run or dashboard start.
+
 
