@@ -97,9 +97,11 @@ export function askClaudeLook(prompt, images, options = {}) {
 }
 
 function startLook(prompt, images, {
-  model, allowNoImages = false, timeoutMs = LOOK_TIMEOUT_MS, signal, spawnFn = spawn, claudeHome, platform = process.platform, killTreeFn = killTree,
+  model, allowNoImages = false, safeMode = false, timeoutMs = LOOK_TIMEOUT_MS, signal, spawnFn = spawn, claudeHome, platform = process.platform, killTreeFn = killTree,
 } = {}) {
+  // codex · gpt-6.1-sol · 2026-11-17 23:21 +02:00: fixed author-only opt-in; never accept arbitrary argv.
   const argv = checkInputs(prompt, images, model, allowNoImages);
+  if (safeMode === true) argv.push('--safe-mode');
   if (signal?.aborted) return Promise.reject(failure('Claude CLI look aborted before start', { aborted: true }));
   const env = claudeEnv();
   const home = claudeHome ?? env.HOME;

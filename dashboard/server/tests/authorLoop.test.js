@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runAuthorLoop, verifyAuthorReceipt } from '../episode/codebuilt/authorLoop.js';
 import { hash, authorArgv } from '../episode/codebuilt/authorCall.js';
-const root='C:/code/ForgeAi/output/agent-jobs/a1-implementation';
+const root='C:/code/ForgeAi/output/agent-jobs/a1-fix1';
 const spec={version:1}; const code='# scene\n# camera\n# light\n# material\n# world\n# setup\n# timeline\n# layers\n# reusable mesh\n# framing\ndef shot_0(t):\n    pass\n';
 const look=(verdict='pass',codes=['ABCDE'])=>JSON.stringify({look:{sheet_codes:codes,verdict,shots:[{id:'shot-0',sees:'The subject fills the frame.',ok:true}],findings:verdict==='fix'?[{severity:'P1',issue:'Needs a better camera.'}]:[],targets:[],edits:[]},notes:'Remember the subject.'});
 function rig(overrides={},hooks={}) {
@@ -59,3 +59,28 @@ test('missing usage charged full reserve and persisted before next action',async
 test('spending over cap on passing look refuses accepted output',async()=>{const r=rig({caps:{billableTotal:70000}});const ask=r.deps.askAuthor;let calls=0;r.deps.askAuthor=async(...args)=>{const reply=await ask(...args);if(++calls===2)reply.rawUsage.input_tokens=80000;return reply;};await assert.rejects(runAuthorLoop(r.input,r.deps),{code:'author_tokens'});assert.equal(r.counts().previews,1);assert.ok(!fs.existsSync(path.join(r.stage,'author/accepted.build.py')));});
 test('altered delivery argv refuses before preview',async()=>{const r=rig();const ask=r.deps.askAuthor;r.deps.askAuthor=async(...args)=>{const reply=await ask(...args);reply.receipt.argvSha256='changed';return reply;};await assert.rejects(runAuthorLoop(r.input,r.deps),{code:'author_receipt'});assert.equal(r.counts().previews,0);});
 test('author state junction outside stage refused without an outside write',async()=>{const r=rig();const outside=fs.mkdtempSync(path.join(root,'outside-state-'));fs.symlinkSync(outside,path.join(r.stage,'author'),'junction');await assert.rejects(runAuthorLoop(r.input,r.deps),{code:'author_state_outside_code'});assert.deepEqual(fs.readdirSync(outside),[]);});
+
+// codex - gpt-6.1-sol - 2026-11-17 23:21 +02:00: actual reply / nonce / identity regressions.
+for(const tamper of ['reply','nonce','rehash nonce'])test(`resume refuses ${tamper} evidence tamper`,async()=>{
+ const r=rig(),out=await runAuthorLoop(r.input,r.deps),file=path.join(r.stage,'author/a0/r0/look.json'),j=JSON.parse(fs.readFileSync(file,'utf8'));
+ if(tamper==='reply')j.reply.shots[0].sees='Different scene';else j.sheetCodes=j.reply.sheet_codes=['ZZZZZ'];
+ if(tamper==='rehash nonce'){
+  const replyFile=path.join(r.stage,'author/a0/r0/reply-1.txt'),body=JSON.parse(fs.readFileSync(replyFile,'utf8'));body.look.sheet_codes=['ZZZZZ'];
+  const text=JSON.stringify(body);fs.writeFileSync(replyFile,text);j.call.replySha256=hash(text);
+ }
+ fs.writeFileSync(file,JSON.stringify(j));assert.throws(()=>verifyAuthorReceipt(out,r.input),{code:'author_hash'});
+ let restarted=false;await assert.rejects(runAuthorLoop(r.input,{...r.deps,askAuthor:async()=>{restarted=true;throw Object.assign(Error(),{code:'stopped'});}}),{code:'stopped'});assert.equal(restarted,true);assert.ok(fs.existsSync(path.join(r.stage,'author/a1/write')));
+});
+for(const field of ['script','brief','words'])test(`accepted identity refuses changed ${field}`,async()=>{
+ const r=rig();r.input.wordsPath=path.join(r.stage,'words.json');fs.writeFileSync(r.input.wordsPath,'[]');
+ const out=await runAuthorLoop(r.input,r.deps);
+ if(field==='words')fs.writeFileSync(r.input.wordsPath,'[1]');else r.input[field]+='changed';
+ assert.throws(()=>verifyAuthorReceipt(out,r.input),{code:'author_hash'});
+});
+import {authorCaps} from '../episode/codebuilt/authorLoop.js';
+test('measured caps above A3 billable/context ceilings refused',()=>{
+ const f=path.join(fs.mkdtempSync(path.join(root,'caps-')),'caps.json');
+ const value={measuredAt:'2026-11-17',cliVersion:'test',model:'sonnet',runs:[{previews:3},{previews:3},{previews:3}],caps:{billableTotal:1472004,contextPeak:900000},reserves:{IMAGE_RESERVE:4000,OUTPUT_RESERVE:40000}};
+ fs.writeFileSync(f,JSON.stringify(value));assert.ok(authorCaps({capsFile:f}));
+ for(const field of ['billableTotal','contextPeak']){const v=structuredClone(value);v.caps[field]++;fs.writeFileSync(f,JSON.stringify(v));assert.throws(()=>authorCaps({capsFile:f}),{code:'author_caps_unmeasured'});}
+});

@@ -1,10 +1,10 @@
-﻿// codex · gpt-6.1-sol · 2026-11-17 22:46 +02:00
+// codex · gpt-6.1-sol · 2026-11-17 22:46 +02:00
 import fs from 'node:fs';
 import path from 'node:path';
 import { authorArgv, hash, authorError, normalizeAuthorUsage, AUTHOR_REPO } from './authorCall.js';
 import { overlayPair, validateOverlayPair } from './overlaySpec.js';
 import { AUTHOR_HEADER, writePair, parseAuthorLook, authorState } from './authorPrompts.js';
-import { buildLookPrompt, sanitizeKitReport, parseLookReply } from './visualLoopPrompts.js';
+import { buildLookPrompt, sanitizeKitReport } from './visualLoopPrompts.js';
 import { pickPreviewFrames } from './previewFrames.js';
 import { newSheetCode, readKitReport } from './visualLoop.js';
 function regular(file) {
@@ -25,9 +25,12 @@ export function authorCaps(input={}) {
  try {
   const value=read(input.capsFile??path.join(AUTHOR_REPO,'paths/author-caps.json'));
   if(!value.measuredAt || !value.cliVersion || value.model!=='sonnet' || !Array.isArray(value.runs) || value.runs.filter(r=>r.previews>=3).length<3 || !['billableTotal','contextPeak'].every(k=>Number.isFinite(value.caps?.[k])&&value.caps[k]>0) || !['IMAGE_RESERVE','OUTPUT_RESERVE'].every(k=>Number.isFinite(value.reserves?.[k])&&value.reserves[k]>0)) throw Error();
-  return {...value,caps:{...value.caps,contextPeak:Math.min(value.caps.contextPeak,900000)}};
+  if(value.caps.billableTotal>1472004 || value.caps.contextPeak>900000)throw Error();
+  return value;
  }catch{throw authorError('author_caps_unmeasured');}
 }
+// codex · gpt-6.1-sol · 2026-11-17 23:21 +02:00: bind accepted evidence to current narration, words and direction inputs.
+const authorIdentity=input=>hash(JSON.stringify({script:input.script,words:input.wordsPath?hash(readBytes(input.wordsPath)):null,brief:input.brief,writePrompt:input.writePrompt,shots:input.shots,shotStarts:input.shotStarts,nframes:input.nframes}));
 function pairCheck(code,spec,input) {
  const pair=overlayPair(code,spec,{videoSeconds:input.nframes/30});
  const reasons=input.validate(code,pair.spec); if(reasons.length) throw Error(reasons.join('; ')); return pair;
@@ -37,15 +40,23 @@ export function verifyAuthorReceipt(out,input) {
  const dir=ensureAuthorRoot(input.stageDir);
  const code=readBytes(path.join(dir,'accepted.build.py'),'utf8'),pair=read(path.join(dir,'accepted.overlay.json')),receipt=read(path.join(dir,'receipt.json'));
  if(!Number.isInteger(receipt.attempt)||receipt.attempt<0||!Number.isInteger(receipt.round)||receipt.round<0||receipt.round>4)throw Error();
+ if(receipt.identity!==authorIdentity(input))throw Error();
  const spec=validateOverlayPair(pair,code,{videoSeconds:input.nframes/30});pairCheck(code,spec,input);
  if(JSON.stringify(spec)!==JSON.stringify(out.overlaySpec) || out.accepted!==true || code!==out.buildScript || hash(code)!==out.sha256 || hash(JSON.stringify(spec))!==receipt.overlaySha256 || receipt.sha256!==out.sha256 || JSON.stringify(receipt)!==JSON.stringify(out.receipt) || receipt.argvSha256!==hash(JSON.stringify(authorArgv()))) throw Error();
  const roundDir=path.join(dir,`a${receipt.attempt}`,`r${receipt.round}`);
  const preview=read(path.join(roundDir,'preview.json')),look=read(path.join(roundDir,'look.json'));
  if(readBytes(path.join(roundDir,'build.py'),'utf8')!==code || JSON.stringify(validateOverlayPair(read(path.join(roundDir,'overlay.json')),code,{videoSeconds:input.nframes/30}))!==JSON.stringify(spec))throw Error();
- parseLookReply(JSON.stringify(look.reply),{shots:input.shots.map((s,i)=>({...s,id:`shot-${i}`})),sheetCodes:look.sheetCodes,kitFailures:look.kitFailures,flatTiles:look.flatTiles});
  const call=look.call,delivery=call?.receipt;
  if(!Number.isInteger(call?.n)||call.n<0||call.n>=12)throw Error();
- if(!call || !delivery || delivery.argvSha256!==receipt.argvSha256 || call.promptSha256!==hash(readBytes(path.join(roundDir,`prompt-${call.n}.txt`),'utf8')) || call.replySha256!==hash(readBytes(path.join(roundDir,`reply-${call.n}.txt`),'utf8')) || delivery.promptSha256!==call.promptSha256 || JSON.stringify(delivery.imageSha256)!==JSON.stringify(look.sheets.map(s=>s.sha256)))throw Error();
+ const prompt=readBytes(path.join(roundDir,`prompt-${call.n}.txt`),'utf8'),replyText=readBytes(path.join(roundDir,`reply-${call.n}.txt`),'utf8');
+ if(!delivery || delivery.argvSha256!==receipt.argvSha256 || call.promptSha256!==hash(prompt) || call.replySha256!==hash(replyText) || delivery.promptSha256!==call.promptSha256 || JSON.stringify(delivery.imageSha256)!==JSON.stringify(look.sheets.map(s=>s.sha256)))throw Error();
+ const options={shots:input.shots.map((s,i)=>({...s,id:`shot-${i}`})),sheetCodes:look.sheetCodes,kitFailures:look.kitFailures,flatTiles:look.flatTiles};
+ const actual=parseAuthorLook(replyText,{...options,buildScript:code,overlaySpec:spec,videoSeconds:input.nframes/30,validate:(c,s)=>{pairCheck(c,s,input);return [];}});
+ if(JSON.stringify(actual.look)!==JSON.stringify(look.reply) || actual.look.verdict!=='pass')throw Error();
+ // Check the exact sheet protocol schema and headers delivered in the hashed prompt.
+ const schemas=[...prompt.matchAll(/\{"sheet_codes": (\[[^\n]*?\]), "verdict": "pass" \| "fix"/g)];
+ if(schemas.length!==1 || JSON.stringify(JSON.parse(schemas[0][1]))!==JSON.stringify(look.sheetCodes))throw Error();
+ if(look.sheets.length!==delivery.imageCount || look.sheets.some((_,i)=>!look.sheetCodes.some(c=>prompt.includes(`Sheet ${i+1} (code in its header: ${c}):`))))throw Error();
  if(preview.sha256!==out.sha256 || preview.overlaySha256!==receipt.overlaySha256 || look.sha256!==out.sha256 || look.overlaySha256!==receipt.overlaySha256 || look.verdict!=='pass' || !look.sheets.length) throw Error();
  for(const sheet of look.sheets){if(!/^sheet-[0-9]+\.jpg$/.test(sheet.file) || hash(readBytes(path.join(roundDir,'sheets',sheet.file)))!==sheet.sha256) throw Error();}
  return true;
@@ -126,7 +137,7 @@ export async function runAuthorLoop(input,deps={}) {
    if(reply.look.verdict==='pass'){
     guard();if(readBytes(path.join(dir,'build.py'),'utf8')!==code || JSON.stringify(read(path.join(dir,'overlay.json')))!==JSON.stringify(pair))throw authorError('author_hash');
     write(path.join(root,'accepted.build.py'),code);json(path.join(root,'accepted.overlay.json'),pair);
-    const receipt={version:1,accepted:true,sha256,overlaySha256,argvSha256,attempt,round,rounds:history,calls:calls.length};json(path.join(root,'receipt.json'),receipt);
+    const receipt={version:1,identity:authorIdentity(input),accepted:true,sha256,overlaySha256,argvSha256,attempt,round,rounds:history,calls:calls.length};json(path.join(root,'receipt.json'),receipt);
     const out={accepted:true,buildScript:readBytes(path.join(root,'accepted.build.py'),'utf8'),overlaySpec:spec,sha256,receipt,calls};verifyAuthorReceipt(out,input);state('accepted');return out;
    }
    code=reply.buildScript;spec=reply.overlaySpec;

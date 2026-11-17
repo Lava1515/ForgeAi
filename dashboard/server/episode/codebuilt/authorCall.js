@@ -1,5 +1,5 @@
-﻿// codex · gpt-6.1-sol · 2026-11-17 22:46 +02:00
-// Host replay only. CLI customisation isolation remains subject to A2 marker probes.
+// codex · gpt-6.1-sol · 2026-11-17 22:46 +02:00
+// codex · gpt-6.1-sol · 2026-11-17 23:21 +02:00: A2-proven safe mode, confined cwd, incremental event gate.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -11,7 +11,7 @@ export const hash = data => crypto.createHash('sha256').update(data).digest('hex
 export const authorError = code => Object.assign(new Error(code), {code});
 export function authorArgv(model = 'sonnet') {
  if(model !== 'sonnet') throw authorError('author_model_unavailable');
- return lookArgv(model);
+ return [...lookArgv(model),'--safe-mode'];
 }
 export function normalizeAuthorUsage(raw, {promptChars, images, IMAGE_RESERVE=4000, OUTPUT_RESERVE=40000}) {
  const E=Math.ceil(promptChars/3)+images*IMAGE_RESERVE, reserve=E+OUTPUT_RESERVE;
@@ -28,34 +28,57 @@ export function checkAuthorConfig({repoRoot=AUTHOR_REPO,configDir=process.env.CL
  if(!rel || rel==='..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) || !fs.statSync(config).isDirectory()) throw Error(); return config;
  }catch{throw authorError('author_state_outside_code');}
 }
-const hasTool=value=>value && typeof value==='object' && (['tool_use','tool_result'].includes(value.type) || Object.values(value).some(hasTool));
+const hasTool=value=>value && typeof value==='object' && (/tool_(use|result)$/.test(value.type) || Object.values(value).some(hasTool));
+// Resolve every existing ancestor before creating a child: mkdir recursive could write through a junction.
+function confinedWorkRoot(target,repoRoot) {
+ try {
+  const repo=fs.realpathSync(repoRoot), absolute=path.resolve(target);
+  const inside=p=>{const rel=path.relative(repo,p);return rel && rel!=='..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);};
+  if(!inside(absolute))throw Error();
+  const missing=[];let cursor=absolute;
+  while(!fs.existsSync(cursor)){missing.push(path.basename(cursor));cursor=path.dirname(cursor);}
+  cursor=fs.realpathSync(cursor);
+  if(cursor!==repo && !inside(cursor))throw Error();
+  if(!fs.statSync(cursor).isDirectory())throw Error();
+  for(const name of missing.reverse()){
+   cursor=path.join(cursor,name);fs.mkdirSync(cursor);
+   cursor=fs.realpathSync(cursor);if(!inside(cursor)||!fs.statSync(cursor).isDirectory())throw Error();
+  }
+  if(!inside(cursor))throw Error();return cursor;
+ }catch{throw authorError('author_state_outside_code');}
+}
 export async function askAuthor(prompt,images,options={}) {
  const model=options.model??'sonnet'; authorArgv(model);
  const config=checkAuthorConfig(options);
  if(process.env.NODE_TEST_CONTEXT && !options.spawnFn) throw authorError('author_transport_unavailable');
- const workRoot=options.workRoot??path.join(config,'author-work'); fs.mkdirSync(workRoot,{recursive:true});
- const home=fs.mkdtempSync(path.join(workRoot,'call-')); let raw='', tool=false, overflow=false;
+ const workRoot=confinedWorkRoot(options.workRoot??path.join(config,'author-work'),options.repoRoot??AUTHOR_REPO);
+ const home=fs.mkdtempSync(path.join(workRoot,'call-')); let pending=[], size=0, tool=false, overflow=false, init=null, result=null;
+ const scan=line=>{try{const e=JSON.parse(line);if(hasTool(e))tool=true;if(!init&&e.type==='system'&&e.subtype==='init')init=e;if(e.type==='result')result=e;}catch{ /* partial or non-JSON */ }};
+ const flush=()=>{if(pending.length){scan(pending.join(''));pending=[];}};
  const spawnFn=(bin,args,opts)=>{
   const child=(options.spawnFn??spawn)(bin,args,{...opts,env:{...opts.env,CLAUDE_CONFIG_DIR:config}});
-  child.stdout?.on('data',data=>{if(raw.length+data.length>20*1024*1024){overflow=true;return;}raw+=data; for(const line of raw.split(/\r?\n/)){try{if(hasTool(JSON.parse(line))) tool=true;}catch{ /* partial */ }}});
+  child.stdout?.setEncoding('utf8');
+  child.stdout?.on('data',data=>{
+   size+=data.length;if(size>20*1024*1024){overflow=true;return;}
+   let start=0,end;while((end=data.indexOf('\n',start))!==-1){pending.push(data.slice(start,end));scan(pending.join(''));pending=[];start=end+1;}
+   if(start<data.length)pending.push(data.slice(start));
+  });
+  child.on('close',flush);
   return child;
  };
  let answer;
- try{answer=await askClaudeLook(prompt,images,{...options,model,allowNoImages:true,claudeHome:home,spawnFn});}
- catch(error){if(tool) throw authorError('author_tool_event'); throw error;}
+ try{answer=await askClaudeLook(prompt,images,{...options,model,allowNoImages:true,safeMode:true,claudeHome:home,spawnFn});}
+ catch(error){flush();if(tool) throw authorError('author_tool_event'); throw error;}
  if(tool) throw authorError('author_tool_event');
  if(overflow)throw authorError('author_context_full');
- const events=raw.split(/\r?\n/).flatMap(line=>{try{return [JSON.parse(line)];}catch{return [];}});
- const init=events.find(e=>e.type==='system'&&e.subtype==='init');
  if(!init || !['tools','mcp_servers','skills'].every(k=>Array.isArray(init[k])&&init[k].length===0)) throw authorError('tools_offered');
- const result=events.findLast(e=>e.type==='result');
  return {...answer,rawUsage:result?.usage??null};
 }
 const probes=new Map();
 export async function probeAuthorSupport(options={}) {
  const model=options.model??'sonnet'; authorArgv(model);
  const version=await (options.cliVersion??readCliVersion)();
- const key=`${version}|sonnet`; fs.mkdirSync(options.stageDir,{recursive:true});
+ const key=`${version}|${hash(JSON.stringify(authorArgv(model)))}`; fs.mkdirSync(options.stageDir,{recursive:true});
  let result=probes.get(key);
  if(!result){
   const askFn=options.askFn??askAuthor;
