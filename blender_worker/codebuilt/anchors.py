@@ -18,6 +18,7 @@ _values = {}
 _point_names = set()
 _value_names = set()
 _frames = {}
+_usage = {"point": False, "value": False}
 _width = None
 _height = None
 
@@ -32,9 +33,15 @@ def _name(name, kind):
 
 
 def _number(value, what):
-    if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, Real):
         raise AnchorError(f"{what} must be a finite number")
-    return float(value)
+    try:
+        number = float(value)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise AnchorError(f"{what} must be a finite number") from error
+    if not math.isfinite(number):
+        raise AnchorError(f"{what} must be a finite number")
+    return number
 
 
 def _point(point):
@@ -117,6 +124,7 @@ def mark(name, point):
     _name(name, "point")
     point = _point(point)
     if _frame is None:
+        _usage["point"] = True
         return
     if name not in _point_names and len(_point_names) >= MAX_POINTS:
         raise AnchorError(f"too many point names (maximum {MAX_POINTS})")
@@ -131,6 +139,7 @@ def value(name, number):
     _name(name, "value")
     number = _number(number, "value")
     if _frame is None:
+        _usage["value"] = True
         return
     if name not in _value_names and len(_value_names) >= MAX_VALUES:
         raise AnchorError(f"too many value names (maximum {MAX_VALUES})")
@@ -143,6 +152,13 @@ def has_marks():
     return bool(_point_names or _value_names)
 
 
+def usage():
+    """Report API use independently of captured frame data (including QA probes)."""
+    used = dict(_usage)
+    _usage.update(point=False, value=False)
+    return used
+
+
 def has_points():
     """Whether the active frame currently has points that need projection."""
     return bool(_points)
@@ -150,6 +166,18 @@ def has_points():
 
 def has_frame(frame):
     return str(frame) in _frames
+
+
+def discard_missing_frames(existing_png_frames):
+    """Drop resume records whose rendered PNG is absent."""
+    keep = {str(frame) for frame in existing_png_frames}
+    for key in list(_frames):
+        if key not in keep:
+            del _frames[key]
+    _point_names.clear()
+    _point_names.update(name for row in _frames.values() for name in row["p"])
+    _value_names.clear()
+    _value_names.update(name for row in _frames.values() for name in row["v"])
 
 
 def capture(frame, project):
@@ -171,6 +199,8 @@ def capture(frame, project):
         projected[name] = [x, y, 1 if depth > 0 else 0]
     if projected or _values:
         _frames[str(frame)] = {"p": projected, "v": dict(_values)}
+    else:
+        _frames.pop(str(frame), None)
     _frame = None
     return _frames.get(str(frame))
 
@@ -196,6 +226,7 @@ def write(path):
             json.dump(document(), handle, separators=(",", ":"), allow_nan=False)
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(tmp, 0o644)
         os.replace(tmp, path)
     except BaseException:
         try:

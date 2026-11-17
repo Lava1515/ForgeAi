@@ -130,6 +130,7 @@ PREVIEW_SCALE_RANGE = (25, 100)
 _PREVIEW_KEYS = {"version", "frames", "scale", "out"}
 ANCHORS_PATH = "/job/work/anchors.json"
 PREVIEW_ANCHORS_PATH = "/job/work/anchors-preview.json"
+OVERLAY_SPEC_PATH = "/job/inputs/overlay.json"
 
 
 class PreviewSpecError(ValueError):
@@ -289,7 +290,23 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
     from . import anchors
     anchor_path = PREVIEW_ANCHORS_PATH if spec is not None else ANCHORS_PATH
     width, height = _anchor_dimensions()
-    anchors.reset(width, height, anchor_path if os.path.exists(anchor_path) else None)
+    # Resume data is meaningful only when the final output is actually being resumed.
+    loaded_anchor_file = skip_existing and spec is None and os.path.exists(anchor_path)
+    qa_usage = anchors.usage()
+    try:
+        anchors.reset(width, height, anchor_path if loaded_anchor_file else None)
+    except anchors.AnchorError:
+        # A stale, partial, or foreign resume file must not prevent a fresh render.
+        anchors.reset(width, height)
+        loaded_anchor_file = False
+    if loaded_anchor_file:
+        anchors.discard_missing_frames(
+            int(name[:-4]) for name in os.listdir(out_dir)
+            if name.endswith(".png") and name[:-4].isdecimal()
+        )
+    anchored = bool(spec is None and (loaded_anchor_file or os.path.exists(OVERLAY_SPEC_PATH)))
+    if require_qa:
+        anchored = anchored or qa_usage["point"] or qa_usage["value"]
     done, held = [], 0
     tuned = tune_cycles(log)
     started = time.perf_counter()
@@ -301,8 +318,15 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         try:
             for processed, f in enumerate(frames, start=1):
                 fp = os.path.join(out_dir, f"{f:04d}.png")
-                if skip_existing and os.path.exists(fp) and anchors.has_frame(f):
+                if skip_existing and os.path.exists(fp) and (anchors.has_frame(f) or not anchored):
                     continue
+                if not anchored and f % hold:
+                    copier.drain()
+                    src = os.path.join(out_dir, f"{f - f % hold:04d}.png")
+                    if os.path.exists(src):
+                        _copy_frame(src, fp)
+                        held += 1
+                        continue
                 # Resumed frames missing their position record are posed again without re-rendering.
                 anchors.begin(f)
                 before_apply = time.perf_counter()
@@ -317,6 +341,7 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
                     anchors.capture(f, _project_anchor)
                 else:
                     anchors.capture(f, None)
+                anchored = anchored or anchors.has_marks()
                 timing["apply_s"] += after_apply - before_apply
                 if skip_existing and os.path.exists(fp):
                     if anchors.has_marks() and processed % 30 == 0:
