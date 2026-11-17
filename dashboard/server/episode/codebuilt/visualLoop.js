@@ -176,7 +176,7 @@ async function loop(input, deps, { now, newCode, stage }) {
     const buildSha256 = sha256(script);
     const dir = path.join(stage, `r${r}`);
     fs.mkdirSync(dir, { recursive: true });
-    const previewJobId = `${jobId}-pv${r + 1}`;
+    const previewJobId = `${jobId}${Number.isInteger(input.previewAttempt) ? `-a${input.previewAttempt}` : ''}-pv${r + 1}`;
 
     // ---- replay: a round already looked at for this exact script is read back, never asked or previewed again
     let record = replayRound(dir, { buildSha256, shots, finalRound, script, input });
