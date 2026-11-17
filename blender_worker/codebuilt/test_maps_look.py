@@ -293,7 +293,7 @@ def test_anchor_point_rise_follows_shot_width_when_border_set():
     base = wm.origin[2] + wm.thickness
     assert wm.anchor_point("BRA")[2] == pytest.approx(base + 0.02 * wm.border / 0.002)
     wm._border_set = False
-    assert wm.anchor_point("BRA")[2] == pytest.approx(base + 0.02 * 24.0)
+    assert wm.anchor_point("BRA")[2] == pytest.approx(base + 0.035 * wm.scale)     # fixed fallback, not the map width
 
 
 def test_anchor_point_leaves_point_unchanged():
