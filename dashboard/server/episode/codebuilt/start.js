@@ -36,6 +36,7 @@ import { createPreviewRunFn } from '../engines/codebuilt/composePreview.js';
 import { sanitizeRouterCall } from './routerCalls.js';
 import { defaultFactCheckStage } from './factCheckStage.js';
 import { normalizeProductionChoices } from './productionChoices.js';
+import { jobUsesOverlay } from './overlaySpec.js';
 import { frameCountFor, shotStartsFor, validateBuildScript } from './planner.js';
 import { jobWriteBlockedReason, writeHostJobReceipt } from './hostJobReceipts.js';
 
@@ -178,7 +179,7 @@ async function withGpu(signal, jobsDir, action) {
 /** Validates a start request: topic text and a supported duration. Duration is requested, never silently changed. */
 export function checkStartRequest(input) {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new StartError('bad_request');
-  if (Object.keys(input).some((k) => !['topic', 'duration', 'voice', 'channelId', 'buildModel', 'type'].includes(k))) throw new StartError('bad_request');
+  if (Object.keys(input).some((k) => !['topic', 'duration', 'voice', 'channelId', 'buildModel', 'type', 'formats'].includes(k))) throw new StartError('bad_request');
   if (input.type !== undefined && (typeof input.type !== 'string' || !['auto', 'factual', 'whatif', 'history'].includes(input.type.trim().toLowerCase()))) throw new StartError('bad_request');
   const topic = typeof input.topic === 'string' ? input.topic.trim() : '';
   if (!topic || topic.length > TOPIC_MAX || /[\x00-\x1F\x7F]/.test(topic)) throw new StartError('bad_request');
@@ -467,13 +468,13 @@ export function createCodebuiltStarter({
     const places = Array.isArray(plan.places) && plan.places.length ? plan.places : undefined;
     const validate = typeof plan.validate === 'function' ? plan.validate : injected.validate ?? ((code) => {
       if (typeof pl.validateBuildScript !== 'function') return ['no build validator is available'];
-      const why = [...pl.validateBuildScript(code, { nframes, shotStarts, places })];
+      const why = [...pl.validateBuildScript(code, { nframes, shotStarts, places, overlay: jobUsesOverlay(pathPack,rec.formats), overlaySpec: plan.overlaySpec })];
       if (!why.length && typeof pl.pythonSyntaxCheck === 'function') { const bad = pl.pythonSyntaxCheck(code); if (bad) why.push(`Python syntax error, ${bad}`); }
       if (!why.length && typeof pl.pythonQaStructureCheck === 'function') { const structure = pl.pythonQaStructureCheck(code); if (Array.isArray(structure)) why.push(...structure); }
       return why;
     });
     const sheetMaker = injected.sheetMaker ?? createPreviewSheetMaker({ execFileFn: hostExecFile });
-    const runPreview = injected.runPreview ?? createPreviewRunFn({ runner: runtime.runner, inputs: { script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief }, jobRoot: jobsDir });
+    const runPreview = injected.runPreview ?? createPreviewRunFn({ runner: plan.overlaySpec ? {run: request => runtime.runner.run({...request, overlaySpec:plan.overlaySpec})} : runtime.runner, inputs: { script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}) }, jobRoot: jobsDir });
     const run = injected.runLoop ?? runVisualBuildLoop;
     try {
       return await run({
@@ -707,11 +708,11 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     break;
     }
     const pathPack = scripted.pathPack;
-    let plan = resume?.build ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
+    let plan = resume?.build && !jobUsesOverlay(pathPack,rec.formats) ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
     if (!plan) try {
       step(rec, 'planning');
       if (typeof pl.planCodebuiltBuild !== 'function') throw new StartError('planner_unavailable', 501);
-      plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
+      plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, formats: rec.formats, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
       try {
         fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript);
         fs.writeFileSync(path.join(stage, 'planner-plan.json'), JSON.stringify({ nframes: plan.nframes, shotStarts: plan.shotStarts, ...(plan.places ? { places: plan.places, lookShots: plan.lookShots, directionMarkdown: plan.directionMarkdown } : {}) }));
@@ -727,6 +728,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       }
       throw error instanceof StartError ? error : new StartError('planner_failed', 502);
     }
+    if (jobUsesOverlay(pathPack,rec.formats) && !plan?.overlaySpec) throw new StartError('planner_failed',502);
     if (!plan || typeof plan.buildScript !== 'string' || !plan.buildScript.trim()) {
       writePlannerDiagnostic(rec.id, { code: 'PLANNER_ERROR' });
       throw new StartError('planner_failed', 502);
@@ -758,7 +760,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       try {
         await runtime.runner.run({
           jobId: rec.id, kind: 'generated-code', timeoutMs: TIMEOUT_MS[rec.duration] ?? 60 * 60 * 1000, signal,
-          script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, buildScript,
+          script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, buildScript, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}),
         });
       } catch (error) {
         writeCalls(rec.id, allCalls);
@@ -832,8 +834,12 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const rec = { version: START_VERSION, id, topic: req.topic, duration: req.duration, voice: req.voice, channelId: req.channelId ?? null, buildModel: req.buildModel, status: 'queued', step: 'queued', steps: [{ step: 'queued', at: clock() }], createdAt: clock(), updatedAt: clock(), draftId: null, error: null, topicSha: sha(req.topic).slice(0, 12),
         ...(batch ? { autoDuration: internal.autoDuration === true, factCheck: true, runId: internal.runId, batchIndex: Number.isInteger(internal.batchIndex) ? internal.batchIndex : null, contentMode: choices ? choices.type : internal.contentMode === 'whatif' ? 'whatif' : internal.contentMode === 'history' ? 'history' : 'factual', ...(choices ? { choices } : {}), ...(internal.premise ? { premise: internal.premise } : {}), preCalls: Array.isArray(internal.preCalls) ? internal.preCalls.slice(0, 20) : [] } : {}) };
       // F1: the job's formats (from the topic pick, else from the channel profile) choose format skills and sets at every step.
-      const formats = cleanJobFormats(Array.isArray(internal?.premise?.formats) ? internal.premise.formats : channelJobFormats(req.channelId ?? defaultChannelId, type));
-      if (formats.length) rec.formats = formats;
+      const formats = cleanJobFormats([...(Array.isArray(input?.formats) ? input.formats : []), ...(Array.isArray(internal?.premise?.formats) ? internal.premise.formats : channelJobFormats(req.channelId ?? defaultChannelId, type))]);
+      // codex · gpt-6.1-sol · 2026-11-17 13:53 +02:00: typed topics must pass the journey topic gate first.
+      if (formats.includes('journey')) {
+        if (type === 'teardown' || !batch || !internal.premise || !['thing','move','story_question','ending_answer','turn','who','want'].every(k => typeof internal.premise[k] === 'string' && internal.premise[k].trim()) || !Array.isArray(internal.premise.landmarks) || internal.premise.landmarks.length < 3 || !internal.premise.counter || !Number.isFinite(internal.premise.last_number)) throw new StartError('bad_request');
+      }
+      if (formats.length) { rec.formats = formats; if (rec.premise) rec.premise = {...rec.premise,formats}; }
       if (type === 'history') {
         rec.contentMode = 'history';
         rec.factCheck = true;

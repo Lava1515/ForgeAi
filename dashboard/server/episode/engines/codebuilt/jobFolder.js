@@ -3,6 +3,7 @@
 // The read-only attribute on inputs is advisory only (the agent can chmod its own mount); the recorded SHA-256 check
 // is the real protection. Checks here run on the host between operations and cannot close a race with a live
 // writer inside the mount; the CB6 fence must stop the agent before outputs are collected.
+import { parseOverlaySpec } from '../../codebuilt/overlaySpec.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -99,13 +100,22 @@ function toBuffer(value, label, inputRoots) {
 }
 
 /** Copies the inputs in once and marks them read-only. Returns {name: sha256}. An identical existing copy is kept. */
-export function writeInputs(paths, { script, voWav, words, pathPack, brief }, inputRoots = []) {
+export function writeInputs(paths, { script, voWav, words, pathPack, brief, overlaySpec }, inputRoots = []) {
   if (typeof script !== 'string' || !script.trim()) throw new CodebuiltError('BAD_JOB', 'script text is required');
   if (typeof brief !== 'string' || !brief.trim()) throw new CodebuiltError('BAD_JOB', 'brief text is required');
   const data = {
     'script.txt': Buffer.from(script), 'vo.wav': readInputFile(voWav, inputRoots, 'vo.wav'), 'words.json': toBuffer(words, 'words.json', inputRoots),
     'pathpack.json': toBuffer(pathPack, 'path pack', inputRoots), 'brief.md': Buffer.from(brief),
   };
+  // codex ? gpt-6.1-sol ? 2026-11-17 13:53 +02:00: overlay uses the identical write-once input/hash path.
+  if (overlaySpec !== undefined) {
+    const raw = toBuffer(overlaySpec, 'overlay.json', inputRoots);
+    const timing = JSON.parse(data['words.json'].toString('utf8'));
+    parseOverlaySpec(raw.toString('utf8'), {videoSeconds: Math.trunc((timing.dur + 0.35 + 1.5) * 30) / 30});
+    data['overlay.json'] = raw;
+  } else if (fs.lstatSync(path.join(paths.inputs,'overlay.json'), {throwIfNoEntry:false})) {
+    throw new CodebuiltError('INPUT_CHANGED','unexpected overlay.json in a legacy job');
+  }
   const hashes = {};
   for (const name of Object.keys(data)) {
     const target = path.join(paths.inputs, name);
@@ -156,8 +166,9 @@ export function verifyBuildScript(paths, hash) {
 
 /** Throws INPUT_CHANGED when any input copy was modified, replaced, linked or removed. */
 export function verifyInputs(paths, hashes) {
+  if (!hashes?.['overlay.json'] && fs.lstatSync(path.join(paths.inputs,'overlay.json'), {throwIfNoEntry:false})) throw new CodebuiltError('INPUT_CHANGED','unexpected overlay.json');
   if (hashRegularFile(path.join(paths.inputs, 'pathpack.json')) !== hashes?.['pathpack.json']) throw new CodebuiltError('INPUT_CHANGED', 'input pathpack.json was changed during the run');
-  for (const name of INPUT_FILES) {
+  for (const name of [...INPUT_FILES, ...(hashes?.['overlay.json'] ? ['overlay.json'] : [])]) {
     if (hashRegularFile(path.join(paths.inputs, name)) !== (hashes?.[name] ?? undefined)) {
       throw new CodebuiltError('INPUT_CHANGED', `input ${name} was changed during the run`, { name });
     }
