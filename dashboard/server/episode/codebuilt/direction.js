@@ -80,8 +80,8 @@ export function directedShotRange(seconds, maxShotSeconds = MAX_DIRECTED_SHOT_S)
   return { min, max, target: Math.max(min, Math.min(max, Math.round(s / TARGET_DIRECTED_SHOT_S))) };
 }
 
-const limitsFor = (formats) => {
-  const configured = formatDirectionLimits(formats);
+const limitsFor = (formats, route, pack) => {
+  const configured = formatDirectionLimits(formats, undefined, route, pack);
   return {
     minPlaces: Number.isInteger(configured.minPlaces) && configured.minPlaces >= 1 ? configured.minPlaces : MIN_PLACES,
     maxPlaces: Number.isInteger(configured.maxPlaces) && configured.maxPlaces >= 1 ? configured.maxPlaces : MAX_PLACES,
@@ -89,8 +89,8 @@ const limitsFor = (formats) => {
   };
 };
 
-export function directionPrompt({ topic, duration, script, brief, beats = [], phrases, videoSeconds, setManual, propsManual, guides = '', choicesText = '', formats = currentJobFormats() }) {
-  const limits = limitsFor(formats);
+export function directionPrompt({ topic, duration, script, brief, beats = [], phrases, videoSeconds, setManual, propsManual, guides = '', choicesText = '', formats = currentJobFormats(), route = 'classic', pack = null }) {
+  const limits = limitsFor(formats, route, pack);
   const range = directedShotRange(videoSeconds, limits.maxShotSeconds);
   const phraseLines = phrases.map((p) => `P${p.i} [${p.start.toFixed(2)}-${p.end.toFixed(2)} s] ${JSON.stringify(p.text)}`).join('\n');
   const beatLines = beats.length ? beats.map((b, i) => `${i + 1}. ${String(b.narration ?? '').slice(0, 160)} -> ${String(b.subject ?? '').slice(0, 200)}; ${String(b.action ?? '').slice(0, 200)}`).join('\n') : '(none)';
@@ -238,8 +238,8 @@ function timingProblems(shots, { phrases, videoSeconds, range, maxShotSeconds = 
 }
 
 /** The parsed direction with shot windows attached, or a DirectionError that lists every problem. `parse(text)` turns a reply into an object. */
-export function checkDirection({ phrases, videoSeconds, setNames = [], parse, formats = currentJobFormats() }) {
-  const limits = limitsFor(formats);
+export function checkDirection({ phrases, videoSeconds, setNames = [], parse, formats = currentJobFormats(), route = 'classic', pack = null }) {
+  const limits = limitsFor(formats, route, pack);
   const range = directedShotRange(videoSeconds, limits.maxShotSeconds);
   return (text) => {
     const why = [];
@@ -339,14 +339,14 @@ export function directionMarkdown(direction, shotStarts, videoSeconds) {
  * A direction made without a model call, for when the director's reply is refused twice: cuts by arithmetic (cadence.js) and the
  * script's own beats spread over them, one custom place per distinct beat subject up to MAX_PLACES. The video is still made.
  */
-export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5, reasons = null, formats = currentJobFormats() }) {
+export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5, reasons = null, formats = currentJobFormats(), route = 'classic', pack = null }) {
   const why = Array.isArray(reasons) && reasons.length
     ? `the director's reply was refused twice: ${reasons.slice(0, 6).join('; ')}`
     : "the director's reply was refused twice and could not be repaired (the reasons are under step \"direction\" in cost_calls.json)";
   const starts = planShotCadence(words, lead, { tail, fps: FPS });
   const phrases = phrasesOf(words, lead);
   const n = starts.length;
-  const limits = limitsFor(formats);
+  const limits = limitsFor(formats, route, pack);
   const placeCount = Math.max(limits.minPlaces, Math.min(limits.maxPlaces, Math.ceil(n / 3)));
   const places = Array.from({ length: placeCount }, (_, i) => ({ id: `p${i + 1}`, base: 'custom', what: 'a place that fits this part of the story', build: 'ground, a backdrop that reaches the horizon, 4 to 8 props around the subject, one landmark, a sky and a key light' }));
   const shots = starts.map((start, k) => {

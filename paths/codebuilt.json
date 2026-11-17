@@ -110,6 +110,29 @@
       "Topic skills (rules.topicSkills) are loaded only for a step they list and only when one of their keywords appears as a whole word or phrase in the topic or script; they are still guidance only and still read from this repository's .claude/skills.",
       "Format skills (rules.formats) are loaded for a job that carries that format, whatever words its topic or script use. A job gets a format from its topic pick or from its channel profile (the niche stays in the profile); the pipeline never assumes one. A format may also name ready sets to offer at the steps in setSteps."
     ],
+    "routes": {
+      "overlay": {
+        "direction": {
+          "minPlaces": 1,
+          "maxPlaces": 4,
+          "maxShotSeconds": 16
+        },
+        "render": {
+          "engine": "CYCLES",
+          "device": "GPU",
+          "viewTransform": "AgX",
+          "look": "AgX - Medium High Contrast",
+          "samples": 16,
+          "status": "pending_review",
+          "source": "output/agent-jobs/rl1-render-look/REPORT.md",
+          "measuredSecondsPerFrame": {
+            "kola": 15.685,
+            "p": 7.871
+          },
+          "RENDER_BUDGET_S_PER_FRAME": 1.5
+        }
+      }
+    },
     "formats": {
       "map": {
         "skills": [
