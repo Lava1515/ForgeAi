@@ -16,12 +16,17 @@ for (const code of [
  "wm.highlight(*['BRA', (1,0,0)])", "wm.highlight_group(['BRA'], *['auto'])",
  "wm.highlight('BRA', label=True)", "wm.highlight_group(['BRA'], label='BRAZIL')",
  "bpy.ops.object.add(type='FO'+'NT')", 'bpy.ops.object.add(**kwargs)',
+ "o=bpy.ops.object; o.add(type='FO'+'NT')",
+ "from bpy import ops; ops.object.add(type='FO'+'NT')",
+ "import bpy as B; B.ops.object.add(type='FO'+'NT')",
+ "o=bpy.ops.object; o.add(type=''.join(['FO','NT']))",
  "wm.label('BRA')", 'f=wm.label', 'wm.callout()',
 ]) test(`overlay refuses ${code}`, () => {
  assert.ok(overlayScriptProblems(good + '\n' + code, spec).length);
 });
 for (const code of [
  "seen=set(); seen.add('x')", 'fc.keyframe_points.add(2)',
+ 'obj.vertex_groups.add(1)',
  "node.label = 'shader description'", "wm.highlight('BRA', (1,0,0))",
  "wm.highlight_group(['BRA'], (1,0,0))", "wm.highlight('BRA', label=False)",
  "bpy.ops.object.add(type='EMPTY')", "bpy.data.curves.new('path', type='CURVE')",

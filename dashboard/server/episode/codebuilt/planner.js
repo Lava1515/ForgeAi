@@ -709,10 +709,11 @@ for n in ast.walk(tree):
   if n.attr=='modules': problems.add('overlay builds cannot access module registries')
   if n.attr in ('callout','_make_callout_label') or (n.attr=='label' and not isinstance(n.ctx,ast.Store)): problems.add('overlay builds must not use kit text helpers')
   if n.attr in ('highlight','highlight_group') and (not isinstance(parents.get(n),ast.Call) or parents[n].func is not n): problems.add('overlay map highlight helpers cannot be aliased')
-  if n.attr=='add' and isinstance(n.value,ast.Attribute) and n.value.attr=='object' and isinstance(n.value.value,ast.Attribute) and n.value.value.attr=='ops' and isinstance(n.value.value.value,ast.Name) and n.value.value.value.id=='bpy':
+  if n.attr=='add':
    call=parents.get(n)
-   typ=next((k.value for k in call.keywords if k.arg=='type'),None) if isinstance(call,ast.Call) and call.func is n else None
-   if not isinstance(typ,ast.Constant) or not isinstance(typ.value,str) or typ.value=='FONT' or any(k.arg is None for k in call.keywords): problems.add('overlay add type must be a literal non-FONT string')
+   if isinstance(call,ast.Call) and call.func is n and any(k.arg in ('type',None) for k in call.keywords):
+    typ=next((k.value for k in call.keywords if k.arg=='type'),None)
+    if not isinstance(typ,ast.Constant) or not isinstance(typ.value,str) or typ.value=='FONT' or any(k.arg is None for k in call.keywords): problems.add('overlay add type must be a literal non-FONT string')
   if n.attr in ('anchors','stage'): problems.add('overlay kit modules cannot be reached indirectly')
   if isinstance(n.value,ast.Name) and n.value.id=='anchors':
    call=parents.get(n)
