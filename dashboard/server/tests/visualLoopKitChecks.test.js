@@ -22,10 +22,15 @@ const kitReport = (findings, frame) => ({
 });
 
 /** A loop with fake preview, sheets and model. `kitFor(buildScript)` -> findings of that script's preview, or an Error to throw. */
-function harness(t, { kitFor, replies }) {
+function harness(t, { kitFor, replies, withVisualText = false }) {
   const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'f2-loop-'));
   t.after(() => fs.rmSync(stageDir, { recursive: true, force: true }));
-  const seen = { look: [], text: [], previews: 0 };
+  const seen = { look: [], text: [], previews: 0, sheets: [] };
+  if (withVisualText) {
+    fs.mkdirSync(path.join(stageDir, 'inputs'), { recursive: true });
+    fs.writeFileSync(path.join(stageDir, 'words.json'), '{"words":[]}');
+    fs.writeFileSync(path.join(stageDir, 'inputs', 'overlay.json'), '{"version":1}');
+  }
   let firstFrame = 0;
   const answer = (text, images) => {
     const reply = replies({ text, images, n: seen.look.length + seen.text.length });
@@ -41,13 +46,17 @@ function harness(t, { kitFor, replies }) {
       fs.mkdirSync(dir, { recursive: true });
       fs.mkdirSync(path.join(stageDir, 'jobs', jobId, 'work'), { recursive: true });
       fs.writeFileSync(path.join(stageDir, 'jobs', jobId, 'work', 'qa_report.json'), JSON.stringify(kitReport(outcome, firstFrame)));
+      if (withVisualText) fs.writeFileSync(path.join(stageDir, 'jobs', jobId, 'work', 'anchors-preview.json'), '{"version":1}');
       return { dir, frames: spec.frames.map((f) => ({ name: `${String(f).padStart(4, '0')}.png`, sha256: sha(`${jobId}-${f}`) })) };
     },
-    makeSheets: async ({ outDir, code }) => {
+    makeSheets: async (args) => {
+      const { outDir, code } = args;
+      seen.sheets.push(args);
       fs.mkdirSync(outDir, { recursive: true });
       const file = path.join(outDir, 'sheet-1.jpg');
       fs.writeFileSync(file, `jpeg ${code}`);
-      return [{ path: file, code, sha256: sha(`jpeg ${code}`), bytes: 10, tiles: [{ n: 1, frame: firstFrame }] }];
+      return [{ path: file, code, sha256: sha(`jpeg ${code}`), bytes: 10, tiles: [{ n: 1, frame: firstFrame }],
+        ...(withVisualText ? { layout_findings: [{ frame: firstFrame, code: 'caption_overlap', elements: ['labels[0]'] }] } : {}) }];
     },
     askLook: async (text, images) => { const a = answer(text, images); seen.look.push(text); return a; },
     askText: async (text) => { const a = answer(text, []); seen.text.push(text); return a; },
@@ -118,6 +127,18 @@ test('a preview that cannot render is still a text-only round', async (t) => {
   assert.match(h.seen.text[0], /WHY THERE ARE NO PICTURES[\s\S]*no camera target recorded/);
   assert.deepEqual(result.rounds.map((r) => [r.crashed, r.kitFailed, r.sheets.length]), [[true, false, 0], [false, false, 1]]);
   assert.equal(result.accepted, true);
+});
+
+test('every look gets captions and an overlay preview gets its checked anchors and layout findings', async (t) => {
+  const h = harness(t, { withVisualText: true, kitFor: () => [], replies: ({ text }) => pass(text) });
+  await h.run();
+  const args = h.seen.sheets[0];
+  assert.equal(args.words, path.join(h.stageDir, 'words.json'));
+  assert.equal(args.lead, 0.35);
+  assert.equal(args.overlaySpec, path.join(h.stageDir, 'loop', 'r0', 'overlay.json'));
+  assert.equal(args.anchors, path.join(h.stageDir, 'loop', 'r0', 'anchors-preview.json'));
+  assert.equal(args.jobRoot, path.join(h.stageDir, 'loop', 'r0'));
+  assert.match(h.seen.look[0], /caption_overlap/);
 });
 
 test('the kit report is read as data: unknown checks, bad numbers and host paths never reach the prompt', () => {

@@ -36,9 +36,9 @@ export function createPreviewSheetMaker({ repoRoot = REPO_ROOT, python = 'python
   function run(args, signal) {
     return new Promise((resolve, reject) => {
       const child = execFileFn(python, ['-I', script, ...args], { timeout: timeoutMs, windowsHide: true, shell: false, env: safeEnv(env), maxBuffer: 256 * 1024, signal }, (error, out) => {
-        if (error) return reject(fail('the sheet script failed'));
         let body = null;
         try { body = JSON.parse(String(out).trim().split(/\r?\n/).pop()); } catch { /* handled below */ }
+        if (error) return reject(fail(body?.error || 'the sheet script failed'));
         if (!body || body.status !== 'ok') return reject(fail('the sheet script did not report ok'));
         return resolve(body);
       });
@@ -46,16 +46,24 @@ export function createPreviewSheetMaker({ repoRoot = REPO_ROOT, python = 'python
     });
   }
 
-  async function makeSheets({ framesDir, outDir, code, signal } = {}) {
+  async function makeSheets({ framesDir, outDir, code, signal, words, overlaySpec, anchors, lead, nframes, fps, jobRoot } = {}) {
     if (typeof framesDir !== 'string' || !path.isAbsolute(framesDir) || typeof outDir !== 'string' || !path.isAbsolute(outDir)) throw fail('framesDir and outDir must be absolute');
     if (typeof code !== 'string' || !CODE_RE.test(code)) throw fail('code must be 5 characters A-Z or 0-9');
+    for (const [name, file] of [['words', words], ['overlaySpec', overlaySpec], ['anchors', anchors], ['jobRoot', jobRoot]]) {
+      if (file !== undefined && (typeof file !== 'string' || !path.isAbsolute(file))) throw fail(`${name} must be absolute`);
+    }
+    if (overlaySpec && (!Number.isInteger(nframes) || nframes < 1)) throw fail('nframes must be a positive whole number with overlaySpec');
     const frames = path.resolve(framesDir); const out = path.resolve(outDir);
     if (frames === out || inside(frames, out) || inside(out, frames)) throw fail('the sheet folder must be separate from the frames folder');
     fs.mkdirSync(out, { recursive: true });
     for (const entry of fs.readdirSync(out)) { // a rerun replaces its own earlier sheets, nothing else
       if (SHEET_RE.test(entry) && fs.lstatSync(path.join(out, entry)).isFile()) fs.unlinkSync(path.join(out, entry));
     }
-    const body = await run(['sheets', frames, out, code], signal);
+    const args = ['sheets', frames, out, code];
+    if (words) args.push('--words', path.resolve(words), '--lead', String(lead ?? 0));
+    if (overlaySpec) args.push('--overlay', path.resolve(overlaySpec), '--nframes', String(nframes), '--fps', String(fps ?? 30), '--job-root', path.resolve(jobRoot));
+    if (anchors) args.push('--anchors', path.resolve(anchors));
+    const body = await run(args, signal);
     if (!Array.isArray(body.sheets) || body.sheets.length < 1 || body.sheets.length > 2) throw fail('the sheet script reported an unexpected number of sheets');
     const names = body.sheets.map((s) => s?.file);
     if (names.some((n) => typeof n !== 'string' || !SHEET_RE.test(n)) || new Set(names).size !== names.length) throw fail('the sheet script reported unexpected file names');
@@ -70,6 +78,7 @@ export function createPreviewSheetMaker({ repoRoot = REPO_ROOT, python = 'python
         file: s.file, path: file, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, w: s.w, h: s.h, code,
         // Measured per tile by the sheet script (mean luma, spread, blown share, and a flag for a flat, dark or blown frame); absent from an older script.
         tiles: s.tiles.map((t) => ({ n: t.n, frame: t.frame, ...(['flat', 'dark', 'blown', 'plain'].includes(t.flag) ? { flag: t.flag } : {}), ...(Number.isFinite(t.luma) ? { luma: t.luma } : {}), ...(Number.isFinite(t.spread) ? { spread: t.spread } : {}) })),
+        layout_findings: Array.isArray(s.layout_findings) ? s.layout_findings : [],
       };
     });
   }

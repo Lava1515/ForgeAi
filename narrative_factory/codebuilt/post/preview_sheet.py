@@ -7,10 +7,12 @@ the host draws into the pixels, so a reply that does not echo it did not come fr
 Pillow only. Prints one JSON line.
 """
 import json
+import math
 import random
 import re
 import sys
 import warnings
+import argparse
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -28,6 +30,9 @@ ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no I, O, 0, 1: the model reads
 COLORS = {"red": (220, 30, 30), "green": (30, 170, 60), "blue": (30, 60, 220), "yellow": (240, 220, 30)}
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+# `python -I` intentionally ignores the working directory. Load the checked-in post kit from this script's repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from narrative_factory.codebuilt.post import media
 
 
 class SheetError(Exception):
@@ -105,10 +110,64 @@ def frame_stats(im):
     return {"luma": round(mean, 3), "spread": round(std, 3), "range": round(spread_range, 3), "blown": round(blown, 3), "flag": flag}
 
 
-def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_SHEET):
+def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_SHEET, *, words=None,
+                overlay_spec=None, anchors_path=None, lead=0.0, nframes=None, fps=30, job_root=None):
     if not isinstance(code, str) or not CODE_RE.match(code):
         raise SheetError("code must be 5 characters A-Z or 0-9")
     frames = _list_frames(frames_dir)
+    root = Path(job_root or Path(frames_dir).parent).resolve()
+    track = ov = None
+    layout_findings = []
+    if words is not None:
+        from narrative_factory.codebuilt.post import captions
+        _, word_list = captions.load_words(media.inside(root, words))
+        if isinstance(lead, bool) or not isinstance(lead, (int, float)) or not math.isfinite(lead):
+            raise SheetError("lead must be finite")
+        with _open_png(frames[0][1]) as first:
+            track = captions.Track(word_list, first.width, first.height, lead=lead)
+    if overlay_spec is not None:
+        if isinstance(nframes, bool) or not isinstance(nframes, int) or nframes < 1:
+            raise SheetError("nframes must be a positive whole number with overlay inputs")
+        if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0:
+            raise SheetError("fps must be positive and finite with overlay inputs")
+        from narrative_factory.codebuilt.post import anchors_file, overlay
+        root = Path(job_root or Path(frames_dir).parent).resolve()
+        spec = overlay.load_spec(overlay_spec, video_seconds=nframes / fps, job_root=root)
+        marks = anchors_file.load(anchors_path, nframes, job_root=root) if anchors_path else anchors_file.Anchors.empty()
+        if any(overlay.names_used(spec).values()) and not anchors_path:
+            raise SheetError("overlay.json names anchors or values but anchors.json is missing")
+        with _open_png(frames[0][1]) as first:
+            ov = overlay.Overlay(spec, marks, first.width, first.height, captions_track=track, fps=fps, nframes=nframes)
+        sampled_labels = {i: [0, 0] for i in range(len(spec["labels"]))}
+        counter_values = []
+        for frame, _ in frames:
+            t = frame / fps
+            pieces = ov.pieces(frame, t)
+            caption_box = ov._caption_box(t)
+            for code_name, elements in overlay.frame_findings(pieces, caption_box, ov.safe):
+                layout_findings.append({"frame": frame, "code": code_name, "elements": list(elements)})
+            visible = {p["id"] for p in pieces}
+            for i, item in enumerate(spec["labels"]):
+                if item["from"] <= t < item["to"]:
+                    sampled_labels[i][0] += 1
+                    sampled_labels[i][1] += f"labels[{i}]" not in visible
+            counter = spec["counter"]
+            if counter and counter["from"] <= t < counter["to"]:
+                value = marks.value(frame, counter["value"])
+                if value is not None:
+                    counter_values.append((frame, value))
+        for i, (active, hidden) in sampled_labels.items():
+            if active and hidden / active > 0.30:
+                layout_findings.append({"frame": -1, "code": "label_hidden", "elements": [f"labels[{i}]"]})
+        direction = 0
+        for (_, previous), (frame, current) in zip(counter_values, counter_values[1:]):
+            step = current - previous
+            sign = (step > 0) - (step < 0)
+            if sign and direction and sign != direction:
+                layout_findings.append({"frame": frame, "code": "counter_reversal", "elements": ["counter"]})
+                break
+            if sign:
+                direction = sign
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     cw, ch = cell
@@ -125,7 +184,12 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
         tiles = []
         for slot, (number, path) in enumerate(group):
             n = (index - 1) * per_sheet + slot + 1
-            im = _open_png(path).resize((cw, ch), Image.LANCZOS)
+            im = _open_png(path)
+            if ov:
+                ov.draw(im, number, number / fps)
+            if track:
+                track.draw(im, number / fps)
+            im = im.resize((cw, ch), Image.LANCZOS)
             stats = frame_stats(im)
             td = ImageDraw.Draw(im)
             td.rectangle([0, 0, 120, 26], fill=(0, 0, 0))
@@ -134,7 +198,8 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
             tiles.append({"n": n, "frame": number, **stats})
         name = f"sheet_{index}.jpg"
         sheet.save(out_dir / name, format="JPEG", quality=85, optimize=False)
-        sheets.append({"file": name, "code": code, "tiles": tiles, "w": sheet.width, "h": sheet.height})
+        sheets.append({"file": name, "code": code, "tiles": tiles, "w": sheet.width, "h": sheet.height,
+                       "layout_findings": [f for f in layout_findings if (f["frame"] < 0 and index == 1) or f["frame"] in {x["frame"] for x in tiles}]})
     return sheets
 
 
@@ -160,14 +225,19 @@ def make_canary(nonce, out_path):
 
 def main(argv):
     try:
-        if len(argv) == 5 and argv[1] == "sheets":
-            result = {"status": "ok", "sheets": make_sheets(argv[2], argv[3], argv[4])}
+        if len(argv) >= 5 and argv[1] == "sheets":
+            parser = argparse.ArgumentParser(add_help=False)
+            parser.add_argument("--words"); parser.add_argument("--overlay"); parser.add_argument("--anchors"); parser.add_argument("--lead", type=float, default=0.0)
+            parser.add_argument("--nframes", type=int); parser.add_argument("--fps", type=float, default=30); parser.add_argument("--job-root")
+            opts = parser.parse_args(argv[5:])
+            result = {"status": "ok", "sheets": make_sheets(argv[2], argv[3], argv[4], words=opts.words,
+                overlay_spec=opts.overlay, anchors_path=opts.anchors, lead=opts.lead, nframes=opts.nframes, fps=opts.fps, job_root=opts.job_root)}
         elif len(argv) == 4 and argv[1] == "canary":
             result = {"status": "ok", **make_canary(argv[2], argv[3])}
         else:
-            print(json.dumps({"status": "error", "error": "usage: preview_sheet.py sheets <frames dir> <out dir> <CODE> | canary <nonce> <out.png>"}))
+            print(json.dumps({"status": "error", "error": "usage: preview_sheet.py sheets <frames dir> <out dir> <CODE> [--words FILE --lead SEC] [--overlay FILE --anchors FILE --nframes N --job-root DIR] | canary <nonce> <out.png>"}))
             return 2
-    except (SheetError, OSError) as error:
+    except (SheetError, media.MediaError, OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(json.dumps({"status": "error", "error": str(error)[:200]}))
         return 1
     print(json.dumps(result))
