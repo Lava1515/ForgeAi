@@ -107,3 +107,24 @@ test('request formats survive coordinator and typed journey cannot skip gate',()
  assert.throws(()=>starter.start({topic:'A typed journey',duration:30,formats:['journey']}),e=>e.code==='bad_request');
  assert.throws(()=>starter.start({topic:'A typed teardown',duration:30,type:'teardown',formats:['journey']}),e=>e.code==='bad_request');
 });
+
+import {createCodebuiltRunCoordinator} from '../episode/codebuilt/runCoordinator.js';
+test('coordinator gates a typed journey, forwards formats and premise, and ignores profile-only journey for teardown',async()=>{
+ for(const kind of ['explicit','profile','teardown-profile','teardown-explicit']) {
+  const teardown=kind.startsWith('teardown');
+  const channel={id:'channel',video_types:[teardown?'teardown':'factual'],profile:{formats:kind.includes('profile')?['journey']:[]}};
+  let picked=null;let started=null;
+  const runsDir=path.join(root,'coordinator-'+kind+'-'+Date.now());
+  const coord=createCodebuiltRunCoordinator({runsDir,getChannel:()=>channel,getChannels:()=>[channel],
+   pickTopic:async input=>{picked=input;return {topic:'A gated journey',ranked:1,premise:{formats:['journey'],thing:'A probe'}};},
+   starter:{start(input,internal){started={input,internal};return {id:'mock-job',step:'queued'};},get(){return {id:'mock-job',status:'done',step:'done',duration:30};}},
+  });
+  const run=coord.startRun({count:1,topic:'A typed topic',type:teardown?'teardown':'factual',duration:30,voice:'aiden',...(kind.includes('explicit')?{formats:['journey']}:{})});
+  await coord.idle();
+  if(kind==='teardown-explicit') {assert.equal(started,null);assert.equal(picked,null);continue;}
+  assert.ok(started,JSON.stringify(coord.getRun(run.id)));
+  if(kind==='teardown-profile') {assert.equal(picked,null);assert.equal(started.internal.premise,undefined);}
+  else {assert.ok(picked);assert.equal(picked.inspiration,'A typed topic');assert.deepEqual(started.internal.premise.formats,['journey']);}
+  if(kind==='explicit') {assert.deepEqual(picked.formats,['journey']);assert.deepEqual(started.input.formats,['journey']);}
+ }
+});

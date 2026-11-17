@@ -240,10 +240,10 @@ export function createCodebuiltRunCoordinator({
       if (!assigned.includes(type)) type = assigned.find((candidate) => candidate !== 'teardown') ?? type;
       resolved.type = { source: 'auto', reason: out.resolved.contentMode?.reason ?? 'default', value: type };
     }
-    if (type === 'teardown' && ((rec.formats ?? []).includes('journey') || channel?.profile?.formats?.includes('journey'))) throw new RunError('bad_request');
+    if (type === 'teardown' && (rec.formats ?? []).includes('journey')) throw new RunError('bad_request');
     let topic = c.topic;
     let themePick = null;
-    if (topic && !(rec.formats ?? []).includes('journey') && !channel?.profile?.formats?.includes('journey')) resolved.topic = { source: 'owner' };
+    if (topic && !(rec.formats ?? []).includes('journey') && (type === 'teardown' || !channel?.profile?.formats?.includes('journey'))) resolved.topic = { source: 'owner' };
     else {
       themePick = await pickTopic({ genre: c.genre ?? '', theme: c.theme ?? '', type, formats: rec.formats, inspiration: topic || inspiration, previousTopics, channelId: rec.channelId ?? undefined, onCallRecord });
       topic = themePick.topic;

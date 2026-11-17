@@ -1,5 +1,5 @@
 // codex · gpt-6.1-sol · 2026-11-17 13:53 +02:00
-import { cleanJobFormats } from './skills.js';
+export { jobUsesOverlay } from './skills.js';
 // Contract 2.3. Keep error order and paths in parity with post/overlay.py.
 export class OverlaySpecError extends Error {
   constructor(code, where = '') { super(`overlay.json: ${code} at ${where || 'top level'}`); this.code = code; this.where = where; }
@@ -65,7 +65,6 @@ export function extractOverlay(reply, options) {
  if (blocks.length !== 1) fail('json_block_required','');
  return parseOverlaySpec(blocks[0][1],options);
 }
-export const jobUsesOverlay = (pack, formats = []) => cleanJobFormats(formats).some(name => pack?.rules?.formats?.[name]?.overlay === true);
 export function overlayNames(spec) {
  return {points:[...(spec.labels ?? []).map(x=>x.anchor),...(spec.measures ?? []).flatMap(x=>[x.a,x.b])], values:[...(spec.counter ? [spec.counter.value] : []),...(spec.bars ?? []).map(x=>x.value)]};
 }
