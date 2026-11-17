@@ -689,6 +689,17 @@ except SyntaxError:
 parents={c:n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
 problems=set(); points=set(); values=set()
 allowed_roots={'bpy','math','sys','os','numpy','mathutils','blender_worker'}
+# claude-pro · claude-sonnet-5-5 · 2026-11-17 (lane K2, G17 C-3/C-9/C-10/C-11/C-12): the kit gate shotcheck.run_qa is the only judge of text in 3D,
+# so a build may reach shotcheck only as the direct call shotcheck.run_qa(...), may not patch os/sys/numpy/math/kit modules, may not touch Blender
+# handlers or timers, and may not name the kit control files. Still early feedback: the kit gate is the guarantee, not this list.
+modnames={'os','sys','math','numpy','blender_worker'}; imported_ossys=set()
+for n in ast.walk(tree):
+ if isinstance(n,ast.Import):
+  for a in n.names:
+   if a.name in ('os','sys'): imported_ossys.add(a.name)
+   if a.name.split('.')[0] in allowed_roots-{'bpy','mathutils'}: modnames.add(a.asname or a.name.split('.')[0])
+ if isinstance(n,ast.ImportFrom) and (n.module or '').startswith('blender_worker'):
+  for a in n.names: modnames.add(a.asname or a.name)
 for n in ast.walk(tree):
  if isinstance(n,(ast.Import,ast.ImportFrom)):
   modules=[a.name for a in n.names] if isinstance(n,ast.Import) else [n.module or '']
@@ -697,11 +708,35 @@ for n in ast.walk(tree):
  if isinstance(n,ast.ImportFrom):
   if n.module and n.module.startswith('blender_worker.codebuilt.') and n.module!='blender_worker.codebuilt.sets': problems.add('overlay kit submodules cannot be imported directly')
   if n.module and 'anchors' in n.module: problems.add('import anchors only from blender_worker.codebuilt without aliases')
+  if (n.module or '').split('.')[0] in ('os','sys'): problems.add('overlay builds cannot import names from os or sys')
+  if (n.module or '').startswith('bpy.app') or any(a.name in ('handlers','timers') for a in n.names): problems.add('overlay builds cannot use Blender handlers or timers')
   for a in n.names:
-   if a.name in ('anchors','stage') and (n.module!='blender_worker.codebuilt' or a.asname): problems.add('overlay kit modules must use canonical imports')
+   if a.name in ('anchors','stage','shotcheck') and (n.module!='blender_worker.codebuilt' or a.asname): problems.add('overlay kit modules must use canonical imports')
    if a.name=='modules': problems.add('overlay builds cannot import module registries')
    if a.name=='*': problems.add('overlay imports cannot use star imports')
- if isinstance(n,ast.Import) and any('anchors' in a.name or 'stage' in a.name for a in n.names): problems.add('overlay kit modules must use canonical imports')
+ if isinstance(n,ast.Import) and any('anchors' in a.name or 'stage' in a.name or 'shotcheck' in a.name for a in n.names): problems.add('overlay kit modules must use canonical imports')
+ if isinstance(n,ast.Import):
+  for a in n.names:
+   if a.name.split('.')[0] in ('os','sys') and a.asname: problems.add('os and sys cannot be aliased or reassigned')
+   if a.name.startswith('bpy.app'): problems.add('overlay builds cannot use Blender handlers or timers')
+ if isinstance(n,ast.Name) and n.id=='shotcheck':
+  parent=parents.get(n)
+  if not (isinstance(parent,ast.Attribute) and parent.value is n and parent.attr=='run_qa' and isinstance(parent.ctx,ast.Load) and isinstance(n.ctx,ast.Load) and isinstance(parents.get(parent),ast.Call) and parents[parent].func is parent): problems.add('shotcheck may only be used as the direct call shotcheck.run_qa(...)')
+ if isinstance(n,ast.Name) and n.id in imported_ossys:
+  parent=parents.get(n)
+  if not isinstance(parent,ast.Attribute) or parent.value is not n or not isinstance(n.ctx,ast.Load): problems.add('os and sys cannot be aliased or reassigned')
+ if isinstance(n,ast.Attribute) and n.attr=='path' and isinstance(n.value,ast.Name) and n.value.id=='os':
+  parent=parents.get(n)
+  if not isinstance(parent,ast.Attribute) or parent.value is not n: problems.add('os.path cannot be aliased')
+ if isinstance(n,(ast.Attribute,ast.Subscript)) and not isinstance(n.ctx,ast.Load):
+  root=n.value
+  while isinstance(root,(ast.Attribute,ast.Subscript)): root=root.value
+  if isinstance(root,ast.Name) and root.id in modnames: problems.add('overlay builds cannot assign to module attributes')
+ if isinstance(n,ast.Attribute) and isinstance(n.value,ast.Name) and n.value.id=='os' and n.attr in ('replace','link','symlink','truncate','chmod','chown','utime','fdopen','rename','renames','remove','unlink','rmdir','removedirs','mkfifo','mknod','popen','system','kill'): problems.add('forbidden os call')
+ if isinstance(n,ast.Attribute) and (n.attr in ('handlers','timers','sequence_editor','sequence_editor_create','new_effect','grease_pencils') or n.attr.startswith('use_stamp') or n.attr.startswith('stamp_')): problems.add('overlay builds cannot use handlers, timers, the render stamp, sequencer text or grease pencil')
+ if isinstance(n,ast.Constant) and isinstance(n.value,str):
+  if n.value in ('TEXT','GPENCIL','GREASEPENCIL'): problems.add('overlay builds cannot use handlers, timers, the render stamp, sequencer text or grease pencil')
+  if any(w in n.value for w in ('preview.json','overlay.json','qa_report','qa_failure','anchors.json','anchors-preview','render-timing')): problems.add('overlay builds cannot name the kit control files')
  if isinstance(n,ast.Name) and n.id in ('anchors','stage'):
   parent=parents.get(n)
   if not isinstance(parent,ast.Attribute) or parent.value is not n or not isinstance(n.ctx,ast.Load): problems.add('overlay kit modules cannot be aliased or reassigned')
@@ -716,7 +751,7 @@ for n in ast.walk(tree):
    elif direct or any(k.arg in ('type',None) for k in call.keywords):
     typ=next((k.value for k in call.keywords if k.arg=='type'),None)
     if not isinstance(typ,ast.Constant) or not isinstance(typ.value,str) or typ.value=='FONT' or any(k.arg is None for k in call.keywords): problems.add('overlay add type must be a literal non-FONT string')
-  if n.attr in ('anchors','stage'): problems.add('overlay kit modules cannot be reached indirectly')
+  if n.attr in ('anchors','stage','shotcheck'): problems.add('overlay kit modules cannot be reached indirectly')
   if isinstance(n.value,ast.Name) and n.value.id=='anchors':
    call=parents.get(n)
    if n.attr not in ('mark','value') or not isinstance(call,ast.Call) or call.func is not n: problems.add('only anchors.mark and anchors.value calls may be used')

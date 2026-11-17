@@ -19,6 +19,7 @@ numbers and the measured framing of each preview frame, so one look can fix chec
 What still stops a preview: a shot that never aimed the camera (missing_target), a shot with no frame to check, and any
 Python error. In the FINAL render every failed check still raises QAError, as before.
 """
+import hashlib
 import json
 import math
 import os
@@ -325,11 +326,11 @@ class QAError(RuntimeError):
     """The generated build failed its pre-render QA, or tried to render without passing it."""
 
 
-_GATE = {"apply": None, "nframes": 0, "hold": 1}   # open when "apply" is set: the exact function whose frames run_qa posed
+_GATE = {"apply": None, "nframes": 0, "hold": 1, "preview": False, "spec": None}   # open when "apply" is set: the exact function whose frames run_qa posed
 
 
 def reset_qa():
-    _GATE.update(apply=None, nframes=0, hold=1)
+    _GATE.update(apply=None, nframes=0, hold=1, preview=False, spec=None)
 
 
 def qa_passed():
@@ -351,6 +352,11 @@ def require_qa(what="render", apply=None, frames=(), hold=1):
         raise QAError(f"{what} refused: hold={hold} renders frames run_qa did not pose (it posed multiples of {gate['hold']})")
     if any(f < 0 or f >= gate["nframes"] for f in frames):
         raise QAError(f"{what} refused: a frame is outside 0..{gate['nframes'] - 1}, the range run_qa checked")
+    # Lane K2 (G17 C-9): a pass that was judged leniently, as a preview, holds only while the host's preview spec is still the same file.
+    # A build that wrote preview.json itself to soften the checks, then moved it away before rendering, is refused here.
+    if gate.get("preview") and _preview_spec_digest() != gate.get("spec"):
+        raise QAError(f"{what} refused: preview.json changed or was removed after run_qa judged this run as a preview "
+                      "(only the host may write it, and it must stay until the preview is rendered)")
 
 
 def renderable_collections(root):
@@ -380,6 +386,39 @@ def visible_objects(root, kinds=None):
 
 def visible_text_objects(root):
     return visible_objects(root, kinds={"FONT"})
+
+
+MIN_DRAWN_SCALE = 1e-6   # a FONT whose every axis is smaller than this draws nothing; ONE axis squashed still leaves a flat outline
+
+
+def _drawn(o):
+    """True when o can draw: the largest axis of its world scale is at least MIN_DRAWN_SCALE (the kit's own hidden readouts use 0 on every axis)."""
+    return max(abs(s) for s in o.matrix_world.to_scale()) >= MIN_DRAWN_SCALE
+
+
+def rendered_text_objects(root, depth=6):
+    """Overlay jobs (contract 2.5): every FONT object a render can draw. Beyond visible_text_objects this follows collection instances: a
+    visible Empty that instances a collection draws that collection's objects whether or not the collection is linked to the scene.
+    A collection instanced this way is read whatever its own hide_render says (an unclear case reports, it never hides)."""
+    out, seen = {}, set()
+
+    def scan(objs, level):
+        for o in objs:
+            if o.hide_render or not _drawn(o):
+                continue
+            if o.type == "FONT":
+                out.setdefault(o.name, o)
+            inst = getattr(o, "instance_collection", None)
+            if inst is not None and getattr(o, "instance_type", "COLLECTION") == "COLLECTION" and level > 0 and id(inst) not in seen:
+                seen.add(id(inst))
+                stack = [inst]
+                while stack:
+                    c = stack.pop()
+                    scan(list(c.objects), level - 1)
+                    stack.extend(c.children)
+
+    scan(visible_objects(root), depth)
+    return list(out.values())
 
 
 def only_visible(root, objs):
@@ -477,7 +516,7 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
         texts = []
         # Contract 2.5 covers every posed frame, including extra preview tiles.
         if overlay:
-            for o in probe.text_objects():
+            for o in getattr(probe, "text_in_3d_objects", probe.text_objects)():
                 seen = in_3d.setdefault(o.name, [f, f])
                 seen[1] = f
         if checking:
@@ -666,11 +705,33 @@ def _record_report(report, mode):
         pass
 
 
+def _overlay_input_present():
+    """True when the job carries an overlay input. Read with open(), not os.path.exists, so a build that patched os.path.exists before the
+    kit was imported cannot hide the file (G17 C-10); a file that exists but cannot be read still switches the check ON."""
+    try:
+        with open(OVERLAY_INPUT, "rb"):
+            return True
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True
+
+
+def _preview_spec_digest():
+    """SHA-256 of the preview spec bytes, or None when there is none."""
+    from . import renderloop
+    try:
+        with open(renderloop.PREVIEW_SPEC, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except OSError:
+        return None
+
+
 def preview_mode():
     """True inside a preview job: the host wrote the preview spec renderloop.render_frames obeys. The same file decides both,
-    so a run whose checks only report can only ever render preview frames."""
-    from .renderloop import PREVIEW_SPEC
-    return os.path.exists(PREVIEW_SPEC)
+    so a run whose checks only report can only ever render preview frames. A pass judged as a preview is bound to the spec's bytes
+    (require_qa), so a build cannot write the file, get the lenient pass and then remove it."""
+    return _preview_spec_digest() is not None
 
 
 def _preview_frames():
@@ -691,7 +752,58 @@ def enforce(report, apply, preview=False):
         message = "QA failed before rendering: " + describe(report)
         _record_failure(message)
         raise QAError(message)
-    _GATE.update(apply=apply, nframes=int(report["nframes"]), hold=max(1, int(report["hold"])))
+    _GATE.update(apply=apply, nframes=int(report["nframes"]), hold=max(1, int(report["hold"])),
+                 preview=bool(preview), spec=_preview_spec_digest() if preview else None)
+
+
+# ---- lane K2 (G17 C-4): text shown only after the QA pass ----------------------------------------------------------------------
+# run_qa poses the frames it checks, but render_frames poses them again with the build's own apply(f). In a FINAL overlay render the
+# kit therefore re-checks, right before every frame is rendered, the same thing run_qa checked. It lives in a render_pre handler (the
+# handler runs after render_frames has posed the frame and before the pixels are drawn); renderloop.py is not touched. On text it writes
+# the failure for the host and ends the process, because an exception in a Blender handler is only printed and the render would go on.
+_GUARD = {"fn": None}
+GUARD_EXIT_CODE = 3
+
+
+def _hard_exit(code):
+    os._exit(code)
+
+
+def _install_render_guard(probe):
+    """Arm the check for the final render of an overlay job. Needs Blender (a no-op without it) and replaces an earlier guard."""
+    try:
+        import bpy
+        handlers = bpy.app.handlers
+    except Exception:
+        return False
+    persistent = getattr(handlers, "persistent", lambda fn: fn)
+    if _GUARD["fn"] is not None:
+        try:
+            handlers.render_pre.remove(_GUARD["fn"])
+        except ValueError:
+            pass
+
+    @persistent
+    def _text_guard(*_args):
+        try:
+            try:
+                probe.update()   # matrix_world is stale until the depsgraph is evaluated
+            except Exception:
+                pass
+            names = sorted({o.name for o in getattr(probe, "text_in_3d_objects", probe.text_objects)()})
+            problem = ("visible FONT object(s) " + ", ".join(repr(n[:60]) for n in names[:5])) if names else ""
+        except Exception as error:
+            problem = f"the text check itself failed ({type(error).__name__})"
+        if problem:
+            message = ("QA failed during rendering: text_in_3d: " + problem + " appeared after run_qa passed; text is drawn after the render "
+                       "from overlay.json, so remove the text object and use anchors.mark")
+            _record_failure(message)
+            print(message, flush=True)
+            _hard_exit(GUARD_EXIT_CODE)
+
+    handlers.render_pre.append(_text_guard)
+    _GUARD["fn"] = _text_guard
+    return True
 
 
 def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
@@ -702,10 +814,11 @@ def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
     from .timeline import shot_frame_ranges
     preview = preview_mode()
     probe = BlenderProbe(scene, cam)
+    overlay = _overlay_input_present()
     report = run_qa_with(probe, apply, nframes, shot_frame_ranges(shots, nframes, fps), hold=hold,
                          step=QA_STEP if preview else hold,
                          extra_frames=_preview_frames() if preview else (),
-                         overlay=os.path.exists(OVERLAY_INPUT))
+                         overlay=overlay)
     report["bounds_source"] = getattr(probe, "bounds_source", None)
     report["mode"] = "preview" if preview else "final"
     _record_report(report, report["mode"])
@@ -713,6 +826,8 @@ def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
     if report["upper_warnings"] or not report["ok"]:
         print("QA " + describe(report, include_warnings=True))
     enforce(report, apply, preview=preview)
+    if overlay and not preview:
+        _install_render_guard(probe)
     return report
 
 
@@ -733,6 +848,25 @@ class BlenderProbe:
 
     def text_objects(self):
         return [o for o in visible_text_objects(self.scene.collection) if min(abs(s) for s in o.matrix_world.to_scale()) >= 1e-6]
+
+    def text_in_3d_objects(self):
+        """Overlay jobs (contract 2.5): every FONT object a render can draw. Wider than text_objects, which the classic readout checks keep
+        using unchanged: a FONT with ONE axis near zero still draws a flat outline (largest axis counts, not the smallest), and a FONT that
+        only an instance draws counts (collection instances, and geometry-nodes or point instances from the evaluated depsgraph)."""
+        found = {o.name: o for o in rendered_text_objects(self.scene.collection)}
+        try:
+            instances = list(self.bpy.context.evaluated_depsgraph_get().object_instances)
+        except Exception:   # no Blender (pure tests) or no depsgraph: the collection walk above stands
+            instances = []
+        for inst in instances:
+            o = inst.object
+            if not getattr(inst, "is_instance", False) or o.type != "FONT" or o.hide_render:
+                continue
+            parent = getattr(inst, "parent", None)
+            if (parent is not None and parent.hide_render) or max(abs(s) for s in inst.matrix_world.to_scale()) < MIN_DRAWN_SCALE:
+                continue
+            found.setdefault(o.name, o)
+        return list(found.values())
 
     def readout_names(self):
         return {o.name for o in self.text_objects() if o.get("codebuilt_readout", False)}

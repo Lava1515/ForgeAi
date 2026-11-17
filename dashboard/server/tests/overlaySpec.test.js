@@ -185,3 +185,40 @@ test('overlay allows the ready-set import the map and teardown skills show, noth
  assert.deepEqual(overlayScriptProblems('from blender_worker.codebuilt.sets import stealth_jet_teardown as jet_set\n'+good,spec),[]);
  for(const code of ['from blender_worker.codebuilt.stage import text','from blender_worker.codebuilt.sets.world_map import build','from blender_worker.codebuilt.sets import *','from blender_worker.codebuilt.sets import anchors','from blender_worker.codebuilt.sets import stage as s']) assert.ok(overlayScriptProblems(code+'\n'+good,spec).length,code);
 });
+
+// claude-pro · claude-sonnet-5-5 · 2026-11-17 (lane K2, G17 review C-3, C-4, C-9, C-10, C-11): the kit gate (shotcheck.run_qa) must stay the
+// only judge of text in 3D, so an overlay build may reach shotcheck only as the direct call shotcheck.run_qa(...), may not patch os/sys/kit
+// modules, may not touch Blender handlers, and may not name the kit's control files. Exact forms from output/agent-jobs/g17-probes
+// (N13..N15) and g17-review-opus (O01..O06, O12). Every one is accepted by the code check before lane K2.
+const k2Refused = {
+ 'C-3 alias with as (N13)': "from blender_worker.codebuilt import shotcheck as sc\nsc.OVERLAY_INPUT = '/job/none'",
+ 'C-3 alias with as, replace helper (N14)': "from blender_worker.codebuilt import shotcheck as sc\nsc.visible_text_objects = lambda root: []",
+ 'C-3 alias with as, open the gate (N15)': "from blender_worker.codebuilt import shotcheck as sc\nsc._GATE.update(apply=apply, nframes=NFRAMES, hold=1)",
+ 'C-11 plain alias sc = shotcheck (O01)': "sc = shotcheck\nsc.OVERLAY_INPUT = '/job/none'",
+ 'C-11 bracketed (shotcheck).X = (O02)': "(shotcheck).OVERLAY_INPUT = '/job/none'",
+ 'C-11 backslash break before the dot (O03)': "shotcheck \\\n .OVERLAY_INPUT = '/job/none'",
+ 'C-11 replace run_qa itself (O12)': "shotcheck.run_qa = lambda *a, **k: None",
+ 'C-10 patch os.path.exists (O04)': "import os\n_e = os.path.exists\nos.path.exists = lambda p: False if str(p).endswith('overlay.json') else _e(p)",
+ 'C-10 alias os.path then patch it': "import os\np = os.path\np.exists = lambda x: False",
+ 'C-9 forged preview.json (O05)': "import os, numpy\nnumpy.frombuffer(b'{\"version\": 1, \"frames\": [0], \"scale\": 25, \"out\": \"/job/preview\"}', dtype=numpy.uint8).tofile('/job/work/preview.json')\n# run_qa here (preview mode: text_in_3d only reported, gate opens)\nos.replace('/job/work/preview.json', '/job/tmp/p.json')",
+ 'C-9 os.replace of overlay.json (N16)': "import os\nos.replace('/job/inputs/overlay.json', '/job/tmp/o.json')\n# run_qa runs here\nos.replace('/job/tmp/o.json', '/job/inputs/overlay.json')",
+ 'C-4 render_pre handler (O06)': "def show(s, *a):\n    obj0.scale = (1, 1, 1)\nbpy.app.handlers.render_pre.append(show)",
+ 'C-4 apply reads the qa report file (N17)': "import os\ndef apply(f):\n    if os.path.exists('/job/work/qa_report.json'):\n        obj0.scale = (1, 1, 1)",
+};
+for (const [name, body] of Object.entries(k2Refused)) test(`overlay K2 refuses ${name}`, () => {
+ const overlay = {nframes:90,shotStarts:[0],overlay:true,overlaySpec:spec};
+ assert.deepEqual(validateBuildScript(base,overlay),[]);
+ assert.ok(validateBuildScript(base+'\n'+body,overlay).length,'overlay must refuse');
+});
+test('overlay K2 forms are not new classic rules: classic answers are unchanged', () => {
+ // Classic (overlay off) must answer exactly as it did at 717d65f for the same bodies; the stricter shotcheck rule is overlay only.
+ const classic = {nframes:90,shotStarts:[0]};
+ for (const body of ["(shotcheck).OVERLAY_INPUT = '/job/none'", "shotcheck \\\n .OVERLAY_INPUT = '/job/none'", 'sc = shotcheck', "import os\nos.path.exists = lambda p: False"])
+  assert.deepEqual(validateBuildScript(base+'\n'+body,classic),[],body);
+ assert.ok(validateBuildScript(base+"\nimport blender_worker.codebuilt.shotcheck as q",classic).length);
+});
+test('overlay K2 still accepts the kit usage the contract shows, and ordinary assignments', () => {
+ const overlay = {nframes:90,shotStarts:[0],overlay:true,overlaySpec:spec};
+ for (const body of ["import os, math\nx = math.cos(0.5)\ny = os.path.join('/job', 'x')", "scene.frame_end = NFRAMES\nscene.render.film_transparent = False", "cam = meshes.ball(c)\ncam.location = (0, 0, 1)"])
+  assert.deepEqual(validateBuildScript(base+'\n'+body,overlay),[],body);
+});
