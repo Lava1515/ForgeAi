@@ -20,6 +20,9 @@ for (const code of [
  "from bpy import ops; ops.object.add(type='FO'+'NT')",
  "import bpy as B; B.ops.object.add(type='FO'+'NT')",
  "o=bpy.ops.object; o.add(type=''.join(['FO','NT']))",
+ 'bpy.ops.object.add()',
+ "f=bpy.ops.object.add; f(type='FO'+'NT')",
+ "map(lambda f: f(type='F'+'ONT'), [bpy.ops.object.add])",
  "wm.label('BRA')", 'f=wm.label', 'wm.callout()',
 ]) test(`overlay refuses ${code}`, () => {
  assert.ok(overlayScriptProblems(good + '\n' + code, spec).length);
