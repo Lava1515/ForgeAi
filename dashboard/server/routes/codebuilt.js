@@ -1,5 +1,5 @@
 // Code-built start routes (owner UI): queue, read and abort one job. The work runs in the background
-// (episode/codebuilt/start.js). Errors are generic.
+// (episode/codebuilt/start.js). Errors are generic. The optional key route is passed through unchanged; start.js checks it.
 import { getActiveChannel } from './channelsManager.js';
 import { codebuiltStarter, StartError } from '../episode/codebuilt/start.js';
 
@@ -28,7 +28,7 @@ function fail(res, error) {
 const handler = (task) => async (req, res) => { try { await task(req, res); } catch (error) { fail(res, error); } };
 
 export const startCodebuiltHandler = handler(async (req, res) => {
-  const input = body(req, ['topic', 'duration', 'voice', 'channelId', 'buildModel']);
+  const input = body(req, ['topic', 'duration', 'voice', 'channelId', 'buildModel', 'route']);
   res.status(202).json(codebuiltStarter().start({ ...input, channelId: input.channelId ?? getActiveChannel(req)?.id }));
 });
 export const listCodebuiltHandler = handler(async (req, res) => { res.json({ jobs: codebuiltStarter().list() }); });
