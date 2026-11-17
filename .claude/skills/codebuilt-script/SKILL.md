@@ -7,11 +7,11 @@ description: How to write the narration of a code-built 3D explainer short (hook
 
 Project-authored guidance for the script step of the code-built pipeline. It restates, for this pipeline, what the installed skills `reel-script`, `shorts-video-director` and `video-shot-planner` teach, plus what the hand-made shorts of 2026-11-12 (gum, hole through the Earth, Earth stops spinning) did. The word count and the JSON shape in the prompt always win over this text.
 
-Updated by codex · gpt-6.1-sol · 2026-11-16 08:59 +02:00 (S2 owner answers and trend review).
+Updated by codex · gpt-6-luna · 2026-11-17 09:52 +02:00 (S3 owner-approved script style).
 
 ## Duration
 
-For Auto, choose 30, 45 or 60 seconds in the script reply to fit the premise; use the shortest that delivers the stakes and payoff without padding. Aim near 3 spoken words per second, but obey the exact voice-calibrated word and shot budgets in the prompt. Manual duration is fixed, including 90 seconds. Quote the entire script exactly once across shot narrations in order.
+For Auto, choose 30, 45 or 60 seconds in the script reply to fit the premise; use the shortest that delivers the stakes and payoff without padding. Obey the exact voice-calibrated word and shot budgets in the prompt. Manual duration is fixed, including 90 seconds. Quote the entire script exactly once across shot narrations in order.
 
 ## Pick the shape before writing
 
@@ -27,19 +27,21 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 
 ## The hook
 
-- The first sentence is the question or the most surprising fact, 12 words or fewer, and it must be picturable in one image.
-- Good forms: a "what if" question, "POV: you ...", a number said cold, a claim people believe. Do not open with "Did you know", "Have you ever wondered", "In this video" or a greeting.
+- Open with a picturable contradiction, 12 words or fewer.
+- Say an open question aloud by sentence 2. Answer it only at the end, where the answer flips the opening contradiction.
+- Do not open with "Did you know", "Have you ever wondered", "In this video" or a greeting.
 - The second sentence starts the story. No throat-clearing.
 - Within the first two seconds the viewer must know what the video is about: name the subject and one concrete stake (a place, an object, a person or a number). Say it in the words, not only in the picture.
 
 ## Sentences
 
-- Chain sentences with because, but and so: each changes what happens next rather than adding an unrelated fact. Keep a person or "you" facing a concrete stake (a route blocked, a destination to reach, a choice to make).
-- One idea per sentence. Each sentence fits one breath; split any sentence that needs a breath in the middle.
+- Someone who wants something concrete must appear by sentence 3; keep them facing a stake (a route blocked, a destination to reach, a choice to make).
+- Use varied rhythm: at least four sentences of five words or fewer (fragments are allowed), one long run, and never three consecutive sentences of similar length. Give the turn its own short line.
+- Each sentence should move the story. Do not chain every sentence with because or so.
 - Each sentence names something that can be shown: a thing, a place, an action, a number. A sentence of pure abstraction ("this has huge consequences") gives the director nothing; replace it with the consequence itself.
 - Numbers instead of adjectives ("1,670 kilometers an hour", not "incredibly fast"). At most one number per sentence, rounded so it can be said.
 - Speak to "you" where the story allows it.
-- Keep one thread: the same person, animal or object should come back through the script, so the pictures can follow it.
+- Keep one thread: the same person, animal or object should come back through the script, so the pictures can follow it. Things may act like characters.
 - Order events the way they would happen. Each beat raises the stakes or changes the place.
 
 ## Places
@@ -50,9 +52,13 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 ## The ending
 
 - Make the hook a promise the last line keeps. Hold the most surprising fact or consequence for the ending, echo a word or picture from the hook, and cut on the punch.
-- Either stop on the payoff or end with a direct question to the viewer grounded in that payoff; choose one, without appending a summary or engagement request.
+- The last line answers the open question and flips the hook. Either stop on that payoff or end with a direct question to the viewer grounded in it; choose one, without appending a summary or engagement request.
 - A short human or funny button may work when it fits the story. Do not add a forced joke or a trailing coda.
 - The last line cannot be a correction or error margin, caveat, limitation (including "still", "stays" or "remains"), bare data point, summary triplet, moral or call to action.
+
+## Shot narration
+
+- A shot may hold two or three short sentences. Keep their narration together when one image or action carries the thought; do not force one sentence per shot.
 
 ## Shot feeling
 
@@ -66,4 +72,4 @@ Take the shape that needs the fewest forced beats. Do not bolt a "but actually" 
 
 ## Premise at the opening and ending
 
-Open on the premise itself: the first sentence states the question or claim. End on the payoff and stop, or close with one direct viewer question. No call to action.
+Open on a contradiction, say the open question by sentence 2, and answer it at the end. End on the payoff and stop, or close with one direct viewer question. No call to action.
