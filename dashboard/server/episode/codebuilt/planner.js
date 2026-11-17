@@ -117,13 +117,14 @@ export function parseModelJson(text) {
 }
 
 /** Python source from a model reply: prefer the longest valid fence, then try the fenced blocks joined in reply order. */
-export function extractPython(text) {
+export function extractPython(text, { syntaxCheck = pythonSyntaxCheck } = {}) {
   const s = String(text ?? '');
   const blocks = [...s.matchAll(/```(?:python|py)?[ \t]*\r?\n([\s\S]*?)```/gi)].map((m) => m[1]);
   if (!blocks.length) return s.replace(/\r\n/g, '\n').trim() + '\n';
+  if (blocks.length === 1) return blocks[0].replace(/\r\n/g, '\n').trim() + '\n';
   const longest = [...blocks].sort((x, y) => y.length - x.length)[0];
   const normalized = (code) => code.replace(/\r\n/g, '\n').trim() + '\n';
-  const isValidPython = (code) => pythonSyntaxCheck(normalized(code)) === '';
+  const isValidPython = (code) => syntaxCheck(normalized(code)) === '';
   const code = isValidPython(longest) ? longest : (isValidPython(blocks.join('\n')) ? blocks.join('\n') : longest);
   return normalized(code);
 }
@@ -178,10 +179,11 @@ function makeAsker(deps, step, onCall, maxAttempts = MAX_ATTEMPTS) {
   return {
     calls: all,
     /** Asks the model, retrying once with the validation reasons. `check(text)` returns the parsed value or throws PlannerError. */
-    async run(prompt, check, signal, retryPrompt) {
+    async run(prompt, check, signal, retryPrompt, allowExtraAttempt = () => false) {
       let feedback = '';
       let last;
-      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      for (let attempt = 0; attempt < maxAttempts + 1; attempt += 1) {
+        if (attempt >= maxAttempts && !allowExtraAttempt()) break;
         if (signal?.aborted) throw abortError();
         let record;
         let answer;
@@ -922,6 +924,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   let qaStructureState = 'not_checked';
   let previousBuild = '';
   let scopedRepair = false;
+  let scopedFailed = false;
   const validateCompleteBuild = (code) => {
     const why = validateBuildScript(code, { nframes, shotStarts, places, type: choices?.type });
     if (!why.length) { const bad = syntax(code); if (bad) why.push(`Python syntax error, ${bad}`); }
@@ -935,7 +938,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   const check = (text) => {
     if (scopedRepair) {
       let reply;
-      try { reply = parseModelJson(text); } catch (error) { throw new PlannerError('BAD_BUILD_EDIT', `the scoped repair was not valid JSON: ${error.message}`); }
+      try { reply = parseModelJson(text); } catch (error) { scopedFailed = true; throw new PlannerError('BAD_BUILD_EDIT', `the scoped repair was not valid JSON: ${error.message}`); }
       const allowedKeys = new Set(['targets', 'edits']);
       const editShapeOkay = (edit) => {
         if (!edit || typeof edit !== 'object' || Array.isArray(edit) || !['replace_def', 'add_def', 'replace_assign'].includes(edit.op)) return false;
@@ -947,6 +950,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
         || reply.targets.some((target) => typeof target !== 'string')
         || reply.targets.length > DEFAULT_EDIT_LIMITS.maxEdits || reply.edits.length > DEFAULT_EDIT_LIMITS.maxEdits
         || reply.edits.some((edit) => !editShapeOkay(edit) || typeof edit.source !== 'string' || edit.source.length > DEFAULT_EDIT_LIMITS.maxSourceChars)) {
+        scopedFailed = true;
         throw new PlannerError('BAD_BUILD_EDIT', 'the scoped repair exceeded its edit schema or size limits');
       }
       try {
@@ -954,11 +958,11 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
         previousBuild = edited.source;
         return edited.source;
       } catch (error) {
-        if (error instanceof LoopError) throw new PlannerError('BAD_BUILD_EDIT', error.message, error.detail?.reasons ?? []);
+        if (error instanceof LoopError) { scopedFailed = true; throw new PlannerError('BAD_BUILD_EDIT', error.message, error.detail?.reasons ?? []); }
         throw error;
       }
     }
-    const code = extractPython(text);
+    const code = extractPython(text, { syntaxCheck: syntax });
     const why = validateCompleteBuild(code);
     if (why.length) {
       previousBuild = code;
@@ -974,15 +978,20 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   const initialPrompt = buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices, skillGuidance, direction });
   const buildScript = await asker.run(initialPrompt, check, input.signal, ({ feedback, error }) => {
     const unsafe = /forbidden module|forbidden os call|dynamic code execution|direct file access|GPU device type|file save\/open|import not allowed|do not import|shotcheck module directly/i;
-    const fixable = error?.code === 'BAD_BUILD' && Array.isArray(error.reasons)
-      && error.reasons.length > 0 && !error.reasons.some((reason) => unsafe.test(reason) || /Python syntax error/i.test(reason));
+    const fixable = syntax(previousBuild) !== null && error?.code === 'BAD_BUILD' && Array.isArray(error.reasons)
+      && error.reasons.length > 0 && error.reasons.every((reason) => /^scene\.cycles\.samples must be an integer from 8 through 16(?: \(found samples = \d+\))?$/.test(reason))
+      && !error.reasons.some((reason) => unsafe.test(reason) || /Python syntax error/i.test(reason));
     if (!fixable) {
       scopedRepair = false;
+      if (error?.code === 'BAD_BUILD_EDIT') {
+        scopedRepair = false;
+        return `${initialPrompt}\n\nYour scoped repair was refused: ${feedback}\nFix every point and answer again in full.`;
+      }
       return `${initialPrompt}\n\nYour previous reply was refused: ${feedback}\nFix every point and answer again in full.`;
     }
     scopedRepair = true;
     return `The previous scene-code build was refused for these fixable validation reasons: ${feedback}\n\nRepair that previous build with a scoped edit only. Do not rewrite or return the complete program. Return only JSON with exactly this shape: {"targets":["top_level_name"],"edits":[{"op":"replace_def"|"add_def"|"replace_assign","name":"top_level_name","before":"anchor_for_add_def","source":"complete replacement node"}]}. Each source must be at most ${DEFAULT_EDIT_LIMITS.maxSourceChars} characters; touch at most ${DEFAULT_EDIT_LIMITS.maxDefs} definitions and no more than ${Math.round(DEFAULT_EDIT_LIMITS.maxFraction * 100)} percent of the program. The AST-based edit gate refuses changes outside the named targets, edits to locked settings, syntax errors, unsafe imports/calls, and any result that still fails validation.\n\nPrevious build:\n\n${previousBuild}`;
-  });
+  }, () => scopedFailed);
   const videoSeconds = nframes / FPS;
   return {
     buildScript, calls: [...directionCalls, ...asker.calls], shotStarts, nframes, qaStructure: qaStructureState,
