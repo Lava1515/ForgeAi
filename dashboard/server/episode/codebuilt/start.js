@@ -36,7 +36,7 @@ import { createPreviewRunFn } from '../engines/codebuilt/composePreview.js';
 import { sanitizeRouterCall } from './routerCalls.js';
 import { defaultFactCheckStage } from './factCheckStage.js';
 import { normalizeProductionChoices } from './productionChoices.js';
-import { jobUsesOverlay } from './overlaySpec.js';
+import { jobUsesOverlay, overlayPair, validateOverlayPair } from './overlaySpec.js';
 import { frameCountFor, shotStartsFor, validateBuildScript } from './planner.js';
 import { jobWriteBlockedReason, writeHostJobReceipt } from './hostJobReceipts.js';
 
@@ -249,12 +249,27 @@ export function createCodebuiltStarter({
     } catch { return false; }
   };
   const readSafe = (file, encoding = 'utf8', maxBytes) => safeRegular(file, maxBytes) ? fs.readFileSync(file, encoding) : null;
+  // codex · gpt-6.1-sol · 2026-11-17 17:25 +02:00
+  function savePair(dir, buildName, pairName, code, spec, nframes) {
+    const pair = overlayPair(code, spec, {videoSeconds:nframes/30});
+    fs.mkdirSync(dir,{recursive:true});
+    fs.writeFileSync(path.join(dir,buildName),code);
+    fs.writeFileSync(path.join(dir,pairName),JSON.stringify(pair)+'\n');
+    return pair.spec;
+  }
+  function nextOverlayRound(stage) {
+    try { return Math.max(-1,...fs.readdirSync(path.join(stage,'loop')).filter(n=>/^r[0-9]+$/.test(n)).map(n=>Number(n.slice(1))))+1; } catch { return 0; }
+  }
   function reusable(id) {
     // Locks live outside container-writable folders. Refuse before reading any reuse artifact,
     // including when cleanup of any preview belonging to this parent is uncertain.
     const blockedReason = jobWriteBlockedReason(jobsDir, id);
     if (blockedReason) return { blockedReason, reused: [], resumeFrom: null };
+    try {
+      if (fs.readdirSync(path.join(jobsDir,'.cb6-locks')).some(name => name.startsWith(`${id}-a`) && /^-a[0-9]+-pv[0-9]+\.lock$/.test(name.slice(id.length)))) return {blockedReason:'Preview lock is held; cleanup must be confirmed before resuming',reused:[],resumeFrom:null};
+    } catch (error) { if (error.code !== 'ENOENT') return {blockedReason:'Job lock directory is unreadable',reused:[],resumeFrom:null}; }
     const stage = path.join(stateRoot(), id);
+    const rec = load(id);
     const script = readSafe(path.join(stage, 'script.txt')); const brief = readSafe(path.join(stage, 'brief.md'));
     let pathPack = null; try { pathPack = JSON.parse(readSafe(path.join(stage, 'pathpack.json')) || 'null'); } catch {}
     const scriptOk = typeof script === 'string' && !!script.trim() && typeof brief === 'string' && !!brief.trim() && pathPack?.id === 'codebuilt' && Array.isArray(pathPack.skills);
@@ -272,6 +287,7 @@ export function createCodebuiltStarter({
       if (voiceOk) checkVoiceFiles({ wav, doc: words, scriptWords: normaliseScript(script).words, source: manifest.word_timing_source });
       if (voiceOk) voice = { voPath: path.join(stage, 'vo.wav'), wordsPath: path.join(stage, 'words.json'), manifestPath: path.join(stage, 'voice.json'), metrics: manifest };
     } catch { voiceOk = false; voice = null; }
+    const overlay = jobUsesOverlay(pathPack, rec?.formats, rec?.route);
     let build = null;
     if (scriptOk && voiceOk) {
       try {
@@ -298,7 +314,12 @@ export function createCodebuiltStarter({
         const candidates = [path.join(stage, 'loop', 'accepted.build.py'), ...numbered.map(({ base, n }) => path.join(base, `r${n}`, 'build.py')), path.join(stage, 'planner.build.py')];
         for (const file of candidates) {
           const code = readSafe(file); if (!code || !code.trim()) continue;
-          const why = validateReusableBuild(code, { nframes, shotStarts, places });
+          let overlaySpec;
+          if (overlay) {
+            const pairFile = file.endsWith('build.py') ? file.slice(0,-8) + 'overlay.json' : null;
+            try { overlaySpec = validateOverlayPair(JSON.parse(readSafe(pairFile) || 'null'), code, {videoSeconds:nframes/30}); } catch { continue; }
+          }
+          const why = validateReusableBuild(code, { nframes, shotStarts, places, ...(overlay ? {overlay:true,overlaySpec} : {}) });
           if (!why.length) {
             let startRound = 0; const match = file.match(/[\\/]r(\d+)[\\/]build\.py$/);
             if (match) startRound = Number(match[1]) + 1;
@@ -314,7 +335,7 @@ export function createCodebuiltStarter({
                 }
               } catch {}
             }
-            build = { code, path: file, sha256: sha(code), nframes, shotStarts, startRound, history, ...(places ? { places } : {}), ...(lookShots ? { lookShots } : {}), ...(directionMarkdown ? { directionMarkdown } : {}) }; break;
+            build = { code, ...(overlay ? {overlaySpec} : {}), path: file, sha256: sha(code), nframes, shotStarts, startRound, history: overlay ? [] : history, ...(places ? { places } : {}), ...(lookShots ? { lookShots } : {}), ...(directionMarkdown ? { directionMarkdown } : {}) }; break;
           }
         }
       }
@@ -468,22 +489,40 @@ export function createCodebuiltStarter({
     const places = Array.isArray(plan.places) && plan.places.length ? plan.places : undefined;
     const validate = typeof plan.validate === 'function' ? plan.validate : injected.validate ?? ((code) => {
       if (typeof pl.validateBuildScript !== 'function') return ['no build validator is available'];
-      const why = [...pl.validateBuildScript(code, { nframes, shotStarts, places, overlay: jobUsesOverlay(pathPack,rec.formats), overlaySpec: plan.overlaySpec })];
+      const why = [...pl.validateBuildScript(code, { nframes, shotStarts, places, overlay: jobUsesOverlay(pathPack,rec.formats,rec.route), overlaySpec: plan.overlaySpec })];
       if (!why.length && typeof pl.pythonSyntaxCheck === 'function') { const bad = pl.pythonSyntaxCheck(code); if (bad) why.push(`Python syntax error, ${bad}`); }
       if (!why.length && typeof pl.pythonQaStructureCheck === 'function') { const structure = pl.pythonQaStructureCheck(code); if (Array.isArray(structure)) why.push(...structure); }
       return why;
     });
     const sheetMaker = injected.sheetMaker ?? createPreviewSheetMaker({ execFileFn: hostExecFile });
-    const runPreview = injected.runPreview ?? createPreviewRunFn({ runner: plan.overlaySpec ? {run: request => runtime.runner.run({...request, overlaySpec:plan.overlaySpec})} : runtime.runner, inputs: { script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}) }, jobRoot: jobsDir });
+    const basePreview = injected.runPreview ?? createPreviewRunFn({ runner: plan.overlaySpec ? {run: request => runtime.runner.run({...request, overlaySpec:plan.overlaySpec})} : runtime.runner, inputs: { script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}) }, jobRoot: jobsDir });
     const run = injected.runLoop ?? runVisualBuildLoop;
+    const overlay = jobUsesOverlay(pathPack,rec.formats,rec.route);
+    const runPreview = overlay ? async request => {
+      const round = Number(request.jobId.match(/-pv([0-9]+)$/)[1])-1;
+      const dir = path.join(stage,'loop',`r${round}`);
+      savePair(dir,'build.py','overlay.json',request.buildScript,plan.overlaySpec,nframes);
+      return basePreview(request);
+    } : basePreview;
+    const makeSheets = async args => {
+      if (!overlay) return sheetMaker.makeSheets(args);
+      const dir = path.dirname(args.outDir);
+      const raw = path.join(dir,'overlay-spec.json');
+      fs.writeFileSync(raw,JSON.stringify(plan.overlaySpec)+'\n');
+      savePair(dir,'build.py','overlay.json',fs.readFileSync(path.join(dir,'build.py'),'utf8'),plan.overlaySpec,nframes);
+      // The sheet reader confines text inputs to this round, beside the build pair.
+      const words = path.join(dir,'words.json');
+      fs.copyFileSync(voice.wordsPath,words);
+      return sheetMaker.makeSheets({...args,words,overlaySpec:raw,nframes,jobRoot:dir});
+    };
     try {
       return await run({
-        jobId: rec.id, stageDir: stage, brief: typeof plan.directionMarkdown === 'string' && plan.directionMarkdown ? `${scripted.brief}
+        jobId: rec.id, ...(overlay ? {previewAttempt:rec.resumes?.length ?? 0} : {}), stageDir: stage, brief: typeof plan.directionMarkdown === 'string' && plan.directionMarkdown ? `${scripted.brief}
 
-${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: resumeBuild?.code ?? plan.buildScript, startRound: resumeBuild?.startRound ?? 0, resumeHistory: resumeBuild?.history ?? [], kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
+${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, shotStarts, nframes, buildScript: resumeBuild?.code ?? plan.buildScript, startRound: overlay ? nextOverlayRound(stage) : resumeBuild?.startRound ?? 0, resumeHistory: resumeBuild?.history ?? [], kitContract: plan.kitContract ?? pl.KIT_CONTRACT,
         validate, probe, lookModel: 'sonnet', signal, lookGuides: (() => { try { return typeof pl.loadCodebuiltGuides === 'function' ? pl.loadCodebuiltGuides({ pack: pathPack, step: 'look' }) : ''; } catch { return ''; } })(),
       }, {
-        runPreview, makeSheets: (args) => sheetMaker.makeSheets(args), askLook: injected.askLook ?? defaultAskLook, askText: injected.askText ?? defaultAskText,
+        runPreview, makeSheets, askLook: injected.askLook ?? defaultAskLook, askText: injected.askText ?? defaultAskText,
         onCall: addCall, onPhase,
       });
     } catch (error) {
@@ -708,17 +747,18 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     break;
     }
     const pathPack = scripted.pathPack;
-    let plan = resume?.build && !jobUsesOverlay(pathPack,rec.formats) ? { buildScript: resume.build.code, shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
+    let plan = resume?.build ? { buildScript: resume.build.code, ...(resume.build.overlaySpec ? {overlaySpec:resume.build.overlaySpec} : {}), shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
     if (!plan) try {
       step(rec, 'planning');
       if (typeof pl.planCodebuiltBuild !== 'function') throw new StartError('planner_unavailable', 501);
       plan = await pl.planCodebuiltBuild({ topic: rec.topic, duration: rec.duration, script: scripted.script, brief: scripted.brief, beats: scripted.shots, words, pathPack, formats: rec.formats, signal, buildModel: rec.buildModel, ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall, onRefused: refusedBuildWriter(rec.id) });
       try {
-        fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript);
+        if (jobUsesOverlay(pathPack,rec.formats,rec.route)) plan.overlaySpec = savePair(stage, 'planner.build.py', 'planner.overlay.json', plan.buildScript, plan.overlaySpec, plan.nframes);
+        else fs.writeFileSync(path.join(stage, 'planner.build.py'), plan.buildScript);
         fs.writeFileSync(path.join(stage, 'planner-plan.json'), JSON.stringify({ nframes: plan.nframes, shotStarts: plan.shotStarts, ...(plan.places ? { places: plan.places, lookShots: plan.lookShots, directionMarkdown: plan.directionMarkdown } : {}) }));
         if (plan.direction) { fs.writeFileSync(path.join(stage, 'direction.json'), `${JSON.stringify(plan.direction, null, 1)}
 `); fs.writeFileSync(path.join(stage, 'direction.md'), plan.directionMarkdown ?? ''); }
-      } catch {}
+      } catch (error) { if (jobUsesOverlay(pathPack,rec.formats,rec.route)) throw error; }
     } catch (error) {
       if (signal.aborted) throw new StartError('aborted');
       writePlannerDiagnostic(rec.id, error);
@@ -728,7 +768,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       }
       throw error instanceof StartError ? error : new StartError('planner_failed', 502);
     }
-    if (jobUsesOverlay(pathPack,rec.formats) && !plan?.overlaySpec) throw new StartError('planner_failed',502);
+    if (jobUsesOverlay(pathPack,rec.formats,rec.route) && !plan?.overlaySpec) throw new StartError('planner_failed',502);
     if (!plan || typeof plan.buildScript !== 'string' || !plan.buildScript.trim()) {
       writePlannerDiagnostic(rec.id, { code: 'PLANNER_ERROR' });
       throw new StartError('planner_failed', 502);
@@ -742,19 +782,28 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       checkAbort();
       let buildScript = plan.buildScript;
       let loopReceipt = null;
-      if (visualLoop !== false) {
+      const acceptedResume = plan.overlaySpec && resume?.build?.path === path.join(stage,'loop','accepted.build.py') ? JSON.parse(readSafe(path.join(stage,'loop','accepted-receipt.json')) || 'null') : null;
+      if (acceptedResume?.sha256 === sha(buildScript)) loopReceipt = acceptedResume.receipt;
+      else if (visualLoop !== false) {
         if (resume?.build) step(rec, 'visual_loop');
-        const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build && !jobUsesOverlay(pathPack, rec.formats) ? { code: resume.build.code, startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
+        const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build ? { code: resume.build.code, ...(resume.build.overlaySpec ? {overlaySpec:resume.build.overlaySpec} : {}), startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
           .finally(() => writeCalls(rec.id, allCalls));
         if (!outcome || (!outcome.accepted && outcome.unapproved !== true) || typeof outcome.buildScript !== 'string' || !outcome.buildScript.trim() || sha(outcome.buildScript) !== outcome.sha256) throw new StartError('look_failed', 502);
+        if (jobUsesOverlay(pathPack,rec.formats,rec.route) && outcome.accepted !== true) throw new StartError('look_failed',502);
+        if (jobUsesOverlay(pathPack,rec.formats,rec.route)) savePair(path.join(stage,'loop'),'accepted.build.py','accepted.overlay.json',outcome.buildScript,plan.overlaySpec,plan.nframes);
         buildScript = outcome.buildScript;
         loopReceipt = outcome.unapproved === true
           ? { ...outcome.receipt, visual_check: { approved: false, findings: Array.isArray(outcome.findings) ? outcome.findings : [] } }
           : outcome.receipt;
+        if (plan.overlaySpec) fs.writeFileSync(path.join(stage,'loop','accepted-receipt.json'),JSON.stringify({sha256:sha(buildScript),receipt:loopReceipt})+'\n');
         if (outcome.unapproved === true) rec.visual_check = loopReceipt.visual_check;
         checkAbort();
       }
 
+      if (jobUsesOverlay(pathPack,rec.formats,rec.route)) {
+        const accepted = validateOverlayPair(JSON.parse(readSafe(path.join(stage,'loop','accepted.overlay.json')) || 'null'),buildScript,{videoSeconds:plan.nframes/30});
+        if (!loopReceipt || JSON.stringify(accepted) !== JSON.stringify(plan.overlaySpec)) throw new StartError('look_failed',502);
+      }
       // 5. Build in the isolated runner. The job request has no say in image, command or limits.
       step(rec, 'building');
       try {

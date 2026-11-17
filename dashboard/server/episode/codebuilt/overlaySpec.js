@@ -1,5 +1,17 @@
 // codex · gpt-6.1-sol · 2026-11-17 13:53 +02:00
-export { jobUsesOverlay } from './skills.js';
+import crypto from 'node:crypto';
+import { cleanJobFormats } from './skills.js';
+export function jobUsesOverlay(pack, formats, route) {
+ return route === 'overlay' || route === 'authored' || cleanJobFormats(formats).some(name => pack?.rules?.formats?.[name]?.overlay === true);
+}
+// codex · gpt-6.1-sol · 2026-11-17 17:25 +02:00: builds and overlays are resumed only as a validated pair.
+export function overlayPair(build, spec, options) {
+ return {version:1, build_sha256:crypto.createHash('sha256').update(build).digest('hex'), spec:validateOverlaySpec(spec,options)};
+}
+export function validateOverlayPair(pair, build, options) {
+ if (!pair || pair.version !== 1 || pair.build_sha256 !== crypto.createHash('sha256').update(build).digest('hex')) fail('bad_pair','');
+ return validateOverlaySpec(pair.spec,options);
+}
 // Contract 2.3. Keep error order and paths in parity with post/overlay.py.
 export class OverlaySpecError extends Error {
   constructor(code, where = '') { super(`overlay.json: ${code} at ${where || 'top level'}`); this.code = code; this.where = where; }
