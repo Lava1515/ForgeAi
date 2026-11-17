@@ -41,6 +41,20 @@ def test_counter_shows_for_its_window_and_draws_pixels():
     assert np.array_equal(np.asarray(im2), np.asarray(blank))
 
 
+def test_counter_is_visible_on_first_frame_and_large_finite_values_format():
+    a = anchors({"0": {"v": {"n": 1e30}}})
+    ov = overlay.Overlay(spec(counter={"value": "n", "format": "int_commas", "from": 0, "to": 1}), a, W, H)
+    assert ov.pieces(0, 0)[0]["alpha"] == 1
+    assert overlay.format_value(1e30, "int_commas") == "1,000,000,000,000,000,000,000,000,000,000"
+    for fmt in overlay.FORMATS:
+        assert overlay.format_value(1e308, fmt)
+
+
+def test_layout_checks_the_animated_box():
+    piece = {"id": "big[0]", "box": (10, 10, 80, 80), "scale": 1.5, "alpha": 1}
+    assert ("outside_safe_zone", ("big[0]",)) in overlay.frame_findings([piece], None, (0, 0, 100, 100))
+
+
 def test_label_pops_in_at_from_and_points_at_its_anchor():
     ov = overlay.Overlay(spec(labels=[{"anchor": "a", "title": "DEEPEST MINE", "value": "4 km", "from": 1.0, "to": 2.0}]), still(), W, H)
     assert kinds(ov, 29, 0.99) == []

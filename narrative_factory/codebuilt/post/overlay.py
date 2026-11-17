@@ -17,7 +17,7 @@ import math
 import os
 import re
 import stat
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -181,7 +181,10 @@ def names_used(spec):
 
 
 def _half_up(x, places):
-    return Decimal(repr(float(x))).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+    number = Decimal(repr(float(x)))
+    with localcontext() as ctx:
+        ctx.prec = max(28, number.adjusted() + places + 3)
+        return number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
 
 
 def format_value(x, fmt):
@@ -244,7 +247,15 @@ def _inside(box, safe):
 
 def frame_findings(pieces, caption_box, safe):
     """Blocking layout problems of one frame: (code, element ids). Pieces fully faded out are skipped."""
-    shown = [p for p in pieces if p.get("alpha", 1.0) > 0]
+    shown = []
+    for piece in pieces:
+        if piece.get("alpha", 1.0) <= 0:
+            continue
+        p = dict(piece)
+        x, y, w, h = p["box"]
+        scale = p.get("scale", 1.0)
+        p["box"] = (x + w * (1 - scale) / 2, y + h * (1 - scale) / 2, w * scale, h * scale)
+        shown.append(p)
     out = [("outside_safe_zone", (p["id"],)) for p in shown if not _inside(p["box"], safe)]
     if caption_box is not None:
         out += [("caption_overlap", (p["id"],)) for p in shown if _intersects(p["box"], caption_box)]
@@ -441,12 +452,12 @@ class Overlay:
             if v is not None:
                 text = format_value(v, c["format"]) + (f" {c['unit']}" if c.get("unit") else "")
                 sp = self._counter_sprite(text)
-                out.append({"kind": "counter", "id": "counter", "sprite": sp, "alpha": _window_alpha(c, t), "scale": 1.0,
+                out.append({"kind": "counter", "id": "counter", "sprite": sp, "alpha": 1.0, "scale": 1.0,
                             "box": (round(cx - sp.width / 2), self._stack["counter"], sp.width, sp.height), "text": text})
         for i, b in enumerate(spec["big"]):
             if _on(b, t):
                 sp = self._big_sprite(i)
-                pop = 0.6 + 0.4 * _ease_out_back((t - b["from"]) / BIG_POP)
+                pop = min(1.0, 0.6 + 0.4 * _ease_out_back((t - b["from"]) / BIG_POP))
                 out.append({"kind": "big", "id": f"big[{i}]", "sprite": sp, "scale": pop,
                             "alpha": _smooth(b["from"], b["from"] + 0.08, t) * (1 - _smooth(b["to"] - FADE_OUT, b["to"], t)),
                             "box": (round(cx - sp.width / 2), self._stack[f"big[{i}]"], sp.width, sp.height), "text": b["text"]})
@@ -534,7 +545,7 @@ class Overlay:
         px = min(max(ax, box[0]), box[0] + w)
         py = box[1] + h if box[1] + h <= ay else (box[1] if box[1] >= ay else ay)
         alpha = _smooth(lab["from"], lab["from"] + 0.12, t) * (1 - _smooth(lab["to"] - FADE_OUT, lab["to"], t))
-        scale = 0.6 + 0.4 * _ease_out_back((t - lab["from"]) / LABEL_POP)
+        scale = min(1.0, 0.6 + 0.4 * _ease_out_back((t - lab["from"]) / LABEL_POP))
         return {"kind": "label", "id": f"labels[{i}]", "sprite": sp, "alpha": alpha, "scale": scale, "box": box,
                 "pointer": ((ax, ay), (px, py)), "text": lab["title"]}
 
