@@ -1,0 +1,507 @@
+{
+ "version": 1,
+ "contract": "overlay.json, plan 2026-11-17 section 2.3",
+ "cases": [
+  {
+   "file": "valid/plan-example.json",
+   "videoSeconds": 27.3,
+   "ok": true,
+   "note": "the example of contract 2.3"
+  },
+  {
+   "file": "valid/version-only.json",
+   "videoSeconds": 27.3,
+   "ok": true,
+   "note": "every element is optional"
+  },
+  {
+   "file": "valid/no-video-length.json",
+   "videoSeconds": null,
+   "ok": true,
+   "note": "videoSeconds null: the to <= video check is skipped"
+  },
+  {
+   "file": "valid/limits-at-max.json",
+   "videoSeconds": 27.3,
+   "ok": true,
+   "note": "every count and length at its limit; to == videoSeconds allowed"
+  },
+  {
+   "file": "valid/all-characters.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "valid/format-int.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "valid/format-int_commas.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "valid/format-one_decimal.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "valid/format-two_decimals.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "valid/format-year.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "valid/format-times.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "valid/integer-and-float-times.json",
+   "videoSeconds": 27.3,
+   "ok": true
+  },
+  {
+   "file": "invalid/not-json.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "not_json",
+   "where": ""
+  },
+  {
+   "file": "invalid/nan-token.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "not_json",
+   "where": "",
+   "note": "NaN and Infinity are not JSON"
+  },
+  {
+   "file": "invalid/too-large.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "too_large",
+   "where": "",
+   "note": "more than 65536 bytes of UTF-8 text; checked before parsing"
+  },
+  {
+   "file": "invalid/root-array.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "not_object",
+   "where": ""
+  },
+  {
+   "file": "invalid/root-null.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "not_object",
+   "where": ""
+  },
+  {
+   "file": "invalid/unknown-root-key.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "unknown_key",
+   "where": "extra"
+  },
+  {
+   "file": "invalid/version-missing.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "version"
+  },
+  {
+   "file": "invalid/version-2.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_version",
+   "where": "version"
+  },
+  {
+   "file": "invalid/version-string.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_version",
+   "where": "version"
+  },
+  {
+   "file": "invalid/version-true.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_version",
+   "where": "version"
+  },
+  {
+   "file": "invalid/counter-array.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_type",
+   "where": "counter"
+  },
+  {
+   "file": "invalid/counter-null.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_type",
+   "where": "counter"
+  },
+  {
+   "file": "invalid/labels-object.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_type",
+   "where": "labels"
+  },
+  {
+   "file": "invalid/label-not-object.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_type",
+   "where": "labels[1]"
+  },
+  {
+   "file": "invalid/too-many-labels.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "too_many",
+   "where": "labels"
+  },
+  {
+   "file": "invalid/too-many-measures.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "too_many",
+   "where": "measures"
+  },
+  {
+   "file": "invalid/too-many-bars.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "too_many",
+   "where": "bars"
+  },
+  {
+   "file": "invalid/too-many-big.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "too_many",
+   "where": "big"
+  },
+  {
+   "file": "invalid/unknown-counter-key.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "unknown_key",
+   "where": "counter.color"
+  },
+  {
+   "file": "invalid/label-format-string.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "unknown_key",
+   "where": "labels[0].fmt"
+  },
+  {
+   "file": "invalid/counter-missing-value.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "counter.value"
+  },
+  {
+   "file": "invalid/counter-missing-format.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "counter.format"
+  },
+  {
+   "file": "invalid/label-missing-anchor.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "labels[0].anchor"
+  },
+  {
+   "file": "invalid/label-missing-title.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "labels[0].title"
+  },
+  {
+   "file": "invalid/measure-missing-b.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "measures[0].b"
+  },
+  {
+   "file": "invalid/measure-missing-text.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "measures[0].text"
+  },
+  {
+   "file": "invalid/bar-missing-max.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "bars[0].max"
+  },
+  {
+   "file": "invalid/big-missing-text.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "big[0].text"
+  },
+  {
+   "file": "invalid/tag-missing-to.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "tag.to"
+  },
+  {
+   "file": "invalid/tag-missing-from.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "missing_key",
+   "where": "tag.from"
+  },
+  {
+   "file": "invalid/bad-format.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_format",
+   "where": "counter.format"
+  },
+  {
+   "file": "invalid/format-not-string.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_format",
+   "where": "counter.format"
+  },
+  {
+   "file": "invalid/bad-side.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_side",
+   "where": "labels[0].side"
+  },
+  {
+   "file": "invalid/name-uppercase.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_name",
+   "where": "labels[0].anchor"
+  },
+  {
+   "file": "invalid/name-leading-digit.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_name",
+   "where": "counter.value"
+  },
+  {
+   "file": "invalid/name-too-long.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_name",
+   "where": "measures[0].a"
+  },
+  {
+   "file": "invalid/name-dash.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_name",
+   "where": "bars[0].value"
+  },
+  {
+   "file": "invalid/name-not-string.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_type",
+   "where": "labels[0].anchor"
+  },
+  {
+   "file": "invalid/same-anchor.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "same_anchor",
+   "where": "measures[0]"
+  },
+  {
+   "file": "invalid/text-not-string.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_type",
+   "where": "tag.text"
+  },
+  {
+   "file": "invalid/text-empty.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "tag.text"
+  },
+  {
+   "file": "invalid/text-blank.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "tag.text"
+  },
+  {
+   "file": "invalid/text-newline.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "labels[0].title"
+  },
+  {
+   "file": "invalid/text-braces.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "labels[0].value"
+  },
+  {
+   "file": "invalid/text-quote.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "big[0].text"
+  },
+  {
+   "file": "invalid/text-accent.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "tag.text"
+  },
+  {
+   "file": "invalid/text-emoji.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "tag.text"
+  },
+  {
+   "file": "invalid/text-en-dash.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "big[0].text"
+  },
+  {
+   "file": "invalid/text-29.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "text_length",
+   "where": "labels[0].title"
+  },
+  {
+   "file": "invalid/sub-41.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "text_length",
+   "where": "big[0].sub"
+  },
+  {
+   "file": "invalid/unit-29.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "text_length",
+   "where": "counter.unit"
+  },
+  {
+   "file": "invalid/bar-label-blank.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_text",
+   "where": "bars[0].label"
+  },
+  {
+   "file": "invalid/time-string.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_number",
+   "where": "labels[0].from"
+  },
+  {
+   "file": "invalid/time-bool.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_number",
+   "where": "tag.to"
+  },
+  {
+   "file": "invalid/time-overflow.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_number",
+   "where": "tag.to",
+   "note": "1e400 parses to Infinity in both languages"
+  },
+  {
+   "file": "invalid/bar-min-string.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_number",
+   "where": "bars[0].min"
+  },
+  {
+   "file": "invalid/from-negative.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_time",
+   "where": "tag"
+  },
+  {
+   "file": "invalid/from-equals-to.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_time",
+   "where": "big[0]"
+  },
+  {
+   "file": "invalid/from-after-to.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_time",
+   "where": "labels[0]"
+  },
+  {
+   "file": "invalid/to-after-video.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_time",
+   "where": "counter"
+  },
+  {
+   "file": "invalid/bar-min-equals-max.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_range",
+   "where": "bars[0]"
+  },
+  {
+   "file": "invalid/bar-min-above-max.json",
+   "videoSeconds": 27.3,
+   "ok": false,
+   "code": "bad_range",
+   "where": "bars[0]"
+  }
+ ]
+}

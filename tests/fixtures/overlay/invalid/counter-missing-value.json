@@ -1,0 +1,52 @@
+{
+ "version": 1,
+ "counter": {
+  "format": "int_commas",
+  "unit": "m",
+  "label": "DEPTH",
+  "from": 0.0,
+  "to": 27.3
+ },
+ "labels": [
+  {
+   "anchor": "mine",
+   "title": "DEEPEST MINE",
+   "value": "4 km",
+   "from": 7.1,
+   "to": 9.4,
+   "side": "left"
+  }
+ ],
+ "measures": [
+  {
+   "a": "lid_l",
+   "b": "lid_r",
+   "text": "23 cm",
+   "from": 2.1,
+   "to": 4.0
+  }
+ ],
+ "bars": [
+  {
+   "value": "heat",
+   "label": "HEAT",
+   "min": 0,
+   "max": 180,
+   "from": 15.4,
+   "to": 20.3
+  }
+ ],
+ "big": [
+  {
+   "text": "0.2%",
+   "sub": "of the way to the center",
+   "from": 22.5,
+   "to": 26.2
+  }
+ ],
+ "tag": {
+  "text": "KOLA, RUSSIA",
+  "from": 0.0,
+  "to": 3.0
+ }
+}

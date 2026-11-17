@@ -1,0 +1,166 @@
+{
+ "version": 1,
+ "counter": {
+  "value": "abbbbbbbbbbbbbbbbbbbbbbb",
+  "format": "times",
+  "from": 0,
+  "to": 1
+ },
+ "labels": [
+  {
+   "anchor": "p0",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 0,
+   "to": 1,
+   "side": "left"
+  },
+  {
+   "anchor": "p1",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 1,
+   "to": 2,
+   "side": "right"
+  },
+  {
+   "anchor": "p2",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 2,
+   "to": 3,
+   "side": "auto"
+  },
+  {
+   "anchor": "p3",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 3,
+   "to": 4,
+   "side": "left"
+  },
+  {
+   "anchor": "p4",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 4,
+   "to": 5,
+   "side": "right"
+  },
+  {
+   "anchor": "p5",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 5,
+   "to": 6,
+   "side": "auto"
+  },
+  {
+   "anchor": "p6",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 6,
+   "to": 7,
+   "side": "left"
+  },
+  {
+   "anchor": "p7",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 7,
+   "to": 8,
+   "side": "right"
+  },
+  {
+   "anchor": "p8",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 8,
+   "to": 9,
+   "side": "auto"
+  },
+  {
+   "anchor": "p9",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 9,
+   "to": 10,
+   "side": "left"
+  },
+  {
+   "anchor": "p10",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 10,
+   "to": 11,
+   "side": "right"
+  },
+  {
+   "anchor": "p11",
+   "title": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "from": 11,
+   "to": 12,
+   "side": "auto"
+  }
+ ],
+ "measures": [
+  {
+   "a": "m0",
+   "b": "n0",
+   "text": "1",
+   "from": 0,
+   "to": 1
+  },
+  {
+   "a": "m1",
+   "b": "n1",
+   "text": "1",
+   "from": 0,
+   "to": 1
+  },
+  {
+   "a": "m2",
+   "b": "n2",
+   "text": "1",
+   "from": 0,
+   "to": 1
+  },
+  {
+   "a": "m3",
+   "b": "n3",
+   "text": "1",
+   "from": 0,
+   "to": 1
+  }
+ ],
+ "bars": [
+  {
+   "value": "v1",
+   "min": -5,
+   "max": 5.5,
+   "from": 0,
+   "to": 1
+  },
+  {
+   "value": "v2",
+   "min": 0,
+   "max": 1,
+   "from": 0,
+   "to": 1
+  }
+ ],
+ "big": [
+  {
+   "text": "1",
+   "sub": "ssssssssssssssssssssssssssssssssssssssss",
+   "from": 0,
+   "to": 1
+  },
+  {
+   "text": "1",
+   "sub": "ssssssssssssssssssssssssssssssssssssssss",
+   "from": 0,
+   "to": 1
+  },
+  {
+   "text": "1",
+   "sub": "ssssssssssssssssssssssssssssssssssssssss",
+   "from": 0,
+   "to": 1
+  }
+ ],
+ "tag": {
+  "text": "T",
+  "from": 26.0,
+  "to": 27.3
+ }
+}
