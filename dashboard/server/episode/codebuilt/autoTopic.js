@@ -215,7 +215,7 @@ export function createAutoTopicProvider({ askRoleFn = productionTopicAsk, histor
     if (type !== 'teardown' && profile?.niche && !theme) theme = profile.niche;
     let answer;
     const formats = [...new Set([...jobFormatsFor({ profile, type }), ...(Array.isArray(requestedFormats) ? requestedFormats.filter((item) => typeof item === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(item)) : [])])].slice(0, 4);
-    try { answer = await askRoleFn('planner', promptFor({ genre, theme, type, inspiration, previousTopics, profile, formats, picture }), { onCallRecord }); } catch { throw new AutoTopicError('theme_provider_failed'); }
+    try { answer = await askRoleFn('planner', promptFor({ genre, theme, type, inspiration, previousTopics, profile, formats, picture }), { onCallRecord }); } catch (err) { throw new AutoTopicError('theme_provider_failed', { cause: String(err?.code ?? err?.name ?? 'Error') + ': ' + String(err?.message ?? err).replace(/\s+/g, ' ').slice(0, 300) }); }
     const candidates = sanitizeCandidates(answer, { type, profile, formats, picture });
     if (!candidates.length) throw new AutoTopicError('theme_no_candidates');
     const loaded = (() => { try { return history(channelId); } catch { return { videos: [], available: false }; } })();
