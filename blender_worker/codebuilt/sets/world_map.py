@@ -4,7 +4,7 @@ Flat map of the world made of real country shapes (Natural Earth, public domain)
 casts shadows of raised countries. The map is `maps.WorldMap` and sits in the XY plane, north = +Y, camera on the south side. Highlight fills keep the hillshading and animate with `hit["fill"].pose(t)`; `wm.highlight_group(keys, label=...)` fills a set of countries together. Default emission is subtle; no blanket 0.3 limit applies. Highlight, lift, colour, label,
 true-size moves and camera flights: see blender_worker/codebuilt/maps.py and the skill codebuilt-maps. Build options: world_map.build(origin, detail="110m"|"50m",
 projection="equal_earth"|"equirectangular"|"mercator", palette="relief"|"continents"|"muted"|"flat", highlight="BRA", only=[...], bbox=(lon0, lat0, lon1, lat1), relief=True).
-Handles: map (the WorldMap), countries (iso -> object), sea.
+Handles: map (the WorldMap), countries (iso -> object), sea. A regional bbox includes one bbox-width of neighboring context and clips the sea to that padded equirectangular crop; close crops use a lower relief boost.
 Default projection is equirectangular with relief=True. Equal Earth and Mercator require relief=False; use Equal Earth without relief for area comparisons.
 """
 from .. import maps

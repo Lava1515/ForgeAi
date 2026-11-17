@@ -374,7 +374,8 @@ class WorldMap:
         if relief and projection != "equirectangular":
             raise ValueError("relief requires equirectangular projection; use relief=False for equal_earth/mercator")
         self.relief = relief
-        self.relief_strength = float(relief_strength)
+        crop = _padded_bbox(bbox)
+        self.relief_strength = _zoom_relief_strength(relief_strength, crop)
         self.c, self.projection, self.scale = c, projection, float(scale)
         self.origin = tuple(float(v) for v in origin)
         self.thickness = float(thickness)
@@ -393,11 +394,19 @@ class WorldMap:
         for cty in self.data:
             if cty.iso in skip or (want is not None and cty.iso not in want):
                 continue
-            if bbox is not None and not (cty.bbox[0] <= bbox[2] and cty.bbox[2] >= bbox[0] and cty.bbox[1] <= bbox[3] and cty.bbox[3] >= bbox[1]):
+            if crop is not None and not (cty.bbox[0] <= crop[2] and cty.bbox[2] >= crop[0] and cty.bbox[1] <= crop[3] and cty.bbox[3] >= crop[1]):
                 continue
             self._add(cty, materials, meshes)
         sx0, sy0, sx1, sy1 = self.extent()
-        mx, my = (sx1 - sx0) * sea_margin, (sy1 - sy0) * sea_margin
+        if crop is not None:
+            # Keep the sea inside this regional set's padded crop. The default x4
+            # extent margin is useful on a world map but leaks across nearby sets.
+            cx0, cy0 = self.xy(crop[0], crop[1])
+            cx1, cy1 = self.xy(crop[2], crop[3])
+            sx0, sy0, sx1, sy1 = min(cx0, cx1), min(cy0, cy1), max(cx0, cx1), max(cy0, cy1)
+            mx = my = 0.0
+        else:
+            mx, my = (sx1 - sx0) * sea_margin, (sy1 - sy0) * sea_margin
         sea_col = tuple(sea_color) if sea_color is not None else materials.MAP_SEA
         sea_mat = materials.map_sea("map_sea", sea_col, geographic=self.relief)
         cx, cy = (sx0 + sx1) / 2, (sy0 + sy1) / 2
@@ -538,12 +547,16 @@ class WorldMap:
             else:
                 self.set_color(iso, col, emission=0.05)
 
-    def set_lift(self, key, height):
+    def set_lift(self, key, height, _from_fill=False):
         """Raise a country's top face (and its border) to thickness + height; the walls stretch. Absolute, so call it per frame.
         A highlight glow follows the face."""
         iso = self.data.find(key).iso
         ob = self.country(iso)
         info = self._info[iso]
+        active = self._hl.get(iso)
+        if active is not None and not _from_fill:
+            active["fill"].auto_lift = False
+            active["fill"].lift = float(height)
         me = ob.data
         co = np.empty(len(me.vertices) * 3)
         me.vertices.foreach_get("co", co)
@@ -586,6 +599,12 @@ class WorldMap:
             if hl is None:
                 self._set_ribbon(iso, self.border)
             else:
+                fill = hl["fill"]
+                if fill.auto_lift:
+                    width, height = self.project_size_km(iso)
+                    country_span = max(width, height) * self.scale / R_KM
+                    fill.lift = min(0.02 * country_span, 15.0 * self.border)
+                    self.set_lift(iso, fill.lift * _smooth(fill.t or 0.0), _from_fill=True)
                 hl["fill"]._resize_border()
 
     def project_size_km(self, key, parts="auto"):
@@ -610,7 +629,7 @@ class WorldMap:
                   outline=True, glow=True, label=None, label_span=None, show=1.0, outline_width=2.5):
         """Fill, outline, glow and lift a country. On the relief map the fill keeps the hillshading; outline is a crisp ribbon in a lighter
         tint of the fill (2.5x the border width), glow a soft additive halo around it (7x the border width; glow=False drops it, a number
- sets its strength). lift None: min(0.25, 15 x the border width), so a close-up after set_border gets a small step.
+        sets its strength). lift None: about 2% of the country's projected width, capped by 15x the border width; set_border recomputes it.
         outline_width: outline as a multiple of the border width. color="auto" (or None) takes the next HIGHLIGHTS colour. A country whose box is smaller than marker_below_km on
         the map also gets a marker ring and pin so it stays visible in a world view (marker_radius in world units; the default suits the
         world view, use about 0.05 to 0.1 for a close-up). label: True (the country's name) or a text puts a label on or beside it;
@@ -641,9 +660,12 @@ class WorldMap:
         if label:
             text = cty.name if label is True else str(label)
             lbl = self.label(text, iso, span=label_span)
-        if lift is None:
-            lift = min(0.25, 15.0 * self.border)
-        fill = Fill(self, iso, color, lift, emission, ol_mat, halo, glow_s, lbl, mk, outline_width)
+        auto_lift = lift is None
+        if auto_lift:
+            width, height = self.project_size_km(iso, parts)
+            country_span = max(width, height) * self.scale / R_KM
+            lift = min(0.02 * country_span, 15.0 * self.border)
+        fill = Fill(self, iso, color, lift, emission, ol_mat, halo, glow_s, lbl, mk, outline_width, auto_lift=auto_lift)
         self._hl[iso] = dict(fill=fill, halo=halo, outline=ol_mat)
         fill.pose(show)
         return dict(obj=self.objs[iso], marker=mk, fill=fill, label=lbl, halo=halo, color=color)
@@ -943,6 +965,27 @@ def _smooth(t):
     return e * e * (3 - 2 * e)
 
 
+def _padded_bbox(bbox):
+    """Return a region crop with one source-box of geographic context on each side."""
+    if bbox is None:
+        return None
+    lon0, lat0, lon1, lat1 = (float(v) for v in bbox)
+    dx, dy = lon1 - lon0, lat1 - lat0
+    if dx <= 0 or dy <= 0:
+        raise ValueError("bbox must have positive width and height")
+    return (max(-180.0, lon0 - dx), max(-85.0, lat0 - dy),
+            min(180.0, lon1 + dx), min(85.0, lat1 + dy))
+
+
+def _zoom_relief_strength(strength, bbox):
+    """Reduce raster hillshade for regional crops while leaving world maps unchanged."""
+    if bbox is None:
+        return float(strength)
+    lon0, lat0, lon1, lat1 = bbox
+    zoom_fraction = min(1.0, max((lon1 - lon0) / 360.0, (lat1 - lat0) / 180.0))
+    return float(strength) * max(0.25, zoom_fraction)
+
+
 def _pop(t):
     """Scale for a label popping in: 0 -> a 12 percent overshoot -> 1 (t 0..1)."""
     e = min(1.0, max(0.0, float(t)))
@@ -954,8 +997,9 @@ class Fill:
     the country rises to its lift, the border ribbon widens into the lighter outline, the glow fades in and the label pops in. Absolute:
     call it per frame. .t is the last pose."""
 
-    def __init__(self, wm, iso, color, lift, emission, outline, halo, glow, label, marker, outline_width=2.5):
+    def __init__(self, wm, iso, color, lift, emission, outline, halo, glow, label, marker, outline_width=2.5, auto_lift=False):
         self.wm, self.iso, self.color, self.lift, self.emission = wm, iso, color, float(lift), float(emission)
+        self.auto_lift = bool(auto_lift)
         self.outline_width, self.outline_color = float(outline_width), _lighter(color)
         self.outline, self.halo, self.glow, self.label, self.marker = outline, halo, glow, label, marker
         self.t = None
@@ -1012,7 +1056,7 @@ class Fill:
         side = next(n for n in ob.data.materials[1].node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
         target_side = (*(v * (0.45 if self.base_mix is not None else 0.55) for v in self.color), 1)
         materials.set_inputs(side, Base_Color=tuple(p + (v - p) * e for p, v in zip(self.base_side, target_side)))
-        wm.set_lift(self.iso, self.lift * e)
+        wm.set_lift(self.iso, self.lift * e, _from_fill=True)
         if self.outline is not None:
             em = next(n for n in self.outline.node_tree.nodes if n.type == 'EMISSION')
             oc, bc = self.outline_color, wm.border_color

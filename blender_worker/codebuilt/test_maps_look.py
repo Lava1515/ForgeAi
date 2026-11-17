@@ -108,6 +108,7 @@ def _map_state(monkeypatch, mix=1.0, palette='muted'):
     cty = NS(iso='BRA', name='Brazil', continent='South America')
     wm.data = NS(find=lambda key: cty)
     wm.border, wm.eps, wm.origin, wm.land_glow = .02, .005, (0, 0, 0), .2
+    wm.scale = 4.0
     wm.border_color, wm._border_set = (.1, .1, .1), False
     wm._hl, wm._labels = {}, []
     ring = np.array([(0, 0), (4, 0), (4, 4), (0, 4)], float)
@@ -117,7 +118,7 @@ def _map_state(monkeypatch, mix=1.0, palette='muted'):
     co = np.vstack([np.column_stack([ring, np.full(4, z)]) for z in (.1, 0, .105, .105)])
     wm.objs = {'BRA': _Object(co, [top, side, wm._border_mat])}
     wm._info = {'BRA': dict(n=4, top_z=.1, rings=[ring], col=col, lift=0)}
-    wm.project_size_km = lambda *args: (2000, 2000)
+    wm.project_size_km = lambda *args: (20000, 20000)
     def outline(*args):
         return NS(node_tree=NS(nodes=_Nodes(em=NS(type='EMISSION', inputs=[NS(default_value=None), NS(default_value=None)]))))
     monkeypatch.setattr(materials, 'map_outline', outline)
@@ -193,7 +194,7 @@ def test_border_resize_preserves_overrides_and_updates_geometry(monkeypatch, out
     label_scale = hit['label'].scale
     wm.set_border(.007)
     assert _appearance(wm) == before
-    assert wm._info['BRA']['lift'] == .9 and halo.location.z == .9
+    assert wm._info['BRA']['lift'] == .9 and halo.location.z == .9 and hit['fill'].lift == .9
     assert hit['label'].scale == label_scale and hit['fill'].t == .5
     assert wm.objs['BRA'].data.vertices.co[:, 2] == pytest.approx(co[:, 2])
     factor = 1.75 if outline else 1
@@ -208,6 +209,24 @@ def test_border_without_highlight_outline_resizes(monkeypatch):
     before = wm.objs['BRA'].data.vertices.co.copy()
     wm.set_border(.007)
     assert not np.allclose(wm.objs['BRA'].data.vertices.co[12:16, :2], before[12:16, :2])
+
+
+def test_automatic_highlight_lift_tracks_closeup_border(monkeypatch):
+    wm = _map_state(monkeypatch)
+    hit = wm.highlight('BRA', outline=False, glow=False)
+    assert hit['fill'].lift == pytest.approx(0.02 * 20000 * 4 / maps.R_KM)
+    wm.set_border(.0005)
+    assert hit['fill'].lift == pytest.approx(.0075)  # close-up width now limits the lift
+    assert wm._info['BRA']['lift'] == pytest.approx(.0075)
+    wm.set_border(.00025)
+    assert hit['fill'].lift == pytest.approx(.00375)
+
+
+def test_regional_bbox_adds_context_and_reduces_relief():
+    padded = maps._padded_bbox((19, 34, 28, 41))
+    assert padded == pytest.approx((10, 27, 37, 48))
+    assert maps._zoom_relief_strength(6.0, padded) == pytest.approx(1.5)
+    assert maps._zoom_relief_strength(6.0, None) == pytest.approx(6.0)
 
 
 def test_replacement_retires_old_label_plate_and_halo(monkeypatch):
