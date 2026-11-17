@@ -513,7 +513,8 @@ export function createCodebuiltStarter({
       // The sheet reader confines text inputs to this round, beside the build pair.
       const words = path.join(dir,'words.json');
       fs.copyFileSync(voice.wordsPath,words);
-      return sheetMaker.makeSheets({...args,words,overlaySpec:raw,nframes,jobRoot:dir});
+      const anchors = path.join(dir,'anchors-preview.json');
+      return sheetMaker.makeSheets({...args,words,overlaySpec:raw,...(fs.existsSync(anchors) ? {anchors} : {}),nframes,jobRoot:dir});
     };
     try {
       return await run({

@@ -33,7 +33,7 @@ for (const scenario of ['missing','stale','invalid','preview-failure','final-fai
     const overlay = true;
     const pathPack = { id: 'codebuilt', skills: [], ...(overlay ? {rules:{formats:{journey:{overlay:true}}}} : {}) };
     const newBuild = "from blender_worker.codebuilt import anchors\ndef shot(t):\n anchors.mark('new_point',(0,0,0))\n";
-    const overlaySpec = {version:1,tag:{text:'NEW',from:0,to:1}};
+    const overlaySpec = {version:1,labels:[{anchor:'new_point',title:'NEW',from:0,to:1,side:'left'}]};
     const wav = wavFixture();
     fs.writeFileSync(path.join(state, 'script.txt'), script);
     fs.writeFileSync(path.join(state, 'brief.md'), brief);
@@ -54,7 +54,7 @@ for (const scenario of ['missing','stale','invalid','preview-failure','final-fai
   const classic = scenario === 'classic';
   if (classic) fs.writeFileSync(path.join(state,'pathpack.json'),JSON.stringify({id:'codebuilt',skills:[]}));
   fs.writeFileSync(path.join(state,'status.json'),JSON.stringify({version:START_VERSION,id,topic:'Resume pair',duration:30,voice:'aiden',...(classic?{}:{formats:['journey']}),status:'failed',step:'looking',steps:[]}));
-  let plans=0; let finals=0; const previewIds=[];
+  let plans=0; let finals=0; let looks=0; const previewIds=[];
   const runner=createBuildJobRunner({root,inputRoots:[state],produceOutputs:createHostOutputProducer({execFileFn:hostExecFile}),runIsolatedJob:async ({jobDir})=>{
     if (fs.existsSync(path.join(jobDir,'work','preview.json'))) {
       previewIds.push(path.basename(jobDir));
@@ -62,6 +62,7 @@ for (const scenario of ['missing','stale','invalid','preview-failure','final-fai
       const spec=JSON.parse(fs.readFileSync(path.join(jobDir,'work','preview.json')));
       const out=path.join(jobDir,'preview'); fs.mkdirSync(out,{recursive:true});
       execFileSync('python',['-c',`from PIL import Image; import sys,json,pathlib; d=pathlib.Path(sys.argv[1]); frames=json.loads(sys.argv[2]); im=Image.effect_noise((540,960),80).convert('RGB'); [im.save(d/('%04d.png'%f)) for f in frames]`,out,JSON.stringify(spec.frames)]);
+      fs.writeFileSync(path.join(jobDir,'work','anchors-preview.json'),JSON.stringify({version:1,width:540,height:960,frames:Object.fromEntries(spec.frames.map(f=>[String(f),{p:{new_point:[0.7,0.35,1]},v:{}}]))}));
 
       return {status:'ok',ok:true};
     }
@@ -70,12 +71,15 @@ for (const scenario of ['missing','stale','invalid','preview-failure','final-fai
   if (['missing','stale','invalid'].includes(scenario)) {
     await runner.run({jobId:id+'-a0-pv1',kind:'generated-code',mode:'preview',script,brief,voWav:path.join(state,'vo.wav'),words:path.join(state,'words.json'),pathPack,buildScript:cachedBuild,overlaySpec:{version:1,tag:{text:'OLD',from:0,to:1}},previewFrames:[0],previewScale:50,timeoutMs:30000});
   }
-  const starter=createCodebuiltStarter({jobsDir:root,episodesRoot:path.join(root,'episodes'),planner:{KIT_CONTRACT:'kit',validateBuildScript:()=>[],planCodebuiltBuild:async()=>{plans++;return {buildScript:newBuild,overlaySpec,shotStarts:[0],nframes:955,places:['room']};}},validateReusableBuild:()=>[],composeRunner:async()=>({runner}),visualLoop:{probe:async()=>({passed:true}),askLook:async(text,images)=>({text:JSON.stringify({verdict:'pass',sheet_codes:[...new Set([...text.matchAll(/code in its header: ([A-Z0-9]{5})/g)].map(m=>m[1]))],shots:[{id:'shot-0',sees:'Visible subject and camera.',ok:true}],findings:[]}),receipt:{noSessionPersistence:true,toolsOffered:0,transport:'stdin-image-blocks',imageCount:images.length,imageSha256:images.map(i=>hash(i.bytes)),promptSha256:hash(text)}})}});
+  const priorPreviewCount=previewIds.length;
+  const starter=createCodebuiltStarter({jobsDir:root,episodesRoot:path.join(root,'episodes'),planner:{KIT_CONTRACT:'kit',validateBuildScript:()=>[],planCodebuiltBuild:async()=>{plans++;return {buildScript:newBuild,overlaySpec,shotStarts:[0],nframes:955,places:['room']};}},validateReusableBuild:()=>[],composeRunner:async()=>({runner}),visualLoop:{probe:async()=>({passed:true}),askLook:async(text,images)=>(looks++,{text:JSON.stringify({verdict:'pass',sheet_codes:[...new Set([...text.matchAll(/code in its header: ([A-Z0-9]{5})/g)].map(m=>m[1]))],shots:[{id:'shot-0',sees:'Visible subject and camera.',ok:true}],findings:[]}),receipt:{noSessionPersistence:true,toolsOffered:0,transport:'stdin-image-blocks',imageCount:images.length,imageSha256:images.map(i=>hash(i.bytes)),promptSha256:hash(text)}})}});
   const first=starter.resume(id); await starter.idle();
   assert.equal(first.resumes.at(-1).fromStep, ['missing','stale','invalid'].includes(scenario)?'planning':'visual_loop');
   assert.equal(plans,['missing','stale','invalid'].includes(scenario)?1:0);
   assert.equal(starter.get(id).error?.code,scenario === 'preview-failure' || classic?'preview_failed':'build_failed');
   if (!classic) {
+    assert.ok(previewIds.length>priorPreviewCount);
+    assert.ok(previewIds.slice(priorPreviewCount).every(id=>id.includes('-a1-pv')),'first resume carries attempt 1 independently of round numbering');
     const roundDirs=fs.readdirSync(path.join(state,'loop')).filter(n=>/^r[0-9]+$/.test(n));
     for (const name of roundDirs) {
       const dir=path.join(state,'loop',name); if(name==='r1' && ['missing','stale','invalid'].includes(scenario)) continue;
@@ -83,7 +87,9 @@ for (const scenario of ['missing','stale','invalid','preview-failure','final-fai
     }
     if(scenario !== 'preview-failure') {
       const pair=JSON.parse(fs.readFileSync(path.join(state,'loop','accepted.overlay.json'))); assert.equal(pair.build_sha256,hash(fs.readFileSync(path.join(state,'loop','accepted.build.py'))));
+      const acceptedLooks=looks;
       starter.resume(id); await starter.idle(); assert.equal(finals,2,'retry reaches real runner with identical accepted inputs'); assert.equal(starter.get(id).error?.code,'build_failed');
+      assert.equal(looks,acceptedLooks,'accepted final retry reuses receipt without another look');
     } else {starter.resume(id);await starter.idle();assert.equal(new Set(previewIds).size,previewIds.length);}
     assert.ok(previewIds.every(id=>/-a[012]-pv[0-9]+$/.test(id)));
   } else assert.ok(previewIds.every(id=>!/-a[0-9]+-pv/.test(id)));
