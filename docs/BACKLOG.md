@@ -25,11 +25,11 @@ Owner orders 13:14 and 13:34; binding contracts, lane requirements and proofs: `
 | KB1 | Builder overlay contract | PARKED ad0c718; review2 FIX: resume folder collision and overlay AST bypasses | `planner.js`, `overlaySpec.js`, `start.js`, `runJob.js`, `jobFolder.js`, tests; validated immutable overlay input, bounded repair, unchanged old path. |
 | KP1 | Previews show final text | MERGED 51b88ce; captions and labels visible in fenced proof | `post/preview_sheet.py`, `previewSheet.js`, `visualLoop.js`, `visualLoopPrompts.js`, tests; captions/overlay on tiles and smoke proof. |
 | KS1 | Sound follows the story | MERGED 2874202; final review pass, phase 1 clip levels pending | `post/cb5.py` cue part, `blender_worker/codebuilt/audio.py`, tests; overlay-derived ping/boom/whoosh and counter tone, measured levels/stems, legacy sound unchanged; nobody listened. |
-| KE0 | Author design note | WAITING PHASE 1 DONE + push | Reviewed design before code; section 6 restrictions binding, Sonnet author, KR1 render recommendation and measured token cap. |
-| KE1 | One author session | WAITING KE0 approval | `authorLoop.js`, `authorCall.js`, `start.js` switch; host-run fenced previews, no command/network tools, mode off by default. |
-| KE2 | Author validator profile | WAITING KE0 approval | `planner.js` second profile; keep forbidden list, fence and previewed-hash gate. |
-| KE3 | Author security review and fixes | WAITING KE1 + KE2 | Different model family reviews tool scope, files, caps, hashes and fence with applied probes. |
-| KX2 | Fenced author proof | WAITING KE3 | Kola scene built in author mode inside fence, beside handmade frames; no pipeline video run or draft. |
+| KE0 | Author design note | PARKED; KE0 design review FIX, dependency/scope/security/cap gaps | Reviewed design before code; section 6 restrictions binding, Sonnet author, KR1 render recommendation and measured token cap. |
+| KE1 | One author session | PARKED; approved Kola design blocked by KB1; generic fallback not adopted | `authorLoop.js`, `authorCall.js`, `start.js` switch; host-run fenced previews, no command/network tools, mode off by default. |
+| KE2 | Author validator profile | PARKED; approved Kola design blocked by KB1; generic fallback not adopted | `planner.js` second profile; keep forbidden list, fence and previewed-hash gate. |
+| KE3 | Author security review and fixes | PARKED; no approved KE1/KE2 implementation to review | Different model family reviews tool scope, files, caps, hashes and fence with applied probes. |
+| KX2 | Fenced author proof | PARKED; KB1 overlay integration and author implementation unavailable | Kola scene built in author mode inside fence, beside handmade frames; no pipeline video run or draft. |
 
 Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan: ForgeBrain/plans/2026-11-15-parallel-lanes.md. All branch changes require cross-family review and zero active jobs before merge; GPU proofs remain serial.
 
@@ -156,4 +156,7 @@ Updated 2026-11-17 10:45 +02:00 by codex · gpt-6.1-sol: SP2 merged after final 
 Updated 2026-11-17 14:18 +02:00 by codex · gpt-6.1-sol: rotation took over; reconciled KS1/KP1 merges and KB1 active security review. Phase 1 proofs remain pending.
 
 Updated 2026-11-17 15:05 +02:00 by codex · gpt-6.1-sol: KB1 parked after second independent review FIX (kb1-review2/REVIEW.md); branch preserved, no third fix cycle. Other merged lanes remain; integrated phase 1 proofs and phase 2 dependency assessment pending.
+
+
+Updated 2026-11-17 15:19 +02:00 by codex · gpt-6.1-sol: Kola phase 2 disposition closed as PARKED. KE0 design and different-family review saved under output/agent-jobs/ke0-design and ke0-review1. No generic 3D-text fallback or new KX1 proof adopted. KB1 remains parked; integrated flag-on proof and combined real-clip levels incomplete. Main code gates:195server/401Python, no runtime activation or publishing.
 
