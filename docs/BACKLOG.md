@@ -14,7 +14,7 @@ run with the spare workers, one worker or two each, and never on a file another 
 
 ### Kola phase 1 · 2026-11-17 13:15 +02:00 · codex · gpt-6.1-sol
 
-Owner order 13:14; binding contracts, lane requirements and proofs: `ForgeBrain/plans/2026-11-17-kola-into-pipeline-fleet-plan.md` sections 2–5. Exactly these six lanes; no video run, dashboard start, publishing or phase 2 work.
+Owner orders 13:14 and 13:34; binding contracts, lane requirements and proofs: `ForgeBrain/plans/2026-11-17-kola-into-pipeline-fleet-plan.md` sections 2–5, 3a, 3b and 6a. Updated 2026-11-17 13:34 +02:00 by codex · gpt-6.1-sol: KS1 added, KJ1 story rule required; after phase 1 proof and push, continue approved phase 2 with Sonnet as author. No video run, dashboard start or publishing. Stop after phase 2.
 
 | Id | Lane | State | Files and done when |
 |---|---|---|---|
@@ -24,6 +24,12 @@ Owner order 13:14; binding contracts, lane requirements and proofs: `ForgeBrain/
 | KR1 | Render look measurement | BUILDING; report only | Eight Kola frames host EEVEE/container Cycles/container EEVEE; timing, sheet and recommendation under `output/agent-jobs/kr1-render-look/`. |
 | KB1 | Builder overlay contract | WAITING KA1 + KO1 | `planner.js`, `overlaySpec.js`, `start.js`, `runJob.js`, `jobFolder.js`, tests; validated immutable overlay input, bounded repair, unchanged old path. |
 | KP1 | Previews show final text | WAITING KA1 + KO1 | `post/preview_sheet.py`, `previewSheet.js`, `visualLoop.js`, `visualLoopPrompts.js`, tests; captions/overlay on tiles and smoke proof. |
+| KS1 | Sound follows the story | WAITING KO1 | `post/cb5.py` cue part, `blender_worker/codebuilt/audio.py`, tests; overlay-derived ping/boom/whoosh and counter tone, measured levels/stems, legacy sound unchanged; nobody listened. |
+| KE0 | Author design note | WAITING PHASE 1 DONE + push | Reviewed design before code; section 6 restrictions binding, Sonnet author, KR1 render recommendation and measured token cap. |
+| KE1 | One author session | WAITING KE0 approval | `authorLoop.js`, `authorCall.js`, `start.js` switch; host-run fenced previews, no command/network tools, mode off by default. |
+| KE2 | Author validator profile | WAITING KE0 approval | `planner.js` second profile; keep forbidden list, fence and previewed-hash gate. |
+| KE3 | Author security review and fixes | WAITING KE1 + KE2 | Different model family reviews tool scope, files, caps, hashes and fence with applied probes. |
+| KX2 | Fenced author proof | WAITING KE3 | Kola scene built in author mode inside fence, beside handmade frames; no pipeline video run or draft. |
 
 Parallel lanes added 2026-11-15 16:12 +02:00 by codex · gpt-6.1-sol; owner plan: ForgeBrain/plans/2026-11-15-parallel-lanes.md. All branch changes require cross-family review and zero active jobs before merge; GPU proofs remain serial.
 
