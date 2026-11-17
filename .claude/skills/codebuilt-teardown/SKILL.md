@@ -168,3 +168,15 @@ A strong 30–45 second teardown explainer short follows this structure:
 - **Framing:** Exploded, the jet is about 20 m wide, so in a 9:16 frame it fills the width and about 40 percent of the height at `exploded_wide`. Do not zoom in on the whole exploded jet; cut to a close pose instead.
 
 Narration constraint: the example shot beats above illustrate generic mechanisms only. Never infer a real F-117 configuration from this geometry. Fact-check every specific assertion independently; omit unsupported details.
+
+## When text is drawn after the render
+
+Use this section when the job route is `overlay` or `authored`. On those routes the part names are overlay labels, drawn on the finished frames after the render. They are never 3D text: add no text object to the scene, and do not use the kit's `callout` banners or `set_callout_visible`. The kit's text check fails any visible text object, and the render stops.
+
+- **Mark each part.** For every part a label names, get its world point with `anchor_point(part_id)` (use it when it exists; it is a plain function that returns three numbers) and pass that point to `anchors.mark` in the shot that shows the part. Do not hand-place points on screen.
+- **Slow at each part.** Hold the camera on the part for about one second after its label is fully on screen. Never cut away on the word that names it, and never let the camera leave while the label is still fading in.
+- **Write the surfaces for the shot.** Every part on screen gets a node material with dark and bright patches, wear or edge highlights, and patterns large enough to read on a phone. No plain grey and no default material.
+- **Render profile for these routes:** the render profile line in the build prompt wins; today it is AgX with look `AgX - Medium High Contrast`, Cycles at 16 samples. Keep `scene.cycles.device='CPU'` (the fenced executor picks the GPU). Use a low warm key light and a cool fill so the frame keeps its depth.
+- **Keep text clear.** Labels stay out of the top 12 percent and the bottom 20 percent of the frame. Two labels never touch, and a label never covers the part it names.
+- **One label, short.** Each label is a title and, if it helps, one value. Write a number in a label as digits with its unit ("12 km"), the same value the voice says in words, and keep the label to the words the narration uses (at most 28 characters).
+- **Check the sheet.** The preview sheets come back with the text on. Ask of each label: can it be read at phone size, and does it cover the part.
