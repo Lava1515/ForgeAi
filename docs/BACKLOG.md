@@ -1,4 +1,4 @@
-﻿# ForgeAi backlog
+# ForgeAi backlog
 
 One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude-pro Â· claude-sonnet-5-5.
 `READY` = nothing outside the code blocks it; the fleet can take it. `OWNER` = waits on the owner. `PARKED` = the
@@ -159,4 +159,84 @@ Updated 2026-11-17 15:05 +02:00 by codex · gpt-6.1-sol: KB1 parked after second
 
 
 Updated 2026-11-17 15:19 +02:00 by codex · gpt-6.1-sol: Kola phase 2 disposition closed as PARKED. KE0 design and different-family review saved under output/agent-jobs/ke0-design and ke0-review1. No generic 3D-text fallback or new KX1 proof adopted. KB1 remains parked; integrated flag-on proof and combined real-clip levels incomplete. Main code gates:195server/401Python, no runtime activation or publishing.
+
+
+
+### Kola main way waves 1 and 2 · 2026-11-17 17:21 +02:00 · codex · gpt-6.1-sol
+
+Binding plan: ForgeBrain/plans/2026-11-17-kola-main-way-refactor-plan.md sections 2, 3, 6, 7 and 13. Owner order 17:16 lifts KB1 parking. No pipeline video run, dashboard start, publishing or auto release change.
+
+| Id | State | Owned files or scope |
+|---|---|---|
+| U1a | REVIEWING 315e0b5 | dashboard/server/episode/codebuilt/start.js; dashboard/server/episode/codebuilt/visualLoop.js (preview id only); dashboard/server/episode/codebuilt/overlaySpec.js; dashboard/server/episode/engines/codebuilt/jobFolder.js; dashboard/server/episode/codebuilt/runCoordinator.js; new resume integration test file dashboard/server/episode/codebuilt/overlayResume.test.js |
+| U1b | REVIEWED e9ad0ba, awaits U1 integration | blender_worker/codebuilt/shotcheck.py; blender_worker/codebuilt/test_shotcheck.py; dashboard/server/episode/codebuilt/visualLoopPrompts.js (KIT_CHECKS name only) |
+| U1c | REVIEWED 464c938, awaits U1 integration | dashboard/server/episode/codebuilt/planner.js (overlay parts only); dashboard/server/episode/codebuilt/overlaySpec.test.js |
+| T1 | DISPATCHING wave 1 | dashboard/server/episode/codebuilt/autoTopic.js; dashboard/server/episode/codebuilt/theme.js; their dedicated tests; output/agent-jobs/t1-topics/ |
+| RL1 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/rl1-render-look/ only |
+| A0 | ACCEPTED design, review2 MERGE | C:/code/ForgeAi/output/agent-jobs/a0-design/ only |
+| G1 | DISPATCHING wave 1 | .claude/skills/codebuilt-scene-generation/SKILL.md |
+| G2 | DISPATCHING wave 1 | .claude/skills/codebuilt-look-review/SKILL.md |
+| G3 | DISPATCHING wave 1 | .claude/skills/codebuilt-maps/SKILL.md |
+| G4 | DISPATCHING wave 1 | .claude/skills/codebuilt-teardown/SKILL.md |
+| G5 | DISPATCHING wave 1 | .claude/skills/codebuilt-direction/SKILL.md |
+| G6 | DISPATCHING wave 1 | .claude/skills/codebuilt-script/SKILL.md |
+| G7 | DISPATCHING wave 1 | blender_worker/codebuilt/maps.py; new blender_worker/codebuilt/test_maps_anchor_point.py |
+| G8 | DISPATCHING wave 1 | blender_worker/codebuilt/teardown.py; new blender_worker/codebuilt/test_teardown_anchor_point.py |
+| G9 | DISPATCHING wave 1 | dashboard/client/src/components/episode/CodebuiltStart.jsx only |
+| G10 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/map/ only |
+| G11 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/teardown/ only |
+| G12 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/handmade-1118/RUNBOOK.md only |
+| G13 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/g13-captions/ only |
+| G14 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/g14-stages/ only |
+| G15 | RETRYING on clash | C:/code/ForgeAi/output/agent-jobs/classic-baseline/ only |
+| U1 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| O1 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| O1a | WAITING for dependencies | Binding plan sections 4 and 13. |
+| O1b | WAITING for dependencies | Binding plan sections 4 and 13. |
+| O1c | WAITING for dependencies | Binding plan sections 4 and 13. |
+| P1 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| T2 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| G16 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| G17 | WAITING for dependencies | Binding plan sections 4 and 13. |
+| A1 | OWNER | Binding plan sections 4 and 13. |
+| A2 | OWNER | Binding plan sections 4 and 13. |
+| A3 | OWNER | Binding plan sections 4 and 13. |
+| P2 | OWNER | Binding plan sections 4 and 13. |
+| S1 | OWNER | Binding plan sections 4 and 13. |
+
+
+### U1b review follow-ups · 2026-11-17 17:26 +02:00 · codex · gpt-6.1-sol
+
+Reviewer confirms none is S or L; all are C LOW. Accepted for U1 integration under plan section 3.
+
+| Id | State | Follow-up |
+|---|---|---|
+| U1b-C1 | FOLLOW-UP C LOW | Avoid two text_objects walks per checked overlay frame if measured cost warrants it; no scope expansion now. |
+| U1b-C2 | DOCUMENTED C LOW | Preview poses a subset; FONT visible only on unposed frames is caught at final QA. Contract covers posed frames. |
+| U1b-C3 | DOCUMENTED C LOW | MAX_LISTED bounds displayed findings while ok remains false; retain fail-closed behavior. |
+
+
+### A0 final review follow-ups · 2026-11-17 17:35 +02:00 · codex · gpt-6.1-sol
+
+A0 design accepted after review2 MERGE; no S or L, two C LOW follow-ups. No author implementation authorized.
+
+| Id | State | Follow-up |
+|---|---|---|
+| A0-C1 | FOLLOW-UP C LOW | A1 authorCall reads its own raw usage counters; do not change shared usageFrom and classic behavior. |
+| A0-C2 | FOLLOW-UP C LOW | Carry supervisor D3 decline into copied wording; test explicit zero, missing cache/output and adjusted900k stop; over-cap passing call still ends author_tokens. |
+| U1c-C2 | FOLLOW-UP C LOW | Overlay prompt retains capital-letter/readout wording; refine overlay-only text without changing classic prompt. |
+
+
+### U1a accepted review follow-ups · 2026-11-17 17:52 +02:00 · codex · gpt-6.1-sol
+
+U1a508b5ff review2 MERGE; noS/noL, only C LOW. Integration gates still pending.
+
+| Id | State | Follow-up |
+|---|---|---|
+| U1a-F3 | FOLLOW-UP C LOW | Align hostJobReceipts jobWriteBlockedReason attempt-preview locks with reusable lock checks. |
+| U1a-F4a | FOLLOW-UP C LOW | Guard accepted receipt and pair JSON.parse with named errors. |
+| U1a-F4b | FOLLOW-UP C LOW | Make the99-round preview-id limit explicit for repeated resumes. |
+| U1a-F4c | FOLLOW-UP C LOW | Avoid future round overlay.json pair/raw-spec name collision if stage inputs spec is introduced. |
+| U1a-F4d | FOLLOW-UP C LOW | Document overlay history reset and fresh look budget on resume. |
+| U1a-F5 | DOCUMENTED C LOW | Fence-stub anchors prove wrapper pass-through; real fenced P1 proof remains required. |
 
