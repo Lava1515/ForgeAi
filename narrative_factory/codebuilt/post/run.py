@@ -1,6 +1,7 @@
 """CB4 post step: rendered frames + words + audio mix -> graded, captioned video, .srt, contact sheet and a report (KAN-913).
 
     python -m narrative_factory.codebuilt.post.run --frames F --words words.json --audio mix.wav --out OUT --name short [--lead 0.35]
+        [--overlay overlay.json [--anchors anchors.json]]
 
 Input is what a code-built job leaves behind (frames/NNNN.png, words.json, the mixed audio). Nothing is read from or written to any
 other place. The audio mix itself is CB3; this step only muxes the file it is given, delayed by --lead and padded with silence to the video length.
@@ -16,7 +17,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import captions, grade, media, sheet, subtitles
+from . import anchors_file, captions, grade, media, overlay, sheet, subtitles
 
 FPS = 30
 
@@ -59,11 +60,16 @@ def _graded_frame(path, width, height, vig):
 
 
 def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, width=None, height=None, crf=17, preset="medium",
-           sheet_count=12, sheet_cols=6):
+           sheet_count=12, sheet_cols=6, overlay_spec=None, anchors=None):
     """Run the whole post step. Returns the report dict (also written to OUT/NAME.post.json).
 
     Guards first, before anything is written: `name` must be a bare file name, `out_dir` has no '..', every output path must resolve
     inside `out_dir`, and the words and audio inputs must be existing regular files.
+
+    Overlay (KO1): with `overlay_spec` (the host's overlay.json) the text of contract 2.3 is drawn on every graded frame, under the
+    captions, at the positions in `anchors` (the kit's anchors.json, read as untrusted). The report gets an `overlay` block and `ok` is
+    false on a blocking layout finding. `anchors` may be None only when the spec names no anchor and no running number.
+    Without `overlay_spec` nothing changes: same frames, same report keys.
     """
     out_root = media.safe_out_dir(out_dir)
     video, srt, sheet_path, report_path = (media.output_path(out_root, name, suffix)
@@ -78,6 +84,19 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
     out_root.mkdir(parents=True, exist_ok=True)
 
     track = captions.Track(words, width, height, lead=lead)
+    ov = None
+    if overlay_spec is not None:
+        # The host checked the times against the video length when it stored the file; an element that runs past the last frame is
+        # simply not drawn there, so the length check is not repeated here.
+        spec = overlay.load_spec(media.input_file(overlay_spec))
+        if anchors is not None:
+            marks = anchors_file.load(media.input_file(anchors), len(files))
+        elif any(overlay.names_used(spec).values()):
+            raise media.MediaError("overlay.json names anchors or running numbers but anchors.json is missing")
+        else:
+            marks = anchors_file.Anchors.empty(width, height)
+        ov = overlay.Overlay(spec, marks, width, height, captions_track=track, fps=fps, nframes=len(files))
+        layout = ov.layout_report()
     boxes = track.worst_boxes()
     off_zone = [b for b in boxes if not captions.inside_safe_zone(b, width, height)]
     cs = captions.cues(track.chunks, lead=lead)
@@ -117,6 +136,8 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
                 i, future = pending.popleft()
                 out = future.result()
                 fill()
+                if ov is not None:
+                    ov.draw(out, i, i / fps)
                 track.draw(out, i / fps)
                 ff.stdin.write(out.tobytes())
         ff.stdin.close()
@@ -144,6 +165,10 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
                      "safe_zone": captions.safe_zone(width, height), "boxes_outside": off_zone},
         "ok": not problems and not check["errors"] and not off_zone,
     }
+    if ov is not None:
+        report["overlay"] = {"spec": str(media.input_file(overlay_spec)), "anchors": str(media.input_file(anchors)) if anchors else None,
+                             "elements": ov.element_counts(), "drawn_frames": len(files), "layout": layout}
+        report["ok"] = report["ok"] and layout["ok"]
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
 
@@ -156,8 +181,10 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--lead", type=float, default=0.0)
+    ap.add_argument("--overlay", default=None, help="overlay.json (contract 2.3); draws its text under the captions")
+    ap.add_argument("--anchors", default=None, help="anchors.json (contract 2.2) with the screen positions for --overlay")
     a = ap.parse_args(argv)
-    rep = finish(a.frames, a.words, a.audio, a.out, a.name, lead=a.lead)
+    rep = finish(a.frames, a.words, a.audio, a.out, a.name, lead=a.lead, overlay_spec=a.overlay, anchors=a.anchors)
     print(json.dumps({k: rep[k] for k in ("video", "subtitles", "contact_sheet", "ok")}))
     return 0 if rep["ok"] else 1
 

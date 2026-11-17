@@ -1,0 +1,9 @@
+{
+ "version": 1,
+ "counter": {
+  "value": "n",
+  "format": "times",
+  "from": 0,
+  "to": 1
+ }
+}

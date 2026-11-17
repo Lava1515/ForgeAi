@@ -1,0 +1,2 @@
+# Byte-exact fixtures: both readers (Python, JS) must see the same raw text.
+* -text

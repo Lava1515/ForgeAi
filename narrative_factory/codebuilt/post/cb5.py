@@ -60,6 +60,11 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     words = media.inside(job, job / "words.json")
     audio = media.inside(job, job / "mix.wav")
     out = media.inside(job, job / "out")
+    # KO1: a job whose format has the overlay flag carries the host's inputs/overlay.json; the kit wrote work/anchors.json.
+    # Both are resolved inside the job (a link out of it fails here); run.finish reads them with their strict readers.
+    spec = media.inside(job, job / "inputs" / "overlay.json")
+    marks = media.inside(job, job / "work" / "anchors.json")
+    overlay_args = {"overlay_spec": spec, "anchors": marks if marks.exists() else None} if spec.exists() else {}
     paths = {name: media.inside(out, out / name) for name in
              ("video.mp4", "subtitles.srt", "contact_sheet.png", "report.json")}
     out.mkdir(parents=True, exist_ok=True)
@@ -94,7 +99,7 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     # A fresh directory cannot alias an existing frames/out junction. Keep intermediates
     # with the job for diagnosis; never recursively delete agent-controlled job contents.
     work = Path(tempfile.mkdtemp(prefix=".cb5-post-", dir=job))
-    result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead)
+    result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead, **overlay_args)
     if result.get("ok") is not True:
         raise media.MediaError("CB4 finalizer checks failed")
     shutil.copyfile(result["video"], paths["video.mp4"])
