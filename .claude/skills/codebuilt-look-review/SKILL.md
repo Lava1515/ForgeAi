@@ -55,13 +55,13 @@ Always find the cause in the script before writing an edit. Read the place's ori
 
 ## When text is drawn after the render
 
-For a short whose text is drawn after the render, the frame you review already has its text on it. The 3D frames under it carry no text. Judge each frame the way a phone viewer sees it: small, for a few seconds.
+Use this section only when the prompt says the tiles carry overlay labels (the `overlay` and `authored` routes, where text is drawn after the render); a `classic` short keeps the checks above. Then the frame you review already has its text on it. The 3D frames under it carry no text. Judge each frame the way a phone viewer sees it: small, for a few seconds.
 
 Check every frame and the final sheet for these faults:
 
 1. Phone size: each caption, label, counter and number reads at 1080 pixels wide. A label on a busy surface with no contrast is a fault.
 2. Cover: text must not hide the main subject or the point the caption names. A label sits beside its subject with a short line to it.
-3. Safe area: keep text out of the top 8 percent and the bottom 20 percent of the frame (the Shorts buttons). Counters and big numbers stay inside it.
+3. Safe area: keep text out of the top 12 percent and the bottom 20 percent of the frame (the feed bar and the Shorts buttons; the overlay step refuses text there). Counters and big numbers stay inside it.
 4. Pointing: the label's line ends on the named thing in that frame, not on a neighbour or on empty space. A label that appears after the camera has left its subject points at nothing.
 5. Collisions: two texts never touch or overlap. Check a counter against a payoff number, and a title against its value.
 6. Visibility: the thing a label names is on screen in that frame, not cut by the edge or behind the camera. A ruler or line drawn while its target is off screen is a fault.
