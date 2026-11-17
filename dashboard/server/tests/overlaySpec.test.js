@@ -179,3 +179,9 @@ test('coordinator gates a typed journey, forwards formats and premise, and ignor
   if(kind==='explicit') {assert.deepEqual(picked.formats,['journey']);assert.deepEqual(started.input.formats,['journey']);}
  }
 });
+
+test('overlay allows the ready-set import the map and teardown skills show, nothing else under the kit package',()=>{
+ assert.deepEqual(overlayScriptProblems('from blender_worker.codebuilt.sets import world_map\n'+good,spec),[]);
+ assert.deepEqual(overlayScriptProblems('from blender_worker.codebuilt.sets import stealth_jet_teardown as jet_set\n'+good,spec),[]);
+ for(const code of ['from blender_worker.codebuilt.stage import text','from blender_worker.codebuilt.sets.world_map import build','from blender_worker.codebuilt.sets import *','from blender_worker.codebuilt.sets import anchors','from blender_worker.codebuilt.sets import stage as s']) assert.ok(overlayScriptProblems(code+'\n'+good,spec).length,code);
+});

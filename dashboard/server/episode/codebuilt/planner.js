@@ -695,7 +695,7 @@ for n in ast.walk(tree):
   for module in modules:
    if module.split('.')[0] not in allowed_roots or (isinstance(n,ast.ImportFrom) and n.level): problems.add('import not allowed: '+module)
  if isinstance(n,ast.ImportFrom):
-  if n.module and n.module.startswith('blender_worker.codebuilt.'): problems.add('overlay kit submodules cannot be imported directly')
+  if n.module and n.module.startswith('blender_worker.codebuilt.') and n.module!='blender_worker.codebuilt.sets': problems.add('overlay kit submodules cannot be imported directly')
   if n.module and 'anchors' in n.module: problems.add('import anchors only from blender_worker.codebuilt without aliases')
   for a in n.names:
    if a.name in ('anchors','stage') and (n.module!='blender_worker.codebuilt' or a.asname): problems.add('overlay kit modules must use canonical imports')
