@@ -132,3 +132,19 @@ A diagram drawn in the landscape at the place's scale (a triangle between a towe
 - Every diagram: strokes at least 15 px and capitals at least 50 px at 1080 x 1920, all corners inside the frame (a `diagram.Board`, or `diagram.diagnose` returns nothing).
 - Something moves in every shot from its first frame.
 - Nothing from another shot is left visible: the place's reset is called first.
+
+## When text is drawn after the render
+
+Use this section only when the job route is `overlay` or `authored`. A `classic` job keeps its text in 3D, as above.
+
+- **No text in 3D.** Build no letter, number or label as a mesh or a font object. When the job has `overlay.json`, the kit's QA fails any visible text object. The overlay draws every word on the rendered frames, so a text change never needs a new render.
+- **Mark the points the text sticks to.** Inside the pose for each frame, call `anchors.mark(name, point)` with the world point of each country, part or place a label names. On maps use `WorldMap.anchor_point(key)`, on teardowns `anchor_point(part_id)`, when they exist. Mark only points the camera can see. `anchors.value(name, number)` feeds a counter.
+- **Pick the overlay element for each need.**
+  - A name (country, part, place) is a label: a short title, and a value if there is one, stuck to its marked point.
+  - A running year or distance is the counter: one number in a fixed corner, on screen from the first second of the move.
+  - The payoff is the big number: one figure, shown on its own word near the end.
+- **Slow at each landmark.** Hold the camera still for about a second at each marked point, so the label can be read before the next move. A label that appears while the camera is already leaving is not read.
+- **Surfaces written for the shot.** Every surface the viewer looks at gets its own pattern, large enough to read on a phone: bands and blotches a few percent of the frame wide, not fine grain. Keep the subject in the upper middle and clear of the text zones (top 8 percent, bottom 20 percent of the frame).
+- **Numbers as the voice says them.** Write the script's numbers in words ("a hundred and eighty degrees"). The digits go on screen, and the counter's value must match the spoken number on the same word.
+- **Render profile for these routes.** Follow the RL1 line, not "Standard": view transform AgX, look "AgX - Medium High Contrast", Cycles, 16 samples. Set these explicitly in the build.
+- **Test frames with the text on.** Render 8 to 12 frames at half size over the whole timeline, run the overlay on them, and look at the contact sheet. Each round, write down what was wrong and fix it. Ask of each frame: can the subject be named in one second, is any text clipped or overlapping, does the number read at phone size, is the frame too dark or burned out.
