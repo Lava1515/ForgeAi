@@ -1027,6 +1027,24 @@ def lowest_point_z(stagger: bool = True) -> float:
     return low
 
 
+def part_bbox_centre(part_id: str, t: float, stagger: bool = True, origin: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+                     scale: float = 1.0) -> Tuple[float, float, float]:
+    """World centre of a part's bounding box at progress t (pure; the same box Blender gives: the part's local box corners
+    turned by the hinge rotation and moved to its location under the jet root at `origin`). Three plain floats."""
+    if part_id not in PARTS:
+        raise KeyError(f"unknown teardown part {part_id!r}; valid ids: {sorted(PARTS)}")
+    v, _ = local_geometry(part_id)
+    lo, hi = (v * scale).min(axis=0), (v * scale).max(axis=0)
+    corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+    rx, ry, rz = part_rotation(part_id, t, stagger)
+    cx, sx, cy, sy, cz, sz = math.cos(rx), math.sin(rx), math.cos(ry), math.sin(ry), math.cos(rz), math.sin(rz)
+    mx = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    my = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    mz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    world = corners @ (mz @ my @ mx).T + np.array(part_location(part_id, t, stagger, scale)) + np.array(origin, float)
+    return tuple(float(c) for c in (world.min(axis=0) + world.max(axis=0)) / 2.0)
+
+
 # ==============================================================================
 # BLENDER MODEL & TEARDOWN RUNTIME
 # ==============================================================================
@@ -1098,12 +1116,15 @@ class StealthJet:
         self.is_xray: bool = False
         self.callout_objs: Dict[str, Any] = {}
         self._highlight: Optional[Tuple[str, Tuple[float, float, float], float]] = None
+        self._pose_t: float = 0.0          # last posed time, used by anchor_point when no Blender object exists
+        self._pose_stagger: bool = True
 
     def pose(self, t: float, mode: str = "exploded", stagger: bool = True) -> None:
         """Positions all teardown parts as a pure function of time t (0.0 = assembled, 1.0 = exploded)."""
+        t_val = 0.0 if mode == "assembled" else max(0.0, min(1.0, float(t)))
+        self._pose_t, self._pose_stagger = t_val, bool(stagger)
         if not HAS_BPY:
             return
-        t_val = 0.0 if mode == "assembled" else max(0.0, min(1.0, float(t)))
         for pid, obj in self.parts.items():
             obj.location = part_location(pid, t_val, stagger=stagger, scale=self.scale)
             obj.rotation_euler = part_rotation(pid, t_val, stagger=stagger)
@@ -1209,6 +1230,23 @@ class StealthJet:
         label = self.callout_objs.get(part_id)
         if label is not None:
             label.hide_render = label.hide_viewport = not visible
+
+    def anchor_point(self, part_id: str) -> Tuple[float, float, float]:
+        """The part's current world centre as three plain floats: the centre of the world-space bounding box of its object.
+
+        It is the point a label sticks to (the shot function passes it to anchors.mark), so it follows the part when the
+        teardown is posed (exploded or hinged). With Blender and a built part it reads the object after a view-layer
+        update; without Blender (tests) it computes the same box from the pure geometry at the last pose() time.
+        Unknown part ids raise KeyError, like callout and highlight.
+        """
+        if part_id not in PARTS:
+            raise KeyError(f"unknown teardown part {part_id!r}; valid ids: {sorted(PARTS)}")
+        if HAS_BPY and part_id in self.parts:
+            bpy.context.view_layer.update()
+            obj = self.parts[part_id]
+            corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+            return tuple(float((min(c[i] for c in corners) + max(c[i] for c in corners)) / 2.0) for i in range(3))
+        return part_bbox_centre(part_id, self._pose_t, self._pose_stagger, origin=self.origin, scale=self.scale)
 
 
 # ==============================================================================
