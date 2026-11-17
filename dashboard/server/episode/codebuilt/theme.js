@@ -123,10 +123,12 @@ function checkInputs({ candidates, history, sets }) {
 
 function resolveOptions(options = {}) {
   if (!object(options)) fail('options must be an object');
+  if (options.picture !== undefined && typeof options.picture !== 'boolean') fail('picture must be a boolean');
   const merged = { ...DEFAULT_OPTIONS, ...options };
   merged.safety_rules = { ...DEFAULT_OPTIONS.safety_rules, ...(options.safety_rules || {}) };
   merged.safety_rules.blocked_tags = [...merged.safety_rules.blocked_tags].map(normalise);
-  const weights = Object.fromEntries(THEME_RULES.map((r) => [r.key, 1]));
+  const weights = Object.fromEntries((merged.picture ? [...THEME_RULES, { key: 'picture' }] : THEME_RULES).map((r) => [r.key, 1]));
+  if (merged.picture) { weights.shots_locations = 0; weights.picture = 1; }
   for (const [key, value] of Object.entries(options.weights || {})) {
     if (!Object.hasOwn(weights, key) || !Number.isFinite(value) || value < 0) fail(`invalid weight for ${key}`);
     weights[key] = value;
@@ -135,6 +137,23 @@ function resolveOptions(options = {}) {
   merged.weights = weights;
   for (const key of ['history_window', 'runners_up', 'setting_window']) if (!Number.isInteger(merged[key]) || merged[key] < 0) fail(`${key} must be a whole number of at least 0`);
   return merged;
+}
+
+const themeRulesFor = (options) => options.picture ? [...THEME_RULES, { key: 'picture', label: 'A story told through a visible picture and change', gate: false }] : THEME_RULES;
+
+function rulePicture(c) {
+  const p = c.picture;
+  const shapes = new Set(['journey', 'tour', 'comparison', 'mystery', 'whatif_chain']);
+  const valid = p && typeof p === 'object' && !Array.isArray(p) && shapes.has(p.shape)
+    && typeof p.watch === 'string' && p.watch.length >= 8 && p.watch.length <= 120
+    && typeof p.change === 'string' && p.change.length >= 8 && p.change.length <= 160
+    && typeof p.last_image === 'string' && p.last_image.length >= 8 && p.last_image.length <= 160
+    && (p.number === null || (p.number && typeof p.number === 'object' && typeof p.number.what === 'string' && p.number.what.length >= 1 && p.number.what.length <= 40 && typeof p.number.unit === 'string' && p.number.unit.length >= 1 && p.number.unit.length <= 40))
+    && (p.shape !== 'journey' || p.number !== null);
+  if (!valid) return { score: 0, pass: true, detail: { valid: false, shape: null, turn: text(c.turn) } };
+  const hasTurn = /\b(?:stop|stops|stopped|fail|fails|failed|failure|break|breaks|broke|broken|crash|crashes|crashed|surpris(?:e|es|ed|ing)|unexpected|halt|halts|halted|stall|stalls|stalled|collapse|collapses|collapsed|vanish|vanishes|vanished)\b/i.test(text(c.turn));
+  const score = p.shape === 'comparison' && !hasTurn ? 0.5 : 1;
+  return { score, pass: true, detail: { valid: true, shape: p.shape, turn: text(c.turn), turn_names_event: hasTurn } };
 }
 
 // ---- the six rules ----------------------------------------------------------------------------------------------
@@ -341,6 +360,7 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
   const o = resolveOptions(options);
   const index = indexSets(sets);
   const videos = prepareHistory(history, o, index);
+  const rulesForOptions = themeRulesFor(o);
   const weightSum = Object.values(o.weights).reduce((a, b) => a + b, 0);
 
   const scored = candidates.map((c, position) => {
@@ -352,19 +372,20 @@ export function scoreCandidates({ candidates, history, sets, options } = {}) {
       set_fit: ruleSetFit(c, o, index),
       fact_safety: ruleFactSafety(c, o),
     };
-    const reasons = THEME_RULES.filter((r) => r.gate).flatMap((r) => results[r.key].reasons || []);
+    if (o.picture) results.picture = rulePicture(c);
+    const reasons = rulesForOptions.filter((r) => r.gate).flatMap((r) => results[r.key].reasons || []);
     const premise = o.profile ? rulePremise(c, o.profile.avoid, o.profile.language, { maps: o.type !== 'teardown' && isMapProfile(o.profile) }) : null;
     if (premise) {
       reasons.push(...premise.reasons);
     }
-    const baseTotal = THEME_RULES.reduce((sum, r) => sum + o.weights[r.key] * results[r.key].score, 0) / weightSum;
+    const baseTotal = rulesForOptions.reduce((sum, r) => sum + o.weights[r.key] * results[r.key].score, 0) / weightSum;
     const total = premise ? (baseTotal * weightSum + premise.score) / (weightSum + 1) : baseTotal;
-    const rules = Object.fromEntries(THEME_RULES.map((r) => {
+    const rules = Object.fromEntries(rulesForOptions.map((r) => {
       const { score, pass, detail } = results[r.key];
       return [r.key, { score: round3(score), pass, detail }];
     }));
     if (premise) rules.premise = premise;
-    return { ...(premise ? { title: c.title, subject: c.subject, hook: c.hook, payoff: c.payoff, answer: c.answer } : {}), id: c.id === undefined ? `c${position}` : c.id, topic: c.topic.trim(), total: round3(total), rules, reasons, position };
+    return { ...(premise ? { title: c.title, subject: c.subject, hook: c.hook, payoff: c.payoff, answer: c.answer } : {}), ...(o.picture ? { title: c.title || c.topic, hook: c.hook, stake: c.stake, picture: c.picture, story_question: c.story_question, ending_answer: c.ending_answer, turn: c.turn, who: c.who, want: c.want } : {}), id: c.id === undefined ? `c${position}` : c.id, topic: c.topic.trim(), total: round3(total), rules, reasons, position };
   });
 
   const ranked = scored.filter((c) => c.reasons.length === 0)
@@ -411,7 +432,7 @@ export function buildThemePlan({ candidates, history, sets, options, now = new D
     theme_pick: {
       version: THEME_VERSION,
       created_at: now,
-      rules: THEME_RULES.map(({ key, label, gate }) => ({ key, label, gate })),
+      rules: themeRulesFor(o).map(({ key, label, gate }) => ({ key, label, gate })),
       options: { ...shown, safety_rules: safety, channel_id: channel ? channel.id : null },
       history: { used: result.history_used, ...(historyInfo || {}) },
       chosen: result.chosen,
