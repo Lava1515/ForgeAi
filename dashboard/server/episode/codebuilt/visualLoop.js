@@ -229,9 +229,30 @@ async function loop(input, deps, { now, newCode, stage }) {
       let code = null;
       if (preview) {
         code = newCode();
-        try { sheets = await deps.makeSheets({ framesDir: preview.dir, outDir: path.join(dir, 'sheets'), code, signal }); } catch (error) {
+        const wordsPath = path.join(input.stageDir, 'words.json');
+        const previewWork = path.join(path.dirname(preview.dir), 'work');
+        const sourceAnchors = path.join(previewWork, 'anchors-preview.json');
+        const sourceOverlay = path.join(input.stageDir, 'inputs', 'overlay.json');
+        const anchorsPath = path.join(dir, 'anchors-preview.json');
+        const overlayPath = path.join(dir, 'overlay.json');
+        const copyCheckedInput = (source, target, label) => {
+          if (!fs.existsSync(source)) return false;
+          const st = fs.lstatSync(source);
+          if (!st.isFile() || st.isSymbolicLink() || st.nlink !== 1 || st.size === 0 || st.size > (label === 'anchors.json' ? 8 * 1024 * 1024 : 65536)) {
+            throw new LoopError('preview_failed', `${label}: input is not a regular file of a sane size`, { reason: 'sheets' });
+          }
+          fs.copyFileSync(source, target);
+          return true;
+        };
+        const hasAnchors = copyCheckedInput(sourceAnchors, anchorsPath, 'anchors.json');
+        const hasOverlay = copyCheckedInput(sourceOverlay, overlayPath, 'overlay.json');
+        try { sheets = await deps.makeSheets({ framesDir: preview.dir, outDir: path.join(dir, 'sheets'), code, signal,
+          ...(fs.existsSync(wordsPath) ? { words: wordsPath, lead: input.lead ?? 0.35 } : {}),
+          ...(hasOverlay ? { overlaySpec: overlayPath, nframes: input.nframes, fps, jobRoot: dir,
+            ...(hasAnchors ? { anchors: anchorsPath } : {}) } : {}),
+        }); } catch (error) {
           if (signal?.aborted) throw aborted();
-          throw new LoopError('preview_failed', 'the preview sheets could not be made', { reason: 'sheets', cause: String(error?.code ?? error?.message ?? error).slice(0, 80) });
+          throw new LoopError('preview_failed', 'the preview sheets could not be made', { reason: 'sheets', cause: String(error?.message ?? error?.code ?? error).slice(0, 120) });
         }
         writeJson(path.join(dir, 'preview.json'), {
           jobId: previewJobId, scale: PREVIEW_SCALE, frames, frameListSha256, rendered: preview.frames.map((f) => ({ name: f.name, sha256: f.sha256 })),
@@ -275,6 +296,7 @@ async function loop(input, deps, { now, newCode, stage }) {
     const prompt = buildLookPrompt({
       brief: input.brief, script: input.script, shots: planned, buildScript: current, kitContract: input.kitContract,
       sheets: sheets.map((s) => ({ code: s.code, tiles: s.tiles })), shotStarts, fps, round: r, finalRound, qaText: crash?.text, previous: prior,
+      layoutFindings: sheets.flatMap((s) => s.layout_findings ?? []),
       guides: typeof input.lookGuides === 'string' ? input.lookGuides : '', fixRoundsLeft: Math.max(0, MAX_LOOKS - 1 - looks), kit,
     });
     const flatTiles = sheets.flatMap((s) => s.tiles.filter((t) => t.flag === 'flat').map((t) => t.n));

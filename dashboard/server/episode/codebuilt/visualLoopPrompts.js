@@ -164,7 +164,7 @@ function previousSummary(previous) {
 }
 
 export function buildLookPrompt({
-  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous, guides = '', fixRoundsLeft = null, kit = null,
+  brief, script, shots, buildScript, kitContract, sheets = [], shotStarts, fps = 30, round = 0, finalRound = false, qaText, previous, guides = '', fixRoundsLeft = null, kit = null, layoutFindings = [],
 }) {
   const hasSheets = sheets.length > 0;
   const uniqueCodes = [...new Set(sheets.map((x) => x.code))];
@@ -179,9 +179,14 @@ export function buildLookPrompt({
   parts.push(`You are the director checking a 9:16 short that is built in Blender by the Python script below. ${hasSheets ? `${sheets.length} contact sheet image${sheets.length > 1 ? 's are' : ' is'} attached, made from a low-resolution preview render of this exact script (look round ${round + 1}). Each sheet header shows a code; each tile is labelled T<number> and its frame.` : `There are no pictures this round: the preview of this script did not produce any, and the reason is given below. Fix the script from the reason alone.`}`);
   parts.push(`BRIEF:\n${brief}\n\nNARRATION:\n${script}\n\nPLANNED SHOTS:\n${shotLines.join('\n')}`);
   if (hasSheets) parts.push(`TILES:\n${tileLines.join('\n')}`);
+  if (hasSheets) parts.push('These tiles carry the final text: captions are burned in, and any overlay labels are drawn in their final positions. Check whether each label is readable at phone size and whether any text covers the subject.');
   const flagged = sheets.flatMap((sheet) => sheet.tiles.filter((t) => t.flag).map((t) => `T${t.n} (frame ${t.frame}) is ${t.flag === 'flat' ? 'ONE FLAT COLOUR (the camera is inside or against a surface, or nothing is lit)' : t.flag === 'dark' ? 'almost black' : t.flag === 'plain' ? 'nearly one colour: look closely, and if the frame is mostly one flat surface (a wall, floor, dome or plate filling it) that is a P0' : 'blown out (a quarter or more of it is pure white)'}`));
   if (flagged.length) parts.push(`MEASURED FROM THE PIXELS (facts, not opinions; a flat tile can never pass):\n${flagged.join('\n')}`);
   if (hasSheets) parts.push(...kitPromptSections(kit, sheets));
+  if (layoutFindings.length) {
+    const clean = layoutFindings.slice(0, 120).map((f) => `frame ${Number.isInteger(f.frame) ? f.frame : 'unknown'}: ${String(f.code ?? 'layout issue').slice(0, 50)}${Array.isArray(f.elements) && f.elements.length ? ` (${f.elements.slice(0, 8).join(', ')})` : ''}`);
+    parts.push(`PREVIEW TEXT LAYOUT FINDINGS (measured on the previewed frames; consider these alongside the framing numbers):\n${clean.join('\n')}`);
+  }
   if (qaText) parts.push(`WHY THERE ARE NO PICTURES (preview/QA output):\n${cleanDiagnostic(qaText)}`);
   parts.push(`LOOK CHECKLIST (P0 = must not ship as it is, P1 = should be fixed, P2 = a note):\n${LOOK_CHECKLIST.map((line) => `- ${line}`).join('\n')}`);
   const prior = previousSummary(previous);

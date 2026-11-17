@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyScopedEdits } from '../episode/codebuilt/visualLoopPrompts.js';
+import { applyScopedEdits, buildLookPrompt } from '../episode/codebuilt/visualLoopPrompts.js';
 
 function fixture(newline = '\n') {
   return [
@@ -40,4 +40,14 @@ test('same-anchor inserts retain reply order and CRLF line endings', () => {
   assert.ok(result.indexOf('def second_helper') < result.indexOf('def shot_3'));
   assert.ok(result.includes('\r\n'));
   assert.equal(result.replace(/\r\n/g, '').includes('\n'), false);
+});
+
+test('look prompt describes final caption and overlay tiles and includes preview layout findings', () => {
+  const prompt = buildLookPrompt({ brief: 'brief', script: 'words', shots: [{ id: 'shot-0', subject: 'subject', narration: 'words' }],
+    buildScript: 'pass', kitContract: 'kit', sheets: [{ code: 'ABCDE', tiles: [{ n: 1, frame: 6 }] }], shotStarts: [0],
+    layoutFindings: [{ frame: 6, code: 'caption_overlap', elements: ['label[0]'] }] });
+  assert.match(prompt, /tiles carry the final text/);
+  assert.match(prompt, /readable at phone size/);
+  assert.match(prompt, /covers the subject/);
+  assert.match(prompt, /frame 6: caption_overlap/s);
 });
