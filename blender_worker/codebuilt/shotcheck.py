@@ -437,13 +437,15 @@ def _marks(content, texts):
 
 
 def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, safe=TEXT_SAFE, min_top=UPPER_MIN_TOP,
-                step=None, extra_frames=()):
+                step=None, extra_frames=(), overlay=False):
     """One pass over preview frames sampled every step-th frame (default QA_STEP, rounded up to a multiple of hold),
     or every rendered frame in a final run (step=hold),
     plus the middle and last rendered frame of every shot. probe supplies update(), text_objects(), text_box(o), content(),
     cam_pose() (position, lens) and cam_target() (what stage.Camera.set recorded, or None); BlenderProbe is the real one.
     extra_frames (the preview frames) are posed only to measure framing; no check runs on them. They do not change which
     sampled preview frames or final frames receive checks. Returns a report dict. Closes the render gate first; only enforce() opens it.
+    overlay: the job carries an overlay input, so its text is drawn after the render; any visible FONT object at a posed frame
+    is then a text_in_3d failure (reported in a preview, blocking in the final) and the report gains a "text_in_3d" key.
     Failures: text_clipped, readout_too_wide, readout_behind_subject, same_composition (reported in a preview, blocking in
     the final), missing_target and uncheckable_shots (always blocking). Advisory: upper_warnings, cameras, framing."""
     reset_qa()
@@ -465,6 +467,7 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
     upper_frames = set(range(0, nframes, ustep)) | set(pose_at)
     text_samples, depth_samples, upper_warnings, poses, missing, checked = [], [], [], {}, [], 0
     readout_names, framing, end_marks = set(), [], {}
+    in_3d = {}   # overlay jobs: visible FONT object name -> [first frame, last frame] it was seen at
     is_readout = lambda o: bool(getattr(o, "get", lambda *_: False)("codebuilt_readout", False))
     for f in sorted(check_frames | measure_frames):
         apply(f)
@@ -475,6 +478,9 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
         if checking:
             checked += 1
             for o in probe.text_objects():
+                if overlay:
+                    seen = in_3d.setdefault(o.name, [f, f])
+                    seen[1] = f
                 if is_readout(o):
                     readout_names.add(o.name)
                 box = probe.text_box(o)
@@ -529,12 +535,15 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
                         "el": round(el, 1), "dist": round(math.sqrt(_dot(d, d)), 2), "lens": round(float(poses[i]["lens"]), 1),
                         "target": [round(float(v), 2) for v in poses[i]["target"]],
                         "new_target_m": round(NEW_TARGET_FRAME_SHARE * frame_long_side(poses[i]["pos"], poses[i]["target"], poses[i]["lens"]), 2)})
-    report = {"ok": not (clipped or too_wide or behind or same or missing or uncheckable), "text_clipped": clipped,
+    text_in_3d = [(a, b, n) for n, (a, b) in in_3d.items()]
+    report = {"ok": not (clipped or too_wide or behind or same or missing or uncheckable or text_in_3d), "text_clipped": clipped,
               "readout_too_wide": too_wide, "readout_behind_subject": behind, "same_composition": same, "missing_target": missing,
               "uncheckable_shots": uncheckable,
               "upper_warnings": upper_warnings, "frames_checked": checked, "shots": len(ranges), "shots_with_pose": len(poses),
               "nframes": nframes, "hold": hold, "step": step, "cameras": cameras, "framing": framing,
               "seconds": round(time.perf_counter() - started, 2)}
+    if overlay:
+        report["text_in_3d"] = text_in_3d
     report["hard"] = bool(missing or uncheckable)
     report["findings"] = build_findings(report, ranges)
     return report
@@ -583,6 +592,10 @@ def build_findings(report, ranges=None):
                     "text": f"readout {name[:80]!r} in {str(shot)[:80]} is behind {subject[:80]!r} "
                             f"(readout {entry[2]:.2f} m, object {entry[3]:.2f} m) at frames {frames}: "
                             "move the readout nearer to the camera or move the object"})
+    for first, last, name in (report.get("text_in_3d") or [])[:MAX_LISTED]:
+        out.append({"check": "text_in_3d", "shot": shot_of(first), "frames": [first, last],
+                    "text": f"text object {str(name)[:80]!r} is visible in the 3D scene at frames {first}-{last}, but this job draws its "
+                            "text after the render from overlay.json: remove the text object (or hide it at every frame) and use anchors.mark"})
     cams = {c["shot"]: c for c in report.get("cameras") or []}
     for i, j in (report.get("same_composition") or [])[:MAX_LISTED]:
         text = f"shots share one composition: shot {i} and shot {j}"
@@ -628,6 +641,7 @@ def _record_failure(message):
         pass
 
 
+OVERLAY_INPUT = "/job/inputs/overlay.json"   # the host puts it here, read-only, for a job whose text is drawn after the render
 REPORT_FILE = "/job/work/qa_report.json"
 REPORT_MAX_FRAMING = 60
 
@@ -688,7 +702,8 @@ def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
     probe = BlenderProbe(scene, cam)
     report = run_qa_with(probe, apply, nframes, shot_frame_ranges(shots, nframes, fps), hold=hold,
                          step=QA_STEP if preview else hold,
-                         extra_frames=_preview_frames() if preview else ())
+                         extra_frames=_preview_frames() if preview else (),
+                         overlay=os.path.exists(OVERLAY_INPUT))
     report["bounds_source"] = getattr(probe, "bounds_source", None)
     report["mode"] = "preview" if preview else "final"
     _record_report(report, report["mode"])

@@ -187,3 +187,79 @@ def test_framing_numbers_name_what_the_camera_is_aimed_at_and_its_edge_cuts():
     objs[2]["pts"] = [(-0.2, 0.4, 5), (0.55, 1.3, 5)]
     assert qa.measure_framing(objs, (0, -8, 1), (0, 0, 1))["cut"] == ["left", "top"]
     assert qa.measure_framing(objs[:2], (0, -8, 1), (0, 0, 1)) == {"subject": None}
+
+
+# ---- fix lane U1b (2026-11-17, contract 2.5): a job with an overlay input draws its text after the render, so a visible
+# FONT object at any posed frame fails the kit's own gate as text_in_3d.
+class _Font(dict):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+
+
+class _TextProbe(_TwoShotProbe):
+    """Visible text objects per frame: {name: (first_frame, last_frame_exclusive)}; a hidden one is simply not listed,
+    as BlenderProbe.text_objects leaves out hide_render and zero-scale objects."""
+
+    def __init__(self, visible):
+        super().__init__(SAME)
+        self.visible = visible
+
+    def text_objects(self):
+        return [_Font(n) for n, (a, b) in self.visible.items() if a <= self.frame < b]
+
+    def text_box(self, _):
+        return (0.3, 0.7, 0.4, 0.6, 3.0)
+
+
+def test_visible_font_object_fails_text_in_3d_with_first_and_last_frame_and_cut_name():
+    long_name = "x" * 200
+    probe = _TextProbe({"title": (10, 30), long_name: (0, 80)})
+    report = qa.run_qa_with(probe, probe.at, 80, RANGES, hold=1, overlay=True)
+    assert not report["ok"] and not report["hard"]
+    findings = [f for f in report["findings"] if f["check"] == "text_in_3d"]
+    assert len(findings) == 2
+    title = next(f for f in findings if "'title'" in f["text"])
+    assert title["frames"] == [10, 29]    # first and last posed frame it was seen at
+    long = next(f for f in findings if f["text"].count("x") >= 80)
+    assert "x" * 81 not in long["text"] and long["frames"][0] == 0
+
+
+def test_hidden_font_object_at_every_posed_frame_is_not_reported_and_no_overlay_means_classic_behaviour():
+    report = qa.run_qa_with(_TextProbe({}), lambda f: None, 80, RANGES, hold=1, overlay=True)
+    assert report["text_in_3d"] == [] and not any(f["check"] == "text_in_3d" for f in report["findings"])
+    visible = _TextProbe({"title": (0, 80)})
+    classic = qa.run_qa_with(visible, lambda f: None, 80, RANGES, hold=1)
+    assert "text_in_3d" not in classic
+    assert all(f["check"] != "text_in_3d" for f in classic["findings"])
+
+
+def test_text_in_3d_blocks_the_final_render_but_a_preview_renders_and_reports(monkeypatch, tmp_path):
+    report = qa.run_qa_with(_TextProbe({"title": (0, 80)}), lambda f: None, 80, RANGES, hold=1, overlay=True)
+    qa.enforce(report, lambda f: None, preview=True)
+    assert qa.qa_passed()
+    with pytest.raises(qa.QAError, match="text_in_3d|title"):
+        qa.enforce(report, lambda f: None)
+    assert not qa.qa_passed()
+
+
+def test_run_qa_switches_the_check_on_by_the_presence_of_the_overlay_input(monkeypatch, tmp_path):
+    seen = []
+    probe = _TextProbe({"title": (0, 80)})
+    monkeypatch.setattr(qa, "BlenderProbe", lambda scene, cam: probe)
+    monkeypatch.setattr(qa, "preview_mode", lambda: True)
+    monkeypatch.setattr(qa, "REPORT_FILE", str(tmp_path / "qa_report.json"))
+    monkeypatch.setattr(qa, "FAILURE_FILE", str(tmp_path / "qa_failure.txt"))
+    import sys
+    import types
+    timeline = types.ModuleType("blender_worker.codebuilt.timeline")
+    timeline.shot_frame_ranges = lambda shots, nframes, fps: RANGES
+    monkeypatch.setitem(sys.modules, "blender_worker.codebuilt.timeline", timeline)
+    monkeypatch.setattr("blender_worker.codebuilt.shotcheck._preview_frames", lambda: [])
+    monkeypatch.setattr(qa, "OVERLAY_INPUT", str(tmp_path / "overlay.json"))
+    classic = qa.run_qa(None, None, lambda f: (seen.append(f), probe.at(f)), 80, [], hold=1)
+    assert "text_in_3d" not in classic
+    (tmp_path / "overlay.json").write_text("{}")
+    overlay = qa.run_qa(None, None, lambda f: (seen.append(f), probe.at(f)), 80, [], hold=1)
+    assert [f["check"] for f in overlay["findings"] if f["check"] == "text_in_3d"] == ["text_in_3d"]
+    assert "text_in_3d" in (tmp_path / "qa_report.json").read_text()
