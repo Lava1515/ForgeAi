@@ -144,14 +144,18 @@ export function formatSetsText(pack, step, formats) {
  * `formats` (default: the formats of the running job): skills and ready sets of rules.formats are added for them, whatever the text says.
  * The text goes into a prompt as guidance; nothing here is mounted, executed or copied into generated code.
  */
-export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '', formats = currentJobFormats() } = {}) {
+export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '', formats = currentJobFormats(), route = 'classic' } = {}) {
   const names = [...new Set([...guideNamesFor(pack, step), ...formatGuideNamesFor(pack, step, formats), ...topicGuideNamesFor(pack, step, topic)])];
   const approved = new Set((Array.isArray(pack?.skills) ? pack.skills : []).filter((entry) => entry?.mode === 'guidance_only').map((entry) => entry.skill));
   const parts = [];
   for (const name of names) {
     if (!approved.has(name)) throw new Error(`skill ${name} is assigned to step ${step} but is not approved by the code-built path pack`);
     // The YAML frontmatter (name, description) is for skill listings, not for a prompt.
-    parts.push(`### ${name}\n${safeSkillText(root, name).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim()}`);
+    let content = safeSkillText(root, name).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
+    if (!(route === 'overlay' || route === 'authored' || jobUsesOverlay(pack, formats))) {
+      content = content.split('\n## When text is drawn after the render')[0].trimEnd();
+    }
+    parts.push(`### ${name}\n${content}`);
   }
   const sets = formatSetsText(pack, step, formats);
   if (sets) parts.push(sets);
