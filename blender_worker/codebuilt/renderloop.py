@@ -128,6 +128,9 @@ TIMING_PATH = "/job/work/render-timing.json"
 PREVIEW_MAX_FRAMES = 24
 PREVIEW_SCALE_RANGE = (25, 100)
 _PREVIEW_KEYS = {"version", "frames", "scale", "out"}
+ANCHORS_PATH = "/job/work/anchors.json"
+PREVIEW_ANCHORS_PATH = "/job/work/anchors-preview.json"
+OVERLAY_SPEC_PATH = "/job/inputs/overlay.json"
 
 
 class PreviewSpecError(ValueError):
@@ -199,6 +202,29 @@ def _actual_settings():
         return None  # diagnostics must also work with the injected pure-Python renderer
 
 
+def _anchor_dimensions():
+    """Use the scene's nominal frame size; preview scaling does not change coordinates."""
+    try:
+        import bpy
+        render = bpy.context.scene.render
+        return int(render.resolution_x), int(render.resolution_y)
+    except Exception:
+        # Pure-Python renderloop tests have no Blender. No anchor file is emitted unless marks exist.
+        return 1, 1
+
+
+def _project_anchor(point):
+    """Blender camera projection in contract coordinates (origin at top left)."""
+    import bpy
+    from bpy_extras.object_utils import world_to_camera_view
+    from mathutils import Vector
+    scene = bpy.context.scene
+    if scene.camera is None:
+        raise RuntimeError("scene has no active camera")
+    projected = world_to_camera_view(scene, scene.camera, Vector(point))
+    return projected.x, 1.0 - projected.y, projected.z
+
+
 def tune_cycles(log=print):
     """Two Cycles settings that decide the frame time of these short, simple scenes, applied to the current scene before the
     frame loop. Measured on the RTX 4070 Ti, 1080x1920, 12 samples (output/agent-jobs/fable-kit-0900/speed_ab.py, 2026-11-14):
@@ -261,6 +287,26 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         raise ValueError("hold must be >= 1")
     out_dir = require_abs(out_dir)
     os.makedirs(out_dir, exist_ok=True)
+    from . import anchors
+    anchor_path = PREVIEW_ANCHORS_PATH if spec is not None else ANCHORS_PATH
+    width, height = _anchor_dimensions()
+    # Resume data is meaningful only when the final output is actually being resumed.
+    loaded_anchor_file = skip_existing and spec is None and os.path.exists(anchor_path)
+    qa_usage = anchors.usage()
+    try:
+        anchors.reset(width, height, anchor_path if loaded_anchor_file else None)
+    except anchors.AnchorError:
+        # A stale, partial, or foreign resume file must not prevent a fresh render.
+        anchors.reset(width, height)
+        loaded_anchor_file = False
+    if loaded_anchor_file:
+        anchors.discard_missing_frames(
+            int(name[:-4]) for name in os.listdir(out_dir)
+            if name.endswith(".png") and name[:-4].isdecimal()
+        )
+    anchored = bool(spec is None and (loaded_anchor_file or os.path.exists(OVERLAY_SPEC_PATH)))
+    if require_qa:
+        anchored = anchored or qa_usage["point"] or qa_usage["value"]
     done, held = [], 0
     tuned = tune_cycles(log)
     started = time.perf_counter()
@@ -270,9 +316,36 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
     with tempfile.TemporaryDirectory(prefix="forgeai-frames-", dir=RAM_FRAME_DIR) as ram_dir:
         copier = _FrameCopyWorker()
         try:
-            for f in frames:
+            for processed, f in enumerate(frames, start=1):
                 fp = os.path.join(out_dir, f"{f:04d}.png")
+                if skip_existing and os.path.exists(fp) and (anchors.has_frame(f) or not anchored):
+                    continue
+                if not anchored and f % hold:
+                    copier.drain()
+                    src = os.path.join(out_dir, f"{f - f % hold:04d}.png")
+                    if os.path.exists(src):
+                        _copy_frame(src, fp)
+                        held += 1
+                        continue
+                # Resumed frames missing their position record are posed again without re-rendering.
+                anchors.begin(f)
+                before_apply = time.perf_counter()
+                apply(f)
+                after_apply = time.perf_counter()
+                if anchors.has_points():
+                    try:
+                        import bpy
+                        bpy.context.view_layer.update()
+                    except ImportError:
+                        pass
+                    anchors.capture(f, _project_anchor)
+                else:
+                    anchors.capture(f, None)
+                anchored = anchored or anchors.has_marks()
+                timing["apply_s"] += after_apply - before_apply
                 if skip_existing and os.path.exists(fp):
+                    if anchors.has_marks() and processed % 30 == 0:
+                        anchors.write(anchor_path)
                     continue
                 src = os.path.join(out_dir, f"{f - f % hold:04d}.png")
                 if f % hold:
@@ -281,14 +354,13 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
                     if os.path.exists(src):
                         _copy_frame(src, fp)
                         held += 1
+                        if anchors.has_marks() and processed % 30 == 0:
+                            anchors.write(anchor_path)
                         continue
                 ram_fp = os.path.join(ram_dir, f"{f:04d}.png")
-                before_apply = time.perf_counter()
-                apply(f)
                 before_render = time.perf_counter()
                 render_fn(ram_fp)
                 after_render = time.perf_counter()
-                timing["apply_s"] += before_render - before_apply
                 timing["render_s"] += after_render - before_render
                 done.append(f)
                 copier.submit(ram_fp, fp)
@@ -299,8 +371,11 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
                     timing.update(rendered=len(done), held=held, last_frame=f, loop_s=time.perf_counter() - started)
                     timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
                     _save_timing(timing)
+                if anchors.has_marks() and processed % 30 == 0:
+                    anchors.write(anchor_path)
         finally:
             copier.close()
+    anchors.write(anchor_path)
     timing.update(rendered=len(done), held=held, loop_s=time.perf_counter() - started)
     timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
     _save_timing(timing)

@@ -52,8 +52,32 @@ class RenderFramesRamCopyTests(unittest.TestCase):
         rendered = renderloop.render_frames([1, 2], self.out, lambda f: events.append(f), self.render_fn([]), log=lambda _: None)
         self.assertEqual(rendered, [2])
         self.assertEqual(events, [2])
+        self.assertEqual(sorted(os.listdir(self.out)), ['0001.png', '0002.png'])
         with open(os.path.join(self.out, '0001.png'), 'rb') as f:
             self.assertEqual(f.read(), b'complete')
+
+    def test_resume_poses_existing_image_missing_anchor_without_rendering(self):
+        from blender_worker.codebuilt import anchors
+        existing = os.path.join(self.out, '0000.png')
+        with open(existing, 'wb') as f:
+            f.write(b'already rendered')
+        anchor_file = os.path.join(self.tmp.name, 'anchors.json')
+        events = []
+        with (mock.patch.object(renderloop, 'ANCHORS_PATH', anchor_file),
+              mock.patch.object(renderloop, 'OVERLAY_SPEC_PATH', os.path.join(self.tmp.name, 'overlay.json')),
+              mock.patch.object(renderloop, '_anchor_dimensions', return_value=(1080, 1920)),
+              mock.patch.object(renderloop, '_project_anchor', return_value=(0.5, 0.5, 1))):
+            with open(renderloop.OVERLAY_SPEC_PATH, 'w', encoding='utf-8') as spec:
+                spec.write('{}')
+            def apply(frame):
+                events.append(('apply', frame))
+                anchors.mark('subject', (0, 0, 0))
+
+            rendered = renderloop.render_frames([0], self.out, apply, self.render_fn(events), log=lambda _: None)
+        self.assertEqual(rendered, [])
+        self.assertEqual(events, [('apply', 0)])
+        self.assertTrue(os.path.exists(anchor_file))
+        self.assertEqual(sorted(os.listdir(self.out)), ['0000.png'])
 
     def test_copy_failure_is_raised_and_not_reported_done(self):
         events = []
@@ -77,6 +101,29 @@ class RenderFramesRamCopyTests(unittest.TestCase):
         self.assertEqual(rendered, [0, 2])
         with open(os.path.join(self.out, '0000.png'), 'rb') as a, open(os.path.join(self.out, '0001.png'), 'rb') as b:
             self.assertEqual(a.read(), b.read())
+
+    def test_legacy_hold_and_resume_do_not_pose_skipped_frames(self):
+        events = []
+        renderloop.render_frames(range(6), self.out, events.append, self.render_fn([]), hold=3, log=lambda _: None)
+        self.assertEqual(events, [0, 3])
+        events.clear()
+        renderloop.render_frames(range(7), self.out, events.append, self.render_fn([]), log=lambda _: None)
+        self.assertEqual(events, [6])
+
+    def test_fresh_render_ignores_corrupt_anchor_file(self):
+        anchor_file = os.path.join(self.tmp.name, 'anchors.json')
+        with open(anchor_file, 'w') as handle:
+            handle.write('not JSON')
+        with mock.patch.object(renderloop, 'ANCHORS_PATH', anchor_file):
+            rendered = renderloop.render_frames([0], self.out, lambda _: None, self.render_fn([]), skip_existing=False, log=lambda _: None)
+        self.assertEqual(rendered, [0])
+
+    def test_huge_number_has_named_error(self):
+        from blender_worker.codebuilt import anchors
+        with self.assertRaises(anchors.AnchorError):
+            anchors.mark('huge', (10 ** 400, 0, 0))
+        with self.assertRaises(anchors.AnchorError):
+            anchors.value('huge', 10 ** 400)
 
 
 if __name__ == '__main__':
