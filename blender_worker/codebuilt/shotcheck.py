@@ -855,17 +855,20 @@ class BlenderProbe:
         only an instance draws counts (collection instances, and geometry-nodes or point instances from the evaluated depsgraph)."""
         found = {o.name: o for o in rendered_text_objects(self.scene.collection)}
         try:
-            instances = list(self.bpy.context.evaluated_depsgraph_get().object_instances)
+            instances = self.bpy.context.evaluated_depsgraph_get().object_instances
         except Exception:   # no Blender (pure tests) or no depsgraph: the collection walk above stands
-            instances = []
+            instances = ()
+        # Blender frees each instance once the iteration moves on: read everything inside the loop, keep only the original object.
         for inst in instances:
+            if not getattr(inst, "is_instance", False):
+                continue
             o = inst.object
-            if not getattr(inst, "is_instance", False) or o.type != "FONT" or o.hide_render:
+            if o.type != "FONT" or o.hide_render:
                 continue
             parent = getattr(inst, "parent", None)
             if (parent is not None and parent.hide_render) or max(abs(s) for s in inst.matrix_world.to_scale()) < MIN_DRAWN_SCALE:
                 continue
-            found.setdefault(o.name, o)
+            found.setdefault(o.name, getattr(o, "original", o))
         return list(found.values())
 
     def readout_names(self):

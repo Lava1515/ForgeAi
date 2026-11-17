@@ -335,8 +335,35 @@ def _fonts_reported(root, bpy=None):
     return sorted(n for _, _, n in report["text_in_3d"])
 
 
+class _Freed:
+    """Like Blender's DepsgraphObjectInstance: every read after the iteration has moved on raises ReferenceError (C-15 of the K2 review)."""
+    def __init__(self, inst):
+        object.__setattr__(self, "_inst", inst)
+        object.__setattr__(self, "_dead", False)
+
+    def __getattr__(self, name):
+        if object.__getattribute__(self, "_dead"):
+            raise ReferenceError("StructRNA of type DepsgraphObjectInstance has been removed")
+        return getattr(object.__getattribute__(self, "_inst"), name)
+
+
+class _FreeingIterable:
+    def __init__(self, instances):
+        self.instances = instances
+
+    def __iter__(self):
+        prev = None
+        for inst in self.instances:
+            if prev is not None:
+                object.__setattr__(prev, "_dead", True)
+            prev = _Freed(inst)
+            yield prev
+        if prev is not None:
+            object.__setattr__(prev, "_dead", True)
+
+
 def _depsgraph(*instances):
-    return types.SimpleNamespace(context=types.SimpleNamespace(evaluated_depsgraph_get=lambda: types.SimpleNamespace(object_instances=list(instances))))
+    return types.SimpleNamespace(context=types.SimpleNamespace(evaluated_depsgraph_get=lambda: types.SimpleNamespace(object_instances=_FreeingIterable(instances))))
 
 
 def test_text_in_3d_sees_a_flat_font_and_a_font_that_only_an_instance_draws():
