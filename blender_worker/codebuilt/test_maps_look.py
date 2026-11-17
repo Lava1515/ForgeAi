@@ -222,6 +222,16 @@ def test_automatic_highlight_lift_tracks_closeup_border(monkeypatch):
     assert hit['fill'].lift == pytest.approx(.00375)
 
 
+def test_zero_lift_preserves_highlight_animation_target(monkeypatch):
+    wm = _map_state(monkeypatch)
+    fill = wm.highlight('BRA', outline=False, glow=False)['fill']
+    target = fill.lift
+    wm.set_lift('BRA', 0)
+    assert fill.lift == target and fill.auto_lift
+    fill.pose(1)
+    assert wm._info['BRA']['lift'] == pytest.approx(target)
+
+
 def test_regional_bbox_adds_context_and_reduces_relief():
     padded = maps._padded_bbox((19, 34, 28, 41))
     assert padded == pytest.approx((10, 27, 37, 48))

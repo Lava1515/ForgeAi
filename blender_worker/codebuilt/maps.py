@@ -359,7 +359,8 @@ class WorldMap:
     palette     "relief" (default: the real Natural Earth land colours, graded calm, with strong hillshading), "continents",
                 "muted" (calm blue-grey, for a map where one country should pop) or "flat"
     hide        ISO codes to leave out (default Antarctica); only: ISO codes to build and nothing else (faster close-ups);
-                bbox=(lon0, lat0, lon1, lat1) keeps countries whose box touches it
+                bbox=(lon0, lat0, lon1, lat1) adds one box-width of context on each side, then keeps touching countries;
+                the sea is clipped to that padded region (country meshes remain whole)
     sea_color   deep-water colour (default materials.MAP_SEA, dark blue-black); relief_strength: hillshade boost (0 = raster as is);
                 border_color: colour of the thin border lines (default pale)
     Handles: .objs {iso: object}, .sea, .collection, .scale, .origin, .data.
@@ -554,7 +555,7 @@ class WorldMap:
         ob = self.country(iso)
         info = self._info[iso]
         active = self._hl.get(iso)
-        if active is not None and not _from_fill:
+        if active is not None and not _from_fill and float(height) > 0:
             active["fill"].auto_lift = False
             active["fill"].lift = float(height)
         me = ob.data
