@@ -339,14 +339,15 @@ export function directionMarkdown(direction, shotStarts, videoSeconds) {
  * A direction made without a model call, for when the director's reply is refused twice: cuts by arithmetic (cadence.js) and the
  * script's own beats spread over them, one custom place per distinct beat subject up to MAX_PLACES. The video is still made.
  */
-export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5, reasons = null }) {
+export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5, reasons = null, formats = currentJobFormats() }) {
   const why = Array.isArray(reasons) && reasons.length
     ? `the director's reply was refused twice: ${reasons.slice(0, 6).join('; ')}`
     : "the director's reply was refused twice and could not be repaired (the reasons are under step \"direction\" in cost_calls.json)";
   const starts = planShotCadence(words, lead, { tail, fps: FPS });
   const phrases = phrasesOf(words, lead);
   const n = starts.length;
-  const placeCount = Math.max(MIN_PLACES, Math.min(MAX_PLACES, Math.ceil(n / 3)));
+  const limits = limitsFor(formats);
+  const placeCount = Math.max(limits.minPlaces, Math.min(limits.maxPlaces, Math.ceil(n / 3)));
   const places = Array.from({ length: placeCount }, (_, i) => ({ id: `p${i + 1}`, base: 'custom', what: 'a place that fits this part of the story', build: 'ground, a backdrop that reaches the horizon, 4 to 8 props around the subject, one landmark, a sky and a key light' }));
   const shots = starts.map((start, k) => {
     const beat = beats.length ? beats[Math.min(beats.length - 1, Math.floor((k * beats.length) / n))] : null;

@@ -133,7 +133,8 @@ export function sanitizeCandidates(answer, { type = 'factual', profile = null, f
     if (out.length >= (profile ? 12 : MAX_CANDIDATES_ASKED) + 2) break;
     if (!c || typeof c !== 'object') continue;
     const topic = clean(c.topic, TOPIC_MAX);
-    const journey = type !== 'teardown' && (formats.includes('journey') || (Array.isArray(profile?.formats) && profile.formats.includes('journey')));
+    const journey = formats.includes('journey') || (Array.isArray(profile?.formats) && profile.formats.includes('journey'));
+    if (journey && type === 'teardown') continue;
     const rawLandmarks = Array.isArray(c.landmarks) ? c.landmarks : [];
     const landmarks = rawLandmarks.length <= 4 ? rawLandmarks.filter((landmark) => landmark && clean(landmark.name, 100)
       && Number.isFinite(landmark.number) && typeof landmark.source === 'string' && /^https:\/\//i.test(landmark.source))
@@ -149,7 +150,7 @@ export function sanitizeCandidates(answer, { type = 'factual', profile = null, f
     const descending = numbers.every((number, i) => i === 0 || number <= numbers[i - 1]);
     const lastContinues = ascending ? c.last_number >= numbers.at(-1) : descending && c.last_number <= numbers.at(-1);
     if (journey && (!clean(c.title, 200) || !clean(c.hook, 200) || !clean(c.thing, 100) || !clean(c.move, 200)
-      || landmarks.length < 3 || !counter?.what || !counter?.unit || !Number.isFinite(c.last_number) || !lastContinues)) continue;
+      || landmarks.length < 3 || numbers.every((number) => number === numbers[0]) || !counter?.what || !counter?.unit || !Number.isFinite(c.last_number) || !lastContinues)) continue;
     if (journey && (!storyQuestion || !endingAnswer || !turn || turn.split(/\s+/).length > 8 || !who || !want)) continue;
     // The topic must agree with the type the video was resolved to: what-if questions only for a what-if video, and never for a factual one.
     if (!topic || (isWhatIfTopic(topic) !== (type === 'whatif'))) continue;
@@ -199,7 +200,7 @@ export function createAutoTopicProvider({ askRoleFn = productionTopicAsk, histor
     // The pick's format rides on the premise, which already travels with the job to every step (start.js reads premise.formats).
     const selected = candidates.find((candidate) => candidate.id === scored.chosen.id);
     return {
-      ...(profile || formats.includes('journey') ? { type, premise: { formats, language: profile?.language || 'en', ...(profile || formats.includes('journey') ? { title: scored.chosen.title, subject: scored.chosen.subject, stake: scored.chosen.stake, hook: scored.chosen.hook, payoff: scored.chosen.payoff, answer: scored.chosen.answer } : {}), ...(formats.includes('journey') ? { thing: selected.thing, move: selected.move, landmarks: selected.landmarks, counter: selected.counter, last_number: selected.last_number, story_question: selected.story_question, ending_answer: selected.ending_answer, turn: selected.turn, who: selected.who, want: selected.want } : {}), score: scored.chosen.total, reasons: scored.chosen.rules, ranked: scored.ranked, rejected: scored.rejected } } : {}),
+      ...(profile || formats.includes('journey') ? { type, premise: { formats, language: profile?.language || 'en', ...(formats.includes('journey') ? { title: selected.title, subject: selected.subject, stake: selected.stake, hook: selected.hook, payoff: selected.payoff, answer: selected.answer } : { title: scored.chosen.title, hook: scored.chosen.hook, payoff: scored.chosen.payoff, answer: scored.chosen.answer }), ...(formats.includes('journey') ? { thing: selected.thing, move: selected.move, landmarks: selected.landmarks, counter: selected.counter, last_number: selected.last_number, story_question: selected.story_question, ending_answer: selected.ending_answer, turn: selected.turn, who: selected.who, want: selected.want } : {}), score: scored.chosen.total, reasons: scored.chosen.rules, ranked: scored.ranked, rejected: scored.rejected } } : {}),
       topic: scored.chosen.topic, candidate_id: scored.chosen.id, total: scored.chosen.total,
       ranked: scored.ranked.length, rejected: scored.rejected.map((r) => ({ id: r.id, reasons: r.reasons.map((x) => `${x.rule}:${x.detail}`) })),
       history_used: scored.history_used, history_available: loaded.available === true,

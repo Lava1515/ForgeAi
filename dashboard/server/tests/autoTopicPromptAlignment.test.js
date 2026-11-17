@@ -94,6 +94,12 @@ test('an explicitly requested journey format gates an unprofiled topic pick and 
   assert.equal(result.premise.thing, 'light pulse');
   assert.equal(result.premise.turn, 'Then the minutes become years.');
   assert.equal(result.premise.want, 'map nearby worlds');
+  assert.equal(result.premise.title, 'How far does a light pulse travel?');
+  assert.equal(result.premise.hook, 'Follow one pulse.');
+  assert.equal(result.premise.stake, 'Space is larger than it looks.');
+  assert.equal(result.premise.answer, 'A light pulse crosses huge distances.');
+  assert.equal(result.premise.payoff, 'The last distance changes the scale.');
+  assert.equal(result.premise.subject, 'light pulse');
 });
 
 test('journey premise gate rejects a missing question, ending answer, short turn, actor, or goal', () => {
@@ -110,4 +116,7 @@ test('journey premise gate rejects a missing question, ending answer, short turn
     assert.equal(sanitizeCandidates({ candidates: [candidate] }, { formats: ['journey'] }).length, 0, `${field} is required`);
   }
   assert.equal(sanitizeCandidates({ candidates: [{ ...valid, turn: 'An unexpected event suddenly stops everything at the worst possible moment.' }] }, { formats: ['journey'] }).length, 0);
+  assert.equal(sanitizeCandidates({ candidates: [valid] }, { type: 'teardown', formats: ['journey'] }).length, 0);
+  const flat = { ...valid, landmarks: valid.landmarks.map((point) => ({ ...point, number: 1 })) };
+  assert.equal(sanitizeCandidates({ candidates: [flat] }, { formats: ['journey'] }).length, 0);
 });
