@@ -61,9 +61,10 @@ export function killTree(child, { platform = process.platform, execFileFn = exec
   try { child?.kill?.('SIGKILL'); } catch { /* already gone */ }
 }
 
-function checkInputs(prompt, images, model) {
+// codex - gpt-6.1-sol - 2026-11-17 22:59 +02:00: explicit author text-only opt-in.
+function checkInputs(prompt, images, model, allowNoImages = false) {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > MAX_PROMPT_CHARS) throw new TypeError('prompt must be a non-empty string of at most 200000 characters');
-  if (!Array.isArray(images) || images.length < 1 || images.length > MAX_IMAGES) throw new TypeError(`images must be a list of 1..${MAX_IMAGES} items`);
+  if (!Array.isArray(images) || images.length < (allowNoImages ? 0 : 1) || images.length > MAX_IMAGES) throw new TypeError(`images must be a list of 1..${MAX_IMAGES} items`);
   for (const image of images) {
     if (!image || !Buffer.isBuffer(image.bytes) || image.bytes.length < 1 || image.bytes.length > MAX_IMAGE_BYTES || !MEDIA_TYPES.has(image.mediaType)) {
       throw new TypeError('each image needs bytes (a Buffer up to 5 MB) and a mediaType of image/jpeg or image/png');
@@ -96,9 +97,9 @@ export function askClaudeLook(prompt, images, options = {}) {
 }
 
 function startLook(prompt, images, {
-  model, timeoutMs = LOOK_TIMEOUT_MS, signal, spawnFn = spawn, claudeHome, platform = process.platform, killTreeFn = killTree,
+  model, allowNoImages = false, timeoutMs = LOOK_TIMEOUT_MS, signal, spawnFn = spawn, claudeHome, platform = process.platform, killTreeFn = killTree,
 } = {}) {
-  const argv = checkInputs(prompt, images, model);
+  const argv = checkInputs(prompt, images, model, allowNoImages);
   if (signal?.aborted) return Promise.reject(failure('Claude CLI look aborted before start', { aborted: true }));
   const env = claudeEnv();
   const home = claudeHome ?? env.HOME;

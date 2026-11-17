@@ -1,4 +1,5 @@
-﻿// codex · gpt-6.1-sol · 2026-11-17 18:03 +02:00
+// codex - gpt-6.1-sol - 2026-11-17 22:59 +02:00: A1 transport, caps and authored route regressions.
+// codex · gpt-6.1-sol · 2026-11-17 18:03 +02:00
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -47,7 +48,7 @@ test('O1a author switch is checked before enqueue and on restart/resume without 
     delete process.env.FORGEAI_AUTHOR_MODE;
     const restarted=createCodebuiltStarter({jobsDir:root});
     assert.throws(()=>restarted.resume(job.id),{code:'author_mode_disabled',status:409});
-    assert.equal(fs.readFileSync(file,'utf8'),before); assert.equal(compose,1);
+    assert.equal(fs.readFileSync(file,'utf8'),before); assert.equal(compose,0); // A1 rejects unmeasured author caps before composition.
   } finally { await starter.idle(); if(prior===undefined)delete process.env.FORGEAI_AUTHOR_MODE;else process.env.FORGEAI_AUTHOR_MODE=prior; }
 });
 
