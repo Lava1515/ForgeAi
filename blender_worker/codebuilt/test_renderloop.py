@@ -51,9 +51,30 @@ class RenderFramesRamCopyTests(unittest.TestCase):
         events = []
         rendered = renderloop.render_frames([1, 2], self.out, lambda f: events.append(f), self.render_fn([]), log=lambda _: None)
         self.assertEqual(rendered, [2])
-        self.assertEqual(events, [2])
+        self.assertEqual(events, [1, 2])  # old frame is posed only to fill its missing anchor entry
+        self.assertEqual(sorted(os.listdir(self.out)), ['0001.png', '0002.png'])
         with open(os.path.join(self.out, '0001.png'), 'rb') as f:
             self.assertEqual(f.read(), b'complete')
+
+    def test_resume_poses_existing_image_missing_anchor_without_rendering(self):
+        from blender_worker.codebuilt import anchors
+        existing = os.path.join(self.out, '0000.png')
+        with open(existing, 'wb') as f:
+            f.write(b'already rendered')
+        anchor_file = os.path.join(self.tmp.name, 'anchors.json')
+        events = []
+        with (mock.patch.object(renderloop, 'ANCHORS_PATH', anchor_file),
+              mock.patch.object(renderloop, '_anchor_dimensions', return_value=(1080, 1920)),
+              mock.patch.object(renderloop, '_project_anchor', return_value=(0.5, 0.5, 1))):
+            def apply(frame):
+                events.append(('apply', frame))
+                anchors.mark('subject', (0, 0, 0))
+
+            rendered = renderloop.render_frames([0], self.out, apply, self.render_fn(events), log=lambda _: None)
+        self.assertEqual(rendered, [])
+        self.assertEqual(events, [('apply', 0)])
+        self.assertTrue(os.path.exists(anchor_file))
+        self.assertEqual(sorted(os.listdir(self.out)), ['0000.png'])
 
     def test_copy_failure_is_raised_and_not_reported_done(self):
         events = []
