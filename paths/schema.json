@@ -23,7 +23,32 @@
     },
     "rules": {
       "description": "Optional plain JSON rule table. The validator additionally enforces a 32 KB serialized limit, maximum depth 6, strings up to 2,000 characters, arrays up to 100 items, objects up to 200 properties, and no prototype-related keys.",
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "formats": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "skills": { "type": "array", "items": { "type": "string" } },
+              "steps": { "type": "array", "items": { "type": "string" } },
+              "sets": { "type": "array", "items": { "type": "string" } },
+              "setSteps": { "type": "array", "items": { "type": "string" } },
+              "note": { "type": "string" },
+              "overlay": { "type": "boolean" },
+              "direction": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "minPlaces": { "type": "integer", "minimum": 1 },
+                  "maxPlaces": { "type": "integer", "minimum": 1 },
+                  "maxShotSeconds": { "type": "number", "exclusiveMinimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

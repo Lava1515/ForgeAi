@@ -14,6 +14,7 @@
 //
 // Pure: no model call, no file, no clock. planner.js makes the call.
 import { startSecondsForFrame, planShotCadence } from './cadence.js';
+import { currentJobFormats, formatDirectionLimits } from './skills.js';
 
 export const DIRECTION_VERSION = 'codebuilt-direction-v1';
 export const MIN_DIRECTED_SHOT_S = 2.2;
@@ -72,15 +73,25 @@ export function phrasesOf(words, lead = 0.35) {
 }
 
 /** How many shots a video of `seconds` should have: about one per TARGET_DIRECTED_SHOT_S, inside what the length limits allow. */
-export function directedShotRange(seconds) {
+export function directedShotRange(seconds, maxShotSeconds = MAX_DIRECTED_SHOT_S) {
   const s = Number(seconds);
-  const min = Math.max(1, Math.ceil(s / MAX_DIRECTED_SHOT_S - 1e-9));
+  const min = Math.max(1, Math.ceil(s / maxShotSeconds - 1e-9));
   const max = Math.max(min, Math.min(MAX_DIRECTED_SHOTS, Math.floor(s / MIN_DIRECTED_SHOT_S + 1e-9)));
   return { min, max, target: Math.max(min, Math.min(max, Math.round(s / TARGET_DIRECTED_SHOT_S))) };
 }
 
-export function directionPrompt({ topic, duration, script, brief, beats = [], phrases, videoSeconds, setManual, propsManual, guides = '', choicesText = '' }) {
-  const range = directedShotRange(videoSeconds);
+const limitsFor = (formats) => {
+  const configured = formatDirectionLimits(formats);
+  return {
+    minPlaces: Number.isInteger(configured.minPlaces) && configured.minPlaces >= 1 ? configured.minPlaces : MIN_PLACES,
+    maxPlaces: Number.isInteger(configured.maxPlaces) && configured.maxPlaces >= 1 ? configured.maxPlaces : MAX_PLACES,
+    maxShotSeconds: Number.isFinite(configured.maxShotSeconds) && configured.maxShotSeconds > 0 ? configured.maxShotSeconds : MAX_DIRECTED_SHOT_S,
+  };
+};
+
+export function directionPrompt({ topic, duration, script, brief, beats = [], phrases, videoSeconds, setManual, propsManual, guides = '', choicesText = '', formats = currentJobFormats() }) {
+  const limits = limitsFor(formats);
+  const range = directedShotRange(videoSeconds, limits.maxShotSeconds);
   const phraseLines = phrases.map((p) => `P${p.i} [${p.start.toFixed(2)}-${p.end.toFixed(2)} s] ${JSON.stringify(p.text)}`).join('\n');
   const beatLines = beats.length ? beats.map((b, i) => `${i + 1}. ${String(b.narration ?? '').slice(0, 160)} -> ${String(b.subject ?? '').slice(0, 200)}; ${String(b.action ?? '').slice(0, 200)}`).join('\n') : '(none)';
   return `You are the director of a ${duration}-second vertical (9:16) 3D explainer short. The narration is already recorded. Every picture will be built from Blender Python code by a programmer who follows your shot list exactly, so write what must be SEEN, concretely enough to build.
@@ -94,8 +105,8 @@ The recorded narration as phrases with their measured times in the video (${vide
 ${phraseLines}
 
 WHAT YOU DECIDE
-1. PLACES. ${MIN_PLACES} to ${MAX_PLACES} places for the whole video. A place is a complete location built once and reused by several shots with a new camera and new action (the good shorts of this channel had 3 to 4 places for 8 shots). Each place must belong to THIS topic: do not use a place only because it exists in the library. A place is either one of the ready sets below, or "custom". A ready set comes exactly as described, with its own daylight and props: choose one only when the story needs that very location as it is. When you need another time of day (night, sunset), another mood, or anything the set does not have, make the place custom, and for most topics most places are custom. For a custom place say what it is made of (ground or floor, what stands behind the action up to the horizon or the far wall, 4 to 8 props around the subject, one landmark, the sky or ceiling, the light and time of day).
-2. SHOTS. About ${range.target} shots (${range.min} to ${range.max}). Each shot starts at the start of a phrase (give its number in "from") and runs to the next shot; the first shot starts at P0. Each shot lasts ${MIN_DIRECTED_SHOT_S} to ${MAX_DIRECTED_SHOT_S} seconds. Cut where the narration moves to a new idea, not in the middle of one.
+1. PLACES. ${limits.minPlaces} to ${limits.maxPlaces} places for the whole video. A place is a complete location built once and reused by several shots with a new camera and new action (the good shorts of this channel had 3 to 4 places for 8 shots). Each place must belong to THIS topic: do not use a place only because it exists in the library. A place is either one of the ready sets below, or "custom". A ready set comes exactly as described, with its own daylight and props: choose one only when the story needs that very location as it is. When you need another time of day (night, sunset), another mood, or anything the set does not have, make the place custom, and for most topics most places are custom. For a custom place say what it is made of (ground or floor, what stands behind the action up to the horizon or the far wall, 4 to 8 props around the subject, one landmark, the sky or ceiling, the light and time of day).
+2. SHOTS. About ${range.target} shots (${range.min} to ${range.max}). Each shot starts at the start of a phrase (give its number in "from") and runs to the next shot; the first shot starts at P0. Each shot lasts ${MIN_DIRECTED_SHOT_S} to ${limits.maxShotSeconds} seconds. Cut where the narration moves to a new idea, not in the middle of one.
 3. For every shot: the place; what the viewer sees (the subject, LARGE: it fills a third to two thirds of the frame height, in the middle of the frame); what visibly happens during the shot (something must move or change in every shot: a character acts, an object travels, grows, breaks, lights up); the camera (where it starts and how it moves: push in, pull back, orbit, crane up, follow, whip to; say close, medium or wide); for a shot longer than 4 s a second beat ("then": the view or the action changes again); an optional short on-screen readout (a number or 1 to 3 words, shown when a named narration word is spoken).
 4. Neighbouring shots must differ in framing (wide then close, low then high, front then side). The first shot shows the question of the video inside the first second. The last shot resolves the story or returns to the opening picture; its final second holds on that finished picture with the subject in frame (the camera never drifts off into empty space).
 5. Keep one recurring character or object through the video when the story allows it (the same person, the same planet), so the shots read as one story.
@@ -119,7 +130,7 @@ const shotLengths = (shots, phrases, videoSeconds) => {
   const starts = shots.map((s) => (s.from === 0 ? 0 : phrases[s.from].start));
   return starts.map((st, k) => (k + 1 < shots.length ? starts[k + 1] : videoSeconds) - st);
 };
-const fits = (len) => len >= MIN_DIRECTED_SHOT_S - 1e-6 && len <= MAX_DIRECTED_SHOT_S + 1e-6;
+const fits = (len, maxShotSeconds = MAX_DIRECTED_SHOT_S) => len >= MIN_DIRECTED_SHOT_S - 1e-6 && len <= maxShotSeconds + 1e-6;
 const spanOf = (phrases, videoSeconds, from, to) => (to < phrases.length ? phrases[to].start : videoSeconds) - (from === 0 ? 0 : phrases[from].start);
 
 /**
@@ -152,7 +163,7 @@ function mergeShot(shots, k, why, repairs) {
 }
 
 /** Repairs the timing of `shots` in place (order kept, cuts only on phrase starts) and returns what was changed, one line each. */
-export function repairShotTiming(shots, { phrases, videoSeconds, range }) {
+export function repairShotTiming(shots, { phrases, videoSeconds, range, maxShotSeconds = MAX_DIRECTED_SHOT_S }) {
   const repairs = [];
   if (!shots.length) return repairs;
   const label = (k) => `shot ${k + 1} (from P${shots[k].from})`;
@@ -174,12 +185,12 @@ export function repairShotTiming(shots, { phrases, videoSeconds, range }) {
       let done = false;
       if (k + 1 < shots.length) {
         for (let f = shots[k + 1].from + 1; f < nextFrom(k + 1) && !done; f += 1) {
-          if (fits(spanOf(phrases, videoSeconds, shots[k].from, f)) && fits(spanOf(phrases, videoSeconds, f, nextFrom(k + 1)))) { repairs.push(`${before}; shot ${k + 2} now starts at P${f} instead of P${shots[k + 1].from}`); shots[k + 1].from = f; done = true; }
+          if (fits(spanOf(phrases, videoSeconds, shots[k].from, f), maxShotSeconds) && fits(spanOf(phrases, videoSeconds, f, nextFrom(k + 1)), maxShotSeconds)) { repairs.push(`${before}; shot ${k + 2} now starts at P${f} instead of P${shots[k + 1].from}`); shots[k + 1].from = f; done = true; }
         }
       }
       if (!done && k > 0) {
         for (let f = shots[k].from - 1; f > shots[k - 1].from && !done; f -= 1) {
-          if (fits(spanOf(phrases, videoSeconds, f, nextFrom(k))) && fits(spanOf(phrases, videoSeconds, shots[k - 1].from, f))) { repairs.push(`${before}; it now starts at P${f} instead of P${shots[k].from}`); shots[k].from = f; done = true; }
+          if (fits(spanOf(phrases, videoSeconds, f, nextFrom(k)), maxShotSeconds) && fits(spanOf(phrases, videoSeconds, shots[k - 1].from, f), maxShotSeconds)) { repairs.push(`${before}; it now starts at P${f} instead of P${shots[k].from}`); shots[k].from = f; done = true; }
         }
       }
       if (!done) mergeShot(shots, k > 0 && (k + 1 >= shots.length || lens[k - 1] <= lens[k + 1]) ? k : (k + 1 < shots.length ? k + 1 : k), before, repairs);
@@ -187,12 +198,12 @@ export function repairShotTiming(shots, { phrases, videoSeconds, range }) {
     }
     // Too long, or too few shots: split the longest shot at the inner phrase start nearest its middle that leaves both halves allowed.
     const longest = lens.indexOf(Math.max(...lens));
-    if (lens[longest] > MAX_DIRECTED_SHOT_S + 1e-6 || (shots.length < range.min && lens[longest] >= 2 * MIN_DIRECTED_SHOT_S)) {
+    if (lens[longest] > maxShotSeconds + 1e-6 || (shots.length < range.min && lens[longest] >= 2 * MIN_DIRECTED_SHOT_S)) {
       const k = longest; const a = shots[k].from; const b = nextFrom(k);
       const mid = (a === 0 ? 0 : phrases[a].start) + lens[k] / 2;
       let best = -1;
       for (let f = a + 1; f < b; f += 1) {
-        if (!fits(spanOf(phrases, videoSeconds, a, f)) || spanOf(phrases, videoSeconds, f, b) < MIN_DIRECTED_SHOT_S - 1e-6) continue;
+        if (!fits(spanOf(phrases, videoSeconds, a, f), maxShotSeconds) || spanOf(phrases, videoSeconds, f, b) < MIN_DIRECTED_SHOT_S - 1e-6) continue;
         if (best < 0 || Math.abs(phrases[f].start - mid) < Math.abs(phrases[best].start - mid)) best = f;
       }
       if (best < 0) break;
@@ -216,19 +227,20 @@ export function repairShotTiming(shots, { phrases, videoSeconds, range }) {
 }
 
 /** What is still wrong with the timing after repair (empty when the shot list can be built). */
-function timingProblems(shots, { phrases, videoSeconds, range }) {
+function timingProblems(shots, { phrases, videoSeconds, range, maxShotSeconds = MAX_DIRECTED_SHOT_S }) {
   const why = [];
   if (shots.length < range.min || shots.length > range.max) why.push(`shots must list ${range.min} to ${range.max} shots, about ${range.target} (found ${shots.length})`);
   shotLengths(shots, phrases, videoSeconds).forEach((len, k) => {
     if (len < MIN_DIRECTED_SHOT_S - 1e-6) why.push(`shot ${k + 1} (from P${shots[k].from}) lasts ${len.toFixed(1)} s; the shortest allowed is ${MIN_DIRECTED_SHOT_S} s: start it earlier or merge it with a neighbour`);
-    if (len > MAX_DIRECTED_SHOT_S + 1e-6) why.push(`shot ${k + 1} (from P${shots[k].from}) lasts ${len.toFixed(1)} s; the longest allowed is ${MAX_DIRECTED_SHOT_S} s: split it at a phrase inside it`);
+    if (len > maxShotSeconds + 1e-6) why.push(`shot ${k + 1} (from P${shots[k].from}) lasts ${len.toFixed(1)} s; the longest allowed is ${maxShotSeconds} s: split it at a phrase inside it`);
   });
   return why;
 }
 
 /** The parsed direction with shot windows attached, or a DirectionError that lists every problem. `parse(text)` turns a reply into an object. */
-export function checkDirection({ phrases, videoSeconds, setNames = [], parse }) {
-  const range = directedShotRange(videoSeconds);
+export function checkDirection({ phrases, videoSeconds, setNames = [], parse, formats = currentJobFormats() }) {
+  const limits = limitsFor(formats);
+  const range = directedShotRange(videoSeconds, limits.maxShotSeconds);
   return (text) => {
     const why = [];
     let v;
@@ -236,7 +248,7 @@ export function checkDirection({ phrases, videoSeconds, setNames = [], parse }) 
     const look = str(v.look, 800);
     if (look.split(/\s+/).length < 8) why.push('look must be 2 to 3 sentences');
     const placesIn = Array.isArray(v.places) ? v.places : [];
-    if (placesIn.length < MIN_PLACES || placesIn.length > MAX_PLACES) why.push(`places must list ${MIN_PLACES} to ${MAX_PLACES} places (found ${placesIn.length})`);
+    if (placesIn.length < limits.minPlaces || placesIn.length > limits.maxPlaces) why.push(`places must list ${limits.minPlaces} to ${limits.maxPlaces} places (found ${placesIn.length})`);
     const places = [];
     const ids = new Set();
     for (const p of placesIn) {
@@ -274,12 +286,12 @@ export function checkDirection({ phrases, videoSeconds, setNames = [], parse }) 
     if (!why.length) {
       // Only timing is left to judge. A slip there (two shots on one phrase, shots out of order, a shot too short or too long, too
       // many cuts) is repaired here on the phrase grid instead of throwing the whole direction away (Baarle, job mwj5bu87-0a6f86).
-      repairs.push(...repairShotTiming(shots, { phrases, videoSeconds, range }));
-      why.push(...timingProblems(shots, { phrases, videoSeconds, range }));
+      repairs.push(...repairShotTiming(shots, { phrases, videoSeconds, range, maxShotSeconds: limits.maxShotSeconds }));
+      why.push(...timingProblems(shots, { phrases, videoSeconds, range, maxShotSeconds: limits.maxShotSeconds }));
       if (!why.length) {
         const used = new Set(shots.map((s) => s.place));
         const orphaned = places.filter((p) => !used.has(p.id));
-        if (orphaned.length && places.length - orphaned.length >= MIN_PLACES) {
+        if (orphaned.length && places.length - orphaned.length >= limits.minPlaces) {
           for (const p of orphaned) { places.splice(places.indexOf(p), 1); repairs.push(`place ${p.id} dropped: its only shot was merged into a neighbour`); }
         } else if (orphaned.length) why.push(`place ${orphaned[0].id} lost its only shot when the timing was repaired`);
       }

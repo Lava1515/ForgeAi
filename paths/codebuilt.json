@@ -52,6 +52,11 @@
       "mode": "guidance_only"
     },
     {
+      "id": "codebuilt-journey",
+      "skill": "codebuilt-journey",
+      "mode": "guidance_only"
+    },
+    {
       "id": "codebuilt-publish",
       "skill": "codebuilt-publish",
       "mode": "guidance_only"
@@ -124,6 +129,23 @@
           "build"
         ],
         "note": "This video is for a channel whose format is map explainers: the viewer must see the real map. Show every place the script names on one of these ready sets, which carry real country shapes and the real Earth. Never draw your own Earth, continent or country from primitives or noise. Use world_map for countries, borders, routes and regions; use globe for the whole Earth, oceans and remote points."
+      },
+      "journey": {
+        "skills": [
+          "codebuilt-journey"
+        ],
+        "steps": [
+          "script",
+          "direction",
+          "build"
+        ],
+        "overlay": true,
+        "direction": {
+          "minPlaces": 1,
+          "maxPlaces": 3,
+          "maxShotSeconds": 16
+        },
+        "note": "This video follows one physical thing through one continuous visible move. Keep a running number tied to that move and end with a number that changes the viewer's sense of scale. Use the saved screen anchors for labels and put all text in overlay.json."
       }
     },
     "skillsByStep": {

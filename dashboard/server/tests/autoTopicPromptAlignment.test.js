@@ -52,3 +52,62 @@ test('the 6 to 10 word rule is guidance: a short candidate topic is still accept
   assert.equal(kept.length, 1);
   assert.equal(kept[0].topic, 'Why bridges?');
 });
+
+test('journey profiles reject candidates without sourced landmarks and retain the next complete premise', async () => {
+  const pick = createAutoTopicProvider({
+    getChannel: () => ({ id: 'journey', profile: { status: 'active', niche: 'science journeys', formats: ['journey'], language: 'en', avoid: [] } }),
+    history: () => ({ videos: [], available: false }),
+    askRoleFn: async () => ({ candidates: [
+      { topic: 'How far does a paper plane fly?', title: 'How far does a paper plane fly?', subject: 'paper plane', stake: 'A fold changes its flight.', answer: 'The flight ends at a measured distance.', hook: 'Watch the flight distance.', payoff: 'A short runway dwarfs the plane.', thing: 'paper plane', move: 'glide down a measured runway', landmarks: [], counter: { what: 'flight distance', unit: 'm' }, last_number: 0 },
+      { topic: 'How far does a toy car roll?', title: 'How far does a toy car roll?', subject: 'toy car', stake: 'A small push travels farther.', answer: 'A toy car rolls across a measured floor.', hook: 'Follow the rolling car.', payoff: 'The final distance dwarfs the car.', story_question: 'How far can a small push send a toy car?', ending_answer: 'It rolls five metres.', turn: 'Then it stops short.', who: 'A child', want: 'measure the roll', thing: 'toy car', move: 'roll along a measured floor', landmarks: [
+        { name: 'tile', number: 0.3, source: 'https://example.org/tile' }, { name: 'door', number: 2, source: 'https://example.org/door' }, { name: 'room', number: 5, source: 'https://example.org/room' },
+      ], counter: { what: 'distance rolled', unit: 'm' }, last_number: 5 },
+    ] }),
+  });
+  const result = await pick({ channelId: 'journey', type: 'factual' });
+  assert.equal(result.topic, 'How far does a toy car roll?');
+  assert.deepEqual(result.premise.formats, ['journey']);
+  assert.equal(result.premise.thing, 'toy car');
+  assert.equal(result.premise.landmarks.length, 3);
+  assert.equal(result.premise.story_question, 'How far can a small push send a toy car?');
+  assert.equal(result.premise.want, 'measure the roll');
+});
+
+test('an explicitly requested journey format gates an unprofiled topic pick and returns its premise contract', async () => {
+  let prompt;
+  const pick = createAutoTopicProvider({
+    getChannel: () => null,
+    history: () => ({ videos: [], available: false }),
+    askRoleFn: async (_role, text) => {
+      prompt = text;
+      return { candidates: [{
+        topic: 'How far does a light pulse travel?', title: 'How far does a light pulse travel?', subject: 'light pulse', stake: 'Space is larger than it looks.', answer: 'A light pulse crosses huge distances.', hook: 'Follow one pulse.', payoff: 'The last distance changes the scale.', story_question: 'How far does one pulse travel?', ending_answer: 'It reaches Proxima in 4.24 light-years.', turn: 'Then the minutes become years.', who: 'NASA astronomers wanted to map nearby worlds.',
+        thing: 'light pulse', move: 'travel outward from the Sun', want: 'map nearby worlds', landmarks: [
+          { name: 'Earth', number: 1, source: 'https://science.nasa.gov/' }, { name: 'Jupiter', number: 5.2, source: 'https://science.nasa.gov/' }, { name: 'Neptune', number: 30, source: 'https://science.nasa.gov/' },
+        ], counter: { what: 'distance from the Sun', unit: 'AU' }, last_number: 268000,
+      }] };
+    },
+  });
+  const result = await pick({ type: 'factual', formats: ['journey'] });
+  assert.match(prompt, /one continuous move/);
+  assert.deepEqual(result.premise.formats, ['journey']);
+  assert.equal(result.premise.thing, 'light pulse');
+  assert.equal(result.premise.turn, 'Then the minutes become years.');
+  assert.equal(result.premise.want, 'map nearby worlds');
+});
+
+test('journey premise gate rejects a missing question, ending answer, short turn, actor, or goal', () => {
+  const valid = {
+    topic: 'How far does a light pulse travel?', title: 'How far does a light pulse travel?', subject: 'light pulse', stake: 'Space is larger than it looks.', answer: 'A light pulse crosses huge distances.', hook: 'Follow one pulse.', payoff: 'The last distance changes the scale.',
+    story_question: 'How far does one pulse travel?', ending_answer: 'It reaches Proxima in 4.24 light-years.', turn: 'Then minutes become years.', who: 'NASA astronomers', want: 'map nearby worlds',
+    thing: 'light pulse', move: 'travel outward from the Sun', landmarks: [
+      { name: 'Earth', number: 1, source: 'https://science.nasa.gov/' }, { name: 'Jupiter', number: 5.2, source: 'https://science.nasa.gov/' }, { name: 'Neptune', number: 30, source: 'https://science.nasa.gov/' },
+    ], counter: { what: 'distance from the Sun', unit: 'AU' }, last_number: 268000,
+  };
+  for (const field of ['story_question', 'ending_answer', 'turn', 'who', 'want']) {
+    const candidate = { ...valid };
+    delete candidate[field];
+    assert.equal(sanitizeCandidates({ candidates: [candidate] }, { formats: ['journey'] }).length, 0, `${field} is required`);
+  }
+  assert.equal(sanitizeCandidates({ candidates: [{ ...valid, turn: 'An unexpected event suddenly stops everything at the worst possible moment.' }] }, { formats: ['journey'] }).length, 0);
+});
