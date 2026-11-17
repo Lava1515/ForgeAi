@@ -89,9 +89,9 @@ The shapes are Natural Earth, public domain, no credit required (licenses/regist
 
 This applies only when the job's route is `overlay` or `authored`, where text is drawn after the render. Then the scene carries no text at all: no letters, no numbers, no country names in 3D. The overlay step draws every label, so a text change needs no new render. Where this section differs from the text above (the view transform and the labels), this section wins for those routes.
 
-- Country names and place names are overlay labels, never 3D text. Do not call `wm.label` or `highlight(..., label=...)`; the overlay code check refuses them.
+- Country names and place names are overlay labels, never 3D text. Do not use the map kit's `label` method or the `label` argument of `highlight` and `highlight_group`; the overlay code check refuses them.
 - Mark each country's anchor with `WorldMap.anchor_point(key)` when it exists (a plain function that returns three numbers) and pass the point to `anchors.mark`. Use `WorldMap.point(lon, lat, z)` only for a free point that is not a country.
 - A running year or distance is the counter, drawn by the overlay. The big payoff number goes on its own word.
-- The camera slows at each landmark and holds about half a second after it arrives, so the label can be read before the camera leaves.
-- The view transform is AgX with look `AgX - Medium High Contrast` for these routes, not Standard exposure 0. Check one half-size frame under that look: the sea and land must still read.
+- The camera slows at each landmark, arrives before the word that names it and holds about one second after the label is fully on screen, so the label can be read before the camera leaves.
+- The render profile line in the build prompt wins; today it is view transform AgX with look `AgX - Medium High Contrast`, Cycles at 16 samples, for these routes. Keep `scene.cycles.device='CPU'` (the fenced executor picks the GPU). In the preview sheets the sea and land must still read under that look.
 - Surfaces are written for the shot: large patterns that read on a phone, no plain flat sea or ground where the viewer looks. Keep the subject clear of the place a label will sit.
