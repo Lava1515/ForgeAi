@@ -131,11 +131,31 @@ class _Synth:
         t = self.tt(d)
         return (np.sin(2 * np.pi * f * t) + 0.4 * np.sin(2 * np.pi * f * 2.01 * t)) * self.env(d, 0.002, 6)
 
+    def tone(self, f0, f1, d):
+        """Soft, enveloped sine sweep. Frequencies stay below 45% of the sample rate."""
+        ceiling = self.sr * 0.45
+        if any(isinstance(f, bool) or not isinstance(f, (int, float)) or not math.isfinite(f) or not 0 < f <= ceiling
+               for f in (f0, f1)):
+            raise AudioKitError("tone frequencies must be finite and within (0, %.1f] Hz" % ceiling)
+        if isinstance(d, bool) or not isinstance(d, (int, float)) or not math.isfinite(d) or d <= 0:
+            raise AudioKitError("tone duration must be positive and finite")
+        return self.sweep(float(f0), float(f1), float(d)) * self.env(float(d), 0.004, 2.5) * 0.25
+
     def thud(self):
         a = self.sweep(140, 45, 0.35) * self.env(0.35, 0.002, 5) * 1.4
         b = self.noise(0.06, 300, 4000) * self.env(0.06, 0.001, 6)
         a[: b.size] += b
         return a
+
+    def boom(self, d=0.8):
+        """Low, short impact with a restrained noisy attack."""
+        if isinstance(d, bool) or not isinstance(d, (int, float)) or not math.isfinite(d) or d <= 0:
+            raise AudioKitError("boom duration must be positive and finite")
+        low = self.sweep(105, 38, d) * self.env(d, 0.003, 4.5)
+        attack_d = min(0.08, d)
+        attack = self.noise(attack_d, 180, 3200) * self.env(attack_d, 0.001, 6) * 0.65
+        low[:attack.size] += attack
+        return low
 
     def screech(self, d=0.4):
         t = self.tt(d)
@@ -161,7 +181,7 @@ class _Synth:
 
 
 EFFECT_NAMES = ("whoosh", "pop", "gulp", "plop", "splash", "squelch", "boing", "blip", "ping", "thud", "screech",
-                "rumble", "wind")
+                "rumble", "wind", "boom", "tone")
 
 # Sneaky pizzicato progression from the gum short: (bass root note, eight plucked notes per bar), MIDI numbers.
 DEFAULT_PROGRESSION = (
