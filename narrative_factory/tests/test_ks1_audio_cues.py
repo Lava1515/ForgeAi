@@ -21,14 +21,15 @@ def make_anchors():
 def test_overlay_cues_follow_fixture_events_and_convert_video_clock_once():
     spec = overlay.parse_spec(FIXTURE.read_bytes())
     cues = cb5.overlay_cues(spec, make_anchors(), duration=27.3, fps=10, lead=.35)
-    assert [(event[0], round(event[1], 2)) for event in cues if event[0] != "tone"] == [
-        ("whoosh", 0.0), ("ping", 7.1 - .35), ("boom", 22.5 - .35)
-    ]
-    tones = [event for event in cues if event[0] == "tone"]
-    assert tones and round(tones[0][1], 2) == 0.0
-    assert round(tones[-1][1] + tones[-1][3]["d"], 2) == 26.95
-    assert tones[0][3]["f0"] < tones[4][3]["f1"]
-    assert tones[5][3]["f1"] < tones[4][3]["f1"]
+    assert [(e[0], e[1]) for e in cues if e[0] != "tone"] == [
+        ("whoosh", 0.0), ("ping", 7.1), ("boom", 22.5)]
+    tones = [e for e in cues if e[0] == "tone"]
+    assert len(tones) == 1
+    assert tones[0][1] == 0
+    assert tones[0][3]["d"] == 27.3
+    freqs = tones[0][3]["freqs"]
+    assert freqs[0][1] < freqs[4][1]
+    assert freqs[5][1] < freqs[4][1]
 
 
 def test_jobs_without_overlay_keep_the_legacy_word_cue_list():
@@ -53,3 +54,92 @@ def test_effect_stem_measures_inside_the_existing_level_rule():
     rel = mixed.report["relative_to_voice_db"]
     assert abs(rel["music"] + 18) <= 1
     assert -13 <= rel["effects"] <= -10
+
+
+@pytest.mark.parametrize("fps", [True, 241, 1e7, float("inf")])
+def test_fps_cap(fps):
+    with pytest.raises(ValueError, match="fps"):
+        cb5.overlay_cues(overlay.parse_spec(FIXTURE.read_bytes()), make_anchors(), 2, fps, .35)
+
+
+@pytest.mark.parametrize("start,end", [(0, .2), (.03, .04), (2.1, 2.3)])
+def test_window_preserved_before_lead_and_after_voice(start, end):
+    spec = overlay.parse_spec(json.dumps({"version": 1, "counter": {
+        "value": "depth", "format": "int", "from": start, "to": end}}).encode())
+    cue, = cb5.overlay_cues(spec, make_anchors(), 2, 30, .35)
+    assert cue[1] == start
+    assert cue[3]["d"] == pytest.approx(end-start)
+
+
+@pytest.mark.parametrize("marks", [None, anchors_file.Anchors.empty()])
+def test_missing_counter_anchors_fail(marks):
+    with pytest.raises(ValueError, match="anchors.json"):
+        cb5.overlay_cues(overlay.parse_spec(FIXTURE.read_bytes()), marks, 28, 30, .35)
+
+
+def test_frame_budget_cap():
+    with pytest.raises(ValueError, match="frame"):
+        cb5.overlay_cues(overlay.parse_spec(FIXTURE.read_bytes()), make_anchors(), 10000, 240, .35)
+
+
+def test_produce_legacy_mix_is_byte_identical(tmp_path, monkeypatch):
+    import soundfile as sf
+    from test_post_overlay_run import _fake_cb5_job
+    job, seen = _fake_cb5_job(tmp_path, monkeypatch)
+    voice, sr = sf.read(job / "mix.wav", dtype="float32")
+    words = json.loads((job / "words.json").read_text())
+    duration = len(voice)/sr
+    choice = audio.music_choice(" ".join(w["w"] for w in words["words"]))
+    music = audio.synth_music(duration, sr=cb5.MIX_SR, seed=choice["seed"], bpm=choice["bpm"],
+        progression=audio.PROGRESSIONS[choice["progression"]], fade_out_s=min(1.2, duration/2))
+    effects = audio.synth_effects(cb5._word_cues(words, duration), duration, sr=cb5.MIX_SR, seed=3)
+    expected = audio.mix_stems((voice,sr), (music,cb5.MIX_SR), (effects,cb5.MIX_SR), sr=cb5.MIX_SR, voice_peak=None)
+    audio.write_outputs(expected, job / "expected", name="cb5", print_levels=False)
+    cb5.produce(job)
+    assert "audio_lead" not in seen
+    for stem in ("mix", "voice", "music", "effects"):
+        assert (job / "out/audio" / f"cb5-{stem}.wav").read_bytes() == (job / "expected" / f"cb5-{stem}.wav").read_bytes()
+
+
+def test_overlay_produce_pads_voice_once_and_preserves_early_cues(tmp_path, monkeypatch):
+    import soundfile as sf
+    from test_post_overlay_run import _fake_cb5_job, write
+    job, seen = _fake_cb5_job(tmp_path, monkeypatch)
+    (job / "inputs").mkdir()
+    (job / "work").mkdir()
+    write(job / "inputs/overlay.json", {"version":1, "tag":{"text":"HERE","from":0,"to":.2},
+        "counter":{"value":"n","format":"int","from":0,"to":.2}})
+    write(job / "work/anchors.json", {"version":1,"width":216,"height":384,
+        "frames":{"0":{"v":{"n":0}},"5":{"v":{"n":1}}}})
+    report = cb5.produce(job)
+    assert seen["audio_lead"] == 0 and seen["lead"] == .35
+    voice, sr = sf.read(job / "out/audio/cb5-voice.wav")
+    tone, _ = sf.read(job / "out/audio/cb5-tone.wav")
+    effects, _ = sf.read(job / "out/audio/cb5-effects.wav")
+    assert not np.any(voice[:round(.35*sr)])
+    assert np.any(voice[round(.35*sr):round(.36*sr)])
+    assert np.any(tone[:round(.1*sr)]) and not np.any(tone[round(.2*sr):])
+    assert np.any(effects[:round(.1*sr)])
+    assert report["audio"]["relative_to_voice_db"]["tone"] == -11.5
+
+
+def test_encoded_mux_offset_independent_of_caption_lead(tmp_path):
+    import subprocess
+    from narrative_factory.codebuilt.post import run, media
+    from test_post_overlay_run import job_inputs, HAVE_FFMPEG
+    if not HAVE_FFMPEG:
+        pytest.skip("no ffmpeg")
+    frames, words, wav = job_inputs(tmp_path)
+    def encode(name, **args):
+        return run.finish(frames, words, wav, tmp_path/name, "short", lead=.35, **args)
+    old = encode("legacy")
+    explicit = encode("explicit", audio_lead=.35)
+    early = encode("premix", audio_lead=0)
+    assert Path(old["video"]).read_bytes() == Path(explicit["video"]).read_bytes()
+    assert Path(old["subtitles"]).read_bytes() == Path(early["subtitles"]).read_bytes()
+    def decode(rep):
+        data = subprocess.check_output([media.resolve_ffmpeg(), "-v","error","-i",rep["video"],
+            "-vn","-f","f32le","-ac","1","-ar","24000","-"])
+        return np.frombuffer(data, dtype="<f4")
+    assert np.max(np.abs(decode(old)[:2400])) < .001
+    assert np.sqrt(np.mean(decode(early)[:2400]**2)) > .1
