@@ -286,11 +286,14 @@ O1a 52449eb reviewed MERGE by Sonnet (no S, no L), merged as 246a433. Five C fin
 
 | Id | State | Follow-up |
 |---|---|---|
-| O1a-C1 | FOLLOW-UP C MEDIUM | HTTP handlers `routes/codebuilt.js` and `RUN_BODY_KEYS` in `routes/codebuiltRuns.js` do not list `route`, so over HTTP every route value returns 400 and the client selector (G9) cannot work yet. Fails closed. No lane owned these files; the O1c integration lane takes them. |
+| O1a-C1 | DONE | Closed by O1c-http a199270 (merged acc5bff, Opus review 2026-11-17): the HTTP handlers and `RUN_BODY_KEYS` accept `route`; `checkJobRoute` still validates the value. |
 | O1a-C2 | FOLLOW-UP C LOW | An authored job with the flag off still reports `resumable: true`, then refuses the resume. |
 | O1a-C3 | FOLLOW-UP C LOW | Author tests miss three reviewer mutations: execute-time flag check removed, preview runner losing `route`, validator losing `route`. |
 | O1a-C4 | FOLLOW-UP C LOW | New tests leave scratch folders under `output/agent-jobs/o1a-tests` and hard-code the path. |
 | O1a-C5 | INFO | Journey-profile channels now save route `overlay` and get `picture:true` topic prompts; `route` is a new key in `status.json`. Both follow contract 2.1. |
+| W2-C1 | FOLLOW-UP C LOW | Classic jobs also load the new "When text is drawn after the render" sections in six skills (text changes, behaviour should not). Teach `skills.js` to drop the section on `classic` jobs. Opus review A note. |
+| W2-C2 | FOLLOW-UP C LOW | G9 hides "One author" until a server endpoint reports author mode and `NewVideo.jsx` passes `authorModeAvailable`; the client body builders accept "authored" (the server refuses with 409). No client test runner exists. Opus review C. |
+| W2-C3 | FOLLOW-UP C LOW | G7 `anchor_point` and G8 per-frame order through `render_frames` with the real camera projector are untested; the G10 and G11 stills prove them. G8: `pose("x")` outside Blender now raises instead of doing nothing; a comment in `routes/codebuilt.js` names only `start.js` as the route checker, the batch path checks in `runCoordinator.js`. Opus review B and C. |
 
 ### O1b review follow-ups · 2026-11-17 19:20 +02:00 · claude-pro · claude-sonnet-5-5
 
