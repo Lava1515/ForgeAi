@@ -109,3 +109,20 @@ for(const route of ['overlay','authored']) for(const type of ['factual','history
   await assert.rejects(planCodebuiltBuild({...input,route,choices:{type}}, {direct:false,askFn:async text=>{prompt=text;throw stop;}}),e=>e===stop);
   assert.match(prompt,/No text in 3D/);assert.match(prompt,/AgX - Medium High Contrast/);
 });
+// claude-pro · claude-sonnet-5-5 · 2026-11-17: review F2, no skill line may contradict the RL1 profile on overlay or authored routes.
+test('O1b overlay and authored build prompts carry no Standard view transform or CPU-sample line for any type and format set',async()=>{
+  for(const route of ['overlay','authored']) for(const type of ['factual','history','teardown','whatif']) for(const formats of [[],['map'],['teardown'],['journey'],['map','journey']]) {
+    let prompt;const stop=new Error('prompt captured');
+    await assert.rejects(planCodebuiltBuild({...input,route,formats,choices:{type}}, {direct:false,askFn:async text=>{prompt=text;throw stop;}}),e=>e===stop);
+    assert.doesNotMatch(prompt,/Standard/,`${route} ${type} ${formats}`);
+    assert.doesNotMatch(prompt,/Cycles CPU with 8/);
+    assert.match(prompt,/AgX/);assert.match(prompt,/view_transform/);
+  }
+});
+test('O1b classic build prompts keep the Standard lines',async()=>{
+  for(const route of [undefined,'classic']) for(const formats of [[],['map']]) {
+    let prompt;const stop=new Error('prompt captured');
+    await assert.rejects(planCodebuiltBuild({...input,route,formats}, {direct:false,askFn:async text=>{prompt=text;throw stop;}}),e=>e===stop);
+    assert.match(prompt,/Standard/);assert.doesNotMatch(prompt,/RL1 render profile/);
+  }
+});

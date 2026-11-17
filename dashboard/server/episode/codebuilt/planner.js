@@ -1076,7 +1076,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
       .replace('Output ONLY the Python source in one ```python block.', 'Output the Python source in one ```python block and the overlay spec in one ```json block.');
     initialPrompt += `\nNo text in 3D and no FONT curves. Import anchors from blender_worker.codebuilt. Only these generated APIs are allowed, inside shot functions:\nanchors.mark(name, world_point)\nanchors.value(name, number)\nNames are literal lowercase identifiers, max 24 characters. Return ONE python block and ONE json block (overlay.json). Use version 1, optional counter {value,format,unit,label,from,to}, labels [{anchor,title,value,side,from,to}], measures [{a,b,text,from,to}], bars [{value,label,min,max,from,to}], big [{text,sub,from,to}], tag {text,from,to}. Limits: 12 labels, 4 measures, 2 bars, 3 big. Text max 28 characters (sub 40), ASCII letters/digits/space and . , % \u00b0 \u00d7 - + / : ' ( ). Formats: int,int_commas,one_decimal,two_decimals,year,times. Side: left,right,auto. Times from measured words + ${LEAD_S}, 0 <= from < to <= ${nframes / FPS}. Mark every point and value referenced. Never call kit anchor write/reset/begin/capture/document/usage/discard helpers. Never alias kit modules or functions or use reflection.`;
   }
-  // codex ? gpt-6.1-sol ? 2026-11-17 18:03 +02:00: route-only look; the executor owns GPU selection.
+  // codex · gpt-6.1-sol · 2026-11-17 18:03 +02:00: route-only look; the executor owns GPU selection.
   if (input.route === 'overlay' || input.route === 'authored') {
     const render = pack.rules.routes?.overlay?.render;
     if (!render) throw new PlannerError('PATH_PACK_INVALID', 'overlay render profile is missing');
