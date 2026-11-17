@@ -271,3 +271,205 @@ def test_run_qa_switches_the_check_on_by_the_presence_of_the_overlay_input(monke
     overlay = qa.run_qa(None, None, lambda f: (seen.append(f), probe.at(f)), 80, [], hold=1)
     assert [f["check"] for f in overlay["findings"] if f["check"] == "text_in_3d"] == ["text_in_3d"]
     assert "text_in_3d" in (tmp_path / "qa_report.json").read_text()
+
+
+# ---- lane K2 (2026-11-17, claude-pro · claude-sonnet-5-5): hardening of the no-text-in-3D guarantee (G17 review: C-2, C-4, C-9, C-10).
+# The probes are the exact forms of output/agent-jobs/g17-probes (K05, K07, K09, K10) and g17-review-opus (KO4, KO5).
+import json
+import os
+import sys
+import types
+
+
+class _Mat:
+    def __init__(self, scale):
+        self.scale = scale
+
+    def to_scale(self):
+        return self.scale
+
+
+class _Obj(dict):
+    def __init__(self, name, typ="FONT", scale=(1.0, 1.0, 1.0), hide_render=False, instance_collection=None):
+        super().__init__()
+        self.name, self.type, self.hide_render, self.scale = name, typ, hide_render, scale
+        self.instance_collection = instance_collection
+        self.data = types.SimpleNamespace(body=name)
+        self.parent = None
+
+    @property
+    def matrix_world(self):
+        return _Mat(self.scale)
+
+
+class _Coll:
+    def __init__(self, name, objects=(), children=(), hide_render=False):
+        self.name, self.objects, self.children, self.hide_render = name, list(objects), list(children), hide_render
+
+
+class _RealProbe(qa.BlenderProbe):
+    """The real BlenderProbe text methods over fake scene objects (no Blender; bpy is a stand-in or None)."""
+
+    def __init__(self, root, bpy=None):
+        self.scene, self.bpy, self.frame, self.bounds_source = types.SimpleNamespace(collection=root), bpy, 0, None
+
+    def update(self):
+        pass
+
+    def text_box(self, o):
+        return (0.3, 0.7, 0.4, 0.6, 3.0)
+
+    def content(self):
+        return []
+
+    def cam_target(self):
+        return (0.0, 0.0, 0.0) if self.frame < 40 else (20.0, 0.0, 0.0)
+
+    def cam_pose(self):
+        return ((0.0, -5.0, 2.0), 50.0) if self.frame < 40 else ((20.0, -5.0, 2.0), 50.0)
+
+
+def _fonts_reported(root, bpy=None):
+    probe = _RealProbe(root, bpy)
+    report = qa.run_qa_with(probe, lambda f: setattr(probe, "frame", f), 80, RANGES, hold=1, overlay=True)
+    return sorted(n for _, _, n in report["text_in_3d"])
+
+
+class _Freed:
+    """Like Blender's DepsgraphObjectInstance: every read after the iteration has moved on raises ReferenceError (C-15 of the K2 review)."""
+    def __init__(self, inst):
+        object.__setattr__(self, "_inst", inst)
+        object.__setattr__(self, "_dead", False)
+
+    def __getattr__(self, name):
+        if object.__getattribute__(self, "_dead"):
+            raise ReferenceError("StructRNA of type DepsgraphObjectInstance has been removed")
+        return getattr(object.__getattribute__(self, "_inst"), name)
+
+
+class _FreeingIterable:
+    def __init__(self, instances):
+        self.instances = instances
+
+    def __iter__(self):
+        prev = None
+        for inst in self.instances:
+            if prev is not None:
+                object.__setattr__(prev, "_dead", True)
+            prev = _Freed(inst)
+            yield prev
+        if prev is not None:
+            object.__setattr__(prev, "_dead", True)
+
+
+def _depsgraph(*instances):
+    return types.SimpleNamespace(context=types.SimpleNamespace(evaluated_depsgraph_get=lambda: types.SimpleNamespace(object_instances=_FreeingIterable(instances))))
+
+
+def test_text_in_3d_sees_a_flat_font_and_a_font_that_only_an_instance_draws():
+    # K05: one axis squashed to 1e-9 keeps a flat glyph outline; the kit used min() and dropped it.
+    assert _fonts_reported(_Coll("root", [_Obj("flat", scale=(1.0, 1.0, 1e-9))])) == ["flat"]
+    assert _fonts_reported(_Coll("root", [_Obj("hidden_readout", scale=(0, 0, 0))])) == []   # the kit's own hidden-readout trick
+    # K07: the FONT lives only in a collection that is not linked to the scene; a visible Empty instances it.
+    unlinked = _Coll("not_in_scene", [_Obj("inst_text")])
+    assert _fonts_reported(_Coll("root", [_Obj("inst", "EMPTY", instance_collection=unlinked)])) == ["inst_text"]
+    assert _fonts_reported(_Coll("root", [_Obj("inst", "EMPTY", hide_render=True, instance_collection=unlinked)])) == []
+    assert _fonts_reported(_Coll("root", [_Obj("inst", "EMPTY", scale=(0, 0, 0), instance_collection=unlinked)])) == []
+    # Geometry nodes and point instancing reach no collection walk: the evaluated depsgraph instances do.
+    font = _Obj("gn_text")
+    seen = types.SimpleNamespace(object=font, is_instance=True, matrix_world=_Mat((1.0, 1.0, 1.0)), parent=_Obj("emitter", "MESH"))
+    assert _fonts_reported(_Coll("root"), _depsgraph(seen)) == ["gn_text"]
+    font_hidden = types.SimpleNamespace(object=_Obj("gn_hidden", hide_render=True), is_instance=True, matrix_world=_Mat((1.0,) * 3), parent=None)
+    plain = types.SimpleNamespace(object=_Obj("linked_elsewhere"), is_instance=False, matrix_world=_Mat((1.0,) * 3), parent=None)
+    assert _fonts_reported(_Coll("root"), _depsgraph(font_hidden, plain)) == []
+
+
+DIFFERENT = [((0, -5, 2), (0, 0, 0)), ((20, -5, 2), (20, 0, 0))]
+
+
+class _TextProbeDiff(_TextProbe):
+    """Like _TextProbe, but the two shots look at different things, so a final run fails only for the text."""
+
+    def __init__(self, visible):
+        _TwoShotProbe.__init__(self, DIFFERENT)
+        self.visible = visible
+
+
+def _arm(monkeypatch, tmp_path, probe, overlay=True, preview=True):
+    """What the existing run_qa test sets up: the probe, the report files in tmp, the overlay input present or not."""
+    monkeypatch.setattr(qa, "BlenderProbe", lambda scene, cam: probe)
+    monkeypatch.setattr(qa, "REPORT_FILE", str(tmp_path / "qa_report.json"))
+    monkeypatch.setattr(qa, "FAILURE_FILE", str(tmp_path / "qa_failure.txt"))
+    timeline = types.ModuleType("blender_worker.codebuilt.timeline")
+    timeline.shot_frame_ranges = lambda shots, nframes, fps: RANGES
+    monkeypatch.setitem(sys.modules, "blender_worker.codebuilt.timeline", timeline)
+    monkeypatch.setattr(qa, "OVERLAY_INPUT", str(tmp_path / "overlay.json"))
+    if overlay:
+        (tmp_path / "overlay.json").write_text("{}")
+    if preview is not None:
+        monkeypatch.setattr(qa, "preview_mode", lambda: preview)
+        monkeypatch.setattr(qa, "_preview_frames", lambda: [])
+    qa.reset_qa()
+
+
+def test_patching_os_path_exists_does_not_hide_the_overlay_input(monkeypatch, tmp_path):
+    # KO4 / O04: the build patches os.path.exists before the kit looks for overlay.json.
+    probe = _TextProbeDiff({"title": (0, 80)})
+    _arm(monkeypatch, tmp_path, probe, preview=False)
+    real_exists = os.path.exists
+    monkeypatch.setattr(os.path, "exists", lambda p: False if str(p).endswith("overlay.json") else real_exists(p))
+    with pytest.raises(qa.QAError, match="title"):
+        qa.run_qa(None, None, probe.at, 80, [], hold=1)
+
+
+def test_a_preview_json_written_by_the_build_cannot_soften_a_final_render(monkeypatch, tmp_path):
+    # KO5 / O05: the build writes /job/work/preview.json, so run_qa judges leniently, then moves the file away before render_frames.
+    from blender_worker.codebuilt import renderloop
+    probe = _TextProbeDiff({"title": (0, 80)})
+    _arm(monkeypatch, tmp_path, probe, preview=None)
+    monkeypatch.setattr("blender_worker.codebuilt.shotcheck.PREVIEW_SPEC", str(tmp_path / "preview.json"), raising=False)
+    monkeypatch.setattr(renderloop, "PREVIEW_SPEC", str(tmp_path / "preview.json"))
+    spec = tmp_path / "preview.json"
+    apply = probe.at   # a bound method is a new object on every access; the gate compares identity
+    body = json.dumps({"version": 1, "frames": [0], "scale": 25, "out": "/job/preview"})
+    spec.write_text(body)
+    report = qa.run_qa(None, None, apply, 80, [], hold=1)
+    assert report["mode"] == "preview" and report["text_in_3d"]            # lenient, as the host's own preview is
+    spec.unlink()                                                           # the build removes the forged file
+    with pytest.raises(qa.QAError, match="preview"):
+        qa.require_qa(apply=apply, frames=range(80), hold=1)
+    # A real preview keeps its spec unchanged until render_frames spends the gate: that still works.
+    spec.write_text(body)
+    qa.run_qa(None, None, apply, 80, [], hold=1)
+    qa.require_qa(apply=apply, frames=[0], hold=1)
+
+
+def _fake_bpy(monkeypatch):
+    handlers = types.SimpleNamespace(render_pre=[], persistent=lambda fn: fn)
+    monkeypatch.setitem(sys.modules, "bpy", types.SimpleNamespace(app=types.SimpleNamespace(handlers=handlers)))
+    return handlers
+
+
+def test_text_shown_only_after_the_qa_pass_stops_the_final_render(monkeypatch, tmp_path):
+    # K09 / N18: apply() poses no text for the QA frames and shows it later. The kit re-checks right before every render.
+    handlers = _fake_bpy(monkeypatch)
+    probe = _TextProbeDiff({"late": (1000, 2000)})            # run_qa poses frames 0..79 and sees nothing
+    _arm(monkeypatch, tmp_path, probe, preview=False)
+    qa.run_qa(None, None, probe.at, 80, [], hold=1)
+    assert len(handlers.render_pre) == 1
+    exits = []
+    monkeypatch.setattr(qa, "_hard_exit", exits.append)
+    probe.at(10)
+    handlers.render_pre[0](None)
+    assert exits == []
+    probe.at(1500)                                         # the render's own apply now shows the text
+    handlers.render_pre[0](None)
+    assert exits == [3] and "late" in (tmp_path / "qa_failure.txt").read_text()
+    # Not armed in a preview, nor for a classic job (no overlay input).
+    for overlay, preview in ((True, True), (False, False)):
+        handlers.render_pre.clear()
+        _arm(monkeypatch, tmp_path, probe, overlay=overlay, preview=preview)
+        if not overlay:
+            (tmp_path / "overlay.json").unlink()
+        qa.run_qa(None, None, probe.at, 80, [], hold=1)
+        assert handlers.render_pre == []
