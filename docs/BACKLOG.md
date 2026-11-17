@@ -1,4 +1,4 @@
-﻿# ForgeAi backlog
+# ForgeAi backlog
 
 One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude-pro Â· claude-sonnet-5-5.
 `READY` = nothing outside the code blocks it; the fleet can take it. `OWNER` = waits on the owner. `PARKED` = the
@@ -20,11 +20,11 @@ Owner orders 13:14 and 13:34; binding contracts, lane requirements and proofs: `
 |---|---|---|---|
 | KA1 | Kit saves screen positions | MERGED c085907; final review and limited-audit CPU proof pass | `blender_worker/codebuilt/anchors.py`, `renderloop.py`, tests; strict per-frame anchors, resume and fenced CPU cross-position proof. |
 | KO1 | Overlay layer in post | MERGED 63dc91d; review/replay pass | `post/overlay.py`, `anchors_file.py`, `run.py`, `cb5.py`, shared fixtures/tests; strict readers, six elements, layout findings, eight-frame Kola replay. |
-| KJ1 | Journey format and premise gate | FIX f918e3d; final review and corrected premises pending | journey skill, paths JSON, `autoTopic.js`, `theme.js`, `direction.js`, `skills.js`, tests; format-specific behavior and five sourced premises. |
+| KJ1 | Journey format and premise gate | MERGED 065ceae; code review and five corrected premises pass | journey skill, paths JSON, `autoTopic.js`, `theme.js`, `direction.js`, `skills.js`, tests; format-specific behavior and five sourced premises. |
 | KR1 | Render look measurement | DONE report; Sonnet review pass, caveats recorded | Eight Kola frames host EEVEE/container Cycles/container EEVEE; timing, sheet and recommendation under `output/agent-jobs/kr1-render-look/`. |
-| KB1 | Builder overlay contract | BUILDING | `planner.js`, `overlaySpec.js`, `start.js`, `runJob.js`, `jobFolder.js`, tests; validated immutable overlay input, bounded repair, unchanged old path. |
-| KP1 | Previews show final text | BUILDING | `post/preview_sheet.py`, `previewSheet.js`, `visualLoop.js`, `visualLoopPrompts.js`, tests; captions/overlay on tiles and smoke proof. |
-| KS1 | Sound follows the story | REVIEW e4c6224; fixture only, timing concern | `post/cb5.py` cue part, `blender_worker/codebuilt/audio.py`, tests; overlay-derived ping/boom/whoosh and counter tone, measured levels/stems, legacy sound unchanged; nobody listened. |
+| KB1 | Builder overlay contract | REVIEW aa68f9c; security review active | `planner.js`, `overlaySpec.js`, `start.js`, `runJob.js`, `jobFolder.js`, tests; validated immutable overlay input, bounded repair, unchanged old path. |
+| KP1 | Previews show final text | MERGED 51b88ce; captions and labels visible in fenced proof | `post/preview_sheet.py`, `previewSheet.js`, `visualLoop.js`, `visualLoopPrompts.js`, tests; captions/overlay on tiles and smoke proof. |
+| KS1 | Sound follows the story | MERGED 2874202; final review pass, phase 1 clip levels pending | `post/cb5.py` cue part, `blender_worker/codebuilt/audio.py`, tests; overlay-derived ping/boom/whoosh and counter tone, measured levels/stems, legacy sound unchanged; nobody listened. |
 | KE0 | Author design note | WAITING PHASE 1 DONE + push | Reviewed design before code; section 6 restrictions binding, Sonnet author, KR1 render recommendation and measured token cap. |
 | KE1 | One author session | WAITING KE0 approval | `authorLoop.js`, `authorCall.js`, `start.js` switch; host-run fenced previews, no command/network tools, mode off by default. |
 | KE2 | Author validator profile | WAITING KE0 approval | `planner.js` second profile; keep forbidden list, fence and previewed-hash gate. |
@@ -151,3 +151,6 @@ Updated 2026-11-17 10:45 +02:00 by codex · gpt-6.1-sol: SP2 merged after final 
 
 
 
+
+
+Updated 2026-11-17 14:18 +02:00 by codex · gpt-6.1-sol: rotation took over; reconciled KS1/KP1 merges and KB1 active security review. Phase 1 proofs remain pending.

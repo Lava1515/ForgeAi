@@ -11,7 +11,7 @@ import numpy as np
 
 from blender_worker.codebuilt import audio as audio_kit
 
-from . import media, run
+from . import anchors_file, media, overlay, run
 
 
 # Seconds the executor adds before every cue and before the voice (blender_worker/codebuilt/timeline.py LEAD; a test keeps them equal).
@@ -44,6 +44,41 @@ def _word_cues(word_data, duration):
         elif any(char in ",;:.!?…" for char in marks):
             cues.append(("whoosh", start, 0.16))
     return cues
+
+
+def overlay_cues(spec, anchors, duration, fps, lead):
+    """Video-clock cues for overlay premixes; voice lead is applied in mix_stems only.
+
+    Preserve entire spec windows, including before lead and after voice end.
+    """
+    for name, value in (("duration", duration), ("fps", fps), ("lead", lead)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"{name} must be a finite number")
+    if duration <= 0 or not 0 < fps <= 240 or lead < 0:
+        raise ValueError("duration must be positive, fps in (0, 240], lead non-negative")
+    if (duration + lead) * fps > 216000:
+        raise ValueError("overlay audio exceeds 216000 frame budget")
+    cues = []
+    for items, kind, gain in ((spec["labels"], "ping", .5), (spec["big"], "boom", .5),
+                              ([spec["tag"]] if spec["tag"] else [], "whoosh", .16)):
+        cues.extend((kind, item["from"], gain) for item in items)
+    counter = spec["counter"]
+    if counter:
+        if anchors is None or counter["value"] not in anchors.value_names:
+            raise anchors_file.AnchorsError("anchors.json: missing counter value " + counter["value"])
+        start, end = counter["from"], counter["to"]
+        if math.ceil(end * fps) > 216000:
+            raise ValueError("counter exceeds 216000 frame budget")
+        times = [start] + [f / fps for f in range(math.floor(start * fps) + 1, math.ceil(end * fps))] + [end]
+        values = [anchors.value(math.floor(t * fps), counter["value"]) for t in times]
+        low, high = min(values), max(values)
+        scale = max(abs(low), abs(high)) or 1
+        def pitch(v):
+            return 660.0 if high == low else 440.0 + ((v/scale-low/scale)/(high/scale-low/scale))*440.0
+        freqs = [(t-start, pitch(v)) for t, v in zip(times, values)]
+        cues.append(("tone", start, 1, {"f0": freqs[0][1], "f1": freqs[-1][1],
+                                       "d": end-start, "freqs": freqs}))
+    return sorted(cues, key=lambda event: event[1])
 
 
 def produce(job_dir, *, fps=run.FPS, lead=LEAD):
@@ -83,14 +118,40 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     music = audio_kit.synth_music(duration, sr=MIX_SR, seed=choice["seed"], bpm=choice["bpm"],
                                   progression=audio_kit.PROGRESSIONS[choice["progression"]], fade_out_s=min(1.2, duration / 2))
     word_events = _word_cues(word_data, duration)
+    mix_args = {}
+    if spec.exists():
+        # Reject bad clocks before division or any frame-scaled work.
+        overlay_cues({"labels": [], "big": [], "tag": None, "counter": None}, None, duration, fps, lead)
+        nframes = len(run._frames(frames))
+        if nframes > 216000:
+            raise ValueError("overlay audio exceeds 216000 frame budget")
+        parsed_spec = overlay.load_spec(spec, nframes / fps, job_root=job)
+        parsed_anchors = anchors_file.load(marks, nframes, job_root=job) if marks.exists() else None
+        if any(overlay.names_used(parsed_spec).values()) and parsed_anchors is None:
+            raise media.MediaError("anchors.json is missing for overlay audio")
+        if parsed_anchors is not None:
+            names = overlay.names_used(parsed_spec)
+            missing = (names["points"] - parsed_anchors.point_names) | (names["values"] - parsed_anchors.value_names)
+            if missing:
+                raise media.MediaError("anchors.json: missing referenced names: " + ", ".join(sorted(missing)))
+        # Overlay-only premix uses video time. Legacy synthesis/mux remain untouched.
+        events = overlay_cues(parsed_spec, parsed_anchors, duration, fps, lead)
+        word_events = [(e[0], e[1] + lead, *e[2:]) for e in word_events]
+        word_events.extend(e for e in events if e[0] != "tone")
+        duration = max(duration + lead, nframes / fps)
+        music = np.pad(music, (int(round(lead * MIX_SR)), 0))
+        tone = audio_kit.synth_effects([e for e in events if e[0] == "tone"], duration, sr=MIX_SR)
+        mix_args = {"voice_offset_s": lead, "tone": (tone, MIX_SR)}
+        overlay_args["audio_lead"] = 0.0
     effects = audio_kit.synth_effects(word_events, duration, sr=MIX_SR, seed=3)
-    mixed = audio_kit.mix_stems((voice, sr), (music, MIX_SR), (effects, MIX_SR), sr=MIX_SR, voice_peak=None)
+    mixed = audio_kit.mix_stems((voice, sr), (music, MIX_SR), (effects, MIX_SR),
+                                sr=MIX_SR, voice_peak=None, **mix_args)
     mixed.report["music_choice"] = choice
     audio_raw = out / "audio"
     if audio_raw.is_symlink() or audio_raw.is_junction():
         raise media.MediaError("audio output must not be a link")
     audio_out = media.inside(out, audio_raw)
-    for name in ("cb5-mix.wav", "cb5-voice.wav", "cb5-music.wav", "cb5-effects.wav", "cb5-levels.json"):
+    for name in ("cb5-mix.wav", "cb5-voice.wav", "cb5-music.wav", "cb5-effects.wav", "cb5-tone.wav", "cb5-levels.json"):
         target = audio_out / name
         if target.is_symlink() or target.is_junction() or (target.exists() and target.stat().st_nlink > 1):
             raise media.MediaError("audio output must not be a linked file")
