@@ -2,8 +2,11 @@
 import argparse
 import json
 import os
+import queue
 import shutil
 import sys
+import threading
+import tempfile
 import time
 
 from .paths import require_abs
@@ -47,8 +50,70 @@ def script_argv(argv=None):
 def _copy_frame(src, dst):
     """Copy via a temp name and an atomic rename, so an interrupted copy never leaves a file that resume would trust."""
     tmp = dst + ".part"
-    shutil.copyfile(src, tmp)
-    os.replace(tmp, dst)
+    try:
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dst)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+class _FrameCopyWorker:
+    """Copy completed RAM frames to the job mount with bounded, ordered backpressure."""
+    def __init__(self, capacity=2):
+        self.tasks = queue.Queue(maxsize=capacity)
+        self.error = None
+        self.thread = threading.Thread(target=self._run, name="frame-copy", daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        while True:
+            task = self.tasks.get()
+            try:
+                if task is None:
+                    return
+                src, dst = task
+                try:
+                    if self.error is None:
+                        _copy_frame(src, dst)
+                except BaseException as error:
+                    self.error = error
+                finally:
+                    try:
+                        os.unlink(src)
+                    except FileNotFoundError:
+                        pass
+                    except BaseException as error:
+                        if self.error is None:
+                            self.error = error
+            finally:
+                self.tasks.task_done()
+
+    def submit(self, src, dst):
+        if self.error is not None:
+            raise self.error
+        self.tasks.put((src, dst))
+        if self.error is not None:
+            raise self.error
+
+    def drain(self):
+        self.tasks.join()
+        if self.error is not None:
+            raise self.error
+
+    def close(self):
+        try:
+            self.drain()
+        except BaseException:
+            pass
+        finally:
+            self.tasks.put(None)
+            self.thread.join()
+        if self.error is not None:
+            raise self.error
 
 
 # ---- preview mode (visual loop, KAN-934) -------------------------------------------------------------------------------
@@ -57,6 +122,7 @@ def _copy_frame(src, dst):
 # build script is unchanged: the same render_frames(...) call previews or renders in full depending on the file.
 PREVIEW_SPEC = "/job/work/preview.json"
 PREVIEW_OUT = "/job/preview"
+RAM_FRAME_DIR = "/tmp"
 # codex · gpt-6.1-sol · 2026-11-14: diagnostics stay in the existing writable job mount.
 TIMING_PATH = "/job/work/render-timing.json"
 PREVIEW_MAX_FRAMES = 24
@@ -201,30 +267,40 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
     timing = {"version": 1, "clock": "perf_counter_seconds", "apply_s": 0.0, "render_s": 0.0,
               "note": "render_s includes engine sync, BVH, tracing, denoising and PNG write; other_s includes held copies and diagnostics",
               "tuned": tuned}
-    for f in frames:
-        fp = os.path.join(out_dir, f"{f:04d}.png")
-        if skip_existing and os.path.exists(fp):
-            continue
-        src = os.path.join(out_dir, f"{f - f % hold:04d}.png")
-        if f % hold and os.path.exists(src):
-            _copy_frame(src, fp)
-            held += 1
-            continue
-        before_apply = time.perf_counter()
-        apply(f)
-        before_render = time.perf_counter()
-        render_fn(fp)
-        after_render = time.perf_counter()
-        timing["apply_s"] += before_render - before_apply
-        timing["render_s"] += after_render - before_render
-        done.append(f)
-        if len(done) == 1:
-            timing["first_render_s"] = after_render - before_render
-            timing["settings_after_render"] = _actual_settings()
-        if len(done) == 1 or len(done) % 30 == 0:
-            timing.update(rendered=len(done), held=held, last_frame=f, loop_s=time.perf_counter() - started)
-            timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
-            _save_timing(timing)
+    with tempfile.TemporaryDirectory(prefix="forgeai-frames-", dir=RAM_FRAME_DIR) as ram_dir:
+        copier = _FrameCopyWorker()
+        try:
+            for f in frames:
+                fp = os.path.join(out_dir, f"{f:04d}.png")
+                if skip_existing and os.path.exists(fp):
+                    continue
+                src = os.path.join(out_dir, f"{f - f % hold:04d}.png")
+                if f % hold:
+                    # Earlier renders may still be copying; wait before checking/reading the source.
+                    copier.drain()
+                    if os.path.exists(src):
+                        _copy_frame(src, fp)
+                        held += 1
+                        continue
+                ram_fp = os.path.join(ram_dir, f"{f:04d}.png")
+                before_apply = time.perf_counter()
+                apply(f)
+                before_render = time.perf_counter()
+                render_fn(ram_fp)
+                after_render = time.perf_counter()
+                timing["apply_s"] += before_render - before_apply
+                timing["render_s"] += after_render - before_render
+                done.append(f)
+                copier.submit(ram_fp, fp)
+                if len(done) == 1:
+                    timing["first_render_s"] = after_render - before_render
+                    timing["settings_after_render"] = _actual_settings()
+                if len(done) == 1 or len(done) % 30 == 0:
+                    timing.update(rendered=len(done), held=held, last_frame=f, loop_s=time.perf_counter() - started)
+                    timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
+                    _save_timing(timing)
+        finally:
+            copier.close()
     timing.update(rendered=len(done), held=held, loop_s=time.perf_counter() - started)
     timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
     _save_timing(timing)
