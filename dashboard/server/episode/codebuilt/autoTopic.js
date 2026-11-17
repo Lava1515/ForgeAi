@@ -95,7 +95,7 @@ function validStory(c) {
   const want = clean(c.want, 201);
   const turnWords = turn.split(/\s+/).filter(Boolean).length;
   return question.length >= 8 && question.length <= 300 && answer.length >= 8 && answer.length <= 300
-    && turnWords >= 2 && turnWords <= 8 && who.length >= 2 && want.length >= 4;
+    && turnWords >= 2 && turnWords <= 8 && who.length >= 2 && who.length <= 120 && want.length >= 4 && want.length <= 200;
 }
 
 function cleanPicture(value) {

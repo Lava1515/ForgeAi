@@ -19,6 +19,15 @@ const picture = {
 };
 const basic = { topic: 'Why does a paper plane fly farther?', title: 'Why does a paper plane fly farther?', subject: 'paper plane', stake: 'A fold changes how far it flies.', payoff: 'The room becomes a runway.', answer: 'It crosses the room.', hook: 'How far can it fly?', main_setting: 'room', facts: [], shots: [] };
 
+test('picture story drops overlong actor and goal instead of repairing them', () => {
+  for (const [key,limit] of [['who',120],['want',200]]) {
+    const candidate={...basic,...story,picture,[key]:'x'.repeat(limit)};
+    assert.equal(sanitizeCandidates({candidates:[candidate]},{picture:true}).length,1);
+    candidate[key]+='x';
+    assert.equal(sanitizeCandidates({candidates:[candidate]},{picture:true}).length,0);
+  }
+});
+
 test('picture disabled preserves both classic prompt byte snapshots', async () => {
   const prompt = async (channelId) => {
     let text;
