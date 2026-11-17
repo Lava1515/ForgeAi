@@ -234,6 +234,14 @@ def test_hidden_font_object_at_every_posed_frame_is_not_reported_and_no_overlay_
     assert all(f["check"] != "text_in_3d" for f in classic["findings"])
 
 
+def test_overlay_text_visible_only_at_extra_posed_preview_frame_is_reported():
+    probe = _TextProbe({"only_preview_tile": (3, 4)})
+    report = qa.run_qa_with(probe, probe.at, 80, RANGES, hold=1, step=4,
+                            extra_frames=[3], overlay=True)
+    assert report["text_in_3d"] == [(3, 3, "only_preview_tile")]
+    assert not report["ok"]
+
+
 def test_text_in_3d_blocks_the_final_render_but_a_preview_renders_and_reports(monkeypatch, tmp_path):
     report = qa.run_qa_with(_TextProbe({"title": (0, 80)}), lambda f: None, 80, RANGES, hold=1, overlay=True)
     qa.enforce(report, lambda f: None, preview=True)

@@ -475,12 +475,14 @@ def run_qa_with(probe, apply, nframes, ranges, hold=2, upper_step=UPPER_STEP, sa
         checking = f in check_frames
         content = None   # projecting every mesh is the costly part: only on the frames that use it
         texts = []
+        # Contract 2.5 covers every posed frame, including extra preview tiles.
+        if overlay:
+            for o in probe.text_objects():
+                seen = in_3d.setdefault(o.name, [f, f])
+                seen[1] = f
         if checking:
             checked += 1
             for o in probe.text_objects():
-                if overlay:
-                    seen = in_3d.setdefault(o.name, [f, f])
-                    seen[1] = f
                 if is_readout(o):
                     readout_names.add(o.name)
                 box = probe.text_box(o)
