@@ -4,6 +4,7 @@
 // is the real protection. Checks here run on the host between operations and cannot close a race with a live
 // writer inside the mount; the CB6 fence must stop the agent before outputs are collected.
 import { parseOverlaySpec } from '../../codebuilt/overlaySpec.js';
+import { frameCountFor, FPS } from '../../codebuilt/planner.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -111,7 +112,10 @@ export function writeInputs(paths, { script, voWav, words, pathPack, brief, over
   if (overlaySpec !== undefined) {
     const raw = toBuffer(overlaySpec, 'overlay.json', inputRoots);
     const timing = JSON.parse(data['words.json'].toString('utf8'));
-    parseOverlaySpec(raw.toString('utf8'), {videoSeconds: Math.trunc((timing.dur + 0.35 + 1.5) * 30) / 30});
+    if (!Number.isFinite(timing?.dur) || timing.dur <= 0 || !Number.isFinite(frameCountFor(timing))) {
+      throw new CodebuiltError('BAD_JOB', 'overlay words.json dur must be a finite positive number');
+    }
+    parseOverlaySpec(raw.toString('utf8'), {videoSeconds: frameCountFor(timing) / FPS});
     data['overlay.json'] = raw;
   } else if (fs.lstatSync(path.join(paths.inputs,'overlay.json'), {throwIfNoEntry:false})) {
     throw new CodebuiltError('INPUT_CHANGED','unexpected overlay.json in a legacy job');

@@ -744,7 +744,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       let loopReceipt = null;
       if (visualLoop !== false) {
         if (resume?.build) step(rec, 'visual_loop');
-        const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build ? { code: resume.build.code, startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
+        const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build && !jobUsesOverlay(pathPack, rec.formats) ? { code: resume.build.code, startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
           .finally(() => writeCalls(rec.id, allCalls));
         if (!outcome || (!outcome.accepted && outcome.unapproved !== true) || typeof outcome.buildScript !== 'string' || !outcome.buildScript.trim() || sha(outcome.buildScript) !== outcome.sha256) throw new StartError('look_failed', 502);
         buildScript = outcome.buildScript;

@@ -2,10 +2,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {parseOverlaySpec,extractOverlay,jobUsesOverlay} from '../episode/codebuilt/overlaySpec.js';
-import {overlayScriptProblems} from '../episode/codebuilt/planner.js';
+import {overlayScriptProblems,validateBuildScript} from '../episode/codebuilt/planner.js';
 const fixtures=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../../tests/fixtures/overlay');
 for(const c of JSON.parse(fs.readFileSync(path.join(fixtures,'cases.json'))).cases) test(`overlay parity ${c.file}`,()=>{
  const raw=fs.readFileSync(path.join(fixtures,c.file),'utf8');
@@ -36,7 +37,10 @@ for(const code of ['a=anchors','f=anchors.mark','from blender_worker.codebuilt i
 
 import {planCodebuiltBuild} from '../episode/codebuilt/planner.js';
 import {writeInputs,verifyInputs,ensureJobFolder,jobPaths} from '../episode/engines/codebuilt/jobFolder.js';
-const root='C:/code/ForgeAi/output/agent-jobs/kb1-builder/tests';
+const scratch = path.resolve('../../output/temp');
+fs.mkdirSync(scratch, {recursive:true});
+const root=fs.mkdtempSync(path.join(scratch,'overlay-spec-'));
+test.after(()=>fs.rmSync(root,{recursive:true,force:true}));
 const base=`from blender_worker.codebuilt import meshes, shotcheck, renderloop, timeline, anchors
 OUT = '/job/frames'
 NFRAMES = 90
@@ -63,6 +67,52 @@ const pack=JSON.parse(fs.readFileSync(path.resolve(fixtures,'../../../paths/code
 pack.rules.formats={...pack.rules.formats,journey:{overlay:true}};
 const planInput={topic:'A journey',duration:30,script:'Hello.',brief:'A visible journey',words,pathPack:pack,formats:['journey']};
 const deps={direct:false,syntaxCheck:()=>'',qaStructureCheck:()=>[]};
+
+// codex · gpt-6.1-sol · 2026-11-17 14:50 +02:00: exact review bypasses, through the public validator.
+for (const bypass of [
+ 'from blender_worker.codebuilt.stage import text',
+ 'from blender_worker.codebuilt.stage import hud_text as h',
+ 'from blender_worker.codebuilt.diagram import Board',
+ "sys.modules['blender_worker.codebuilt.stage'].text()",
+ "sys.modules['blender_worker.codebuilt.anchors'].write()",
+ "sys.modules['builtins'].getattr(anchors, 'write')()",
+ "bpy.ops.object.add(type=''.join(['F','O','N','T']))",
+ "bpy.ops.object.add(type='FO'+'NT')",
+ "bpy.ops.object.add(type=chr(70)+'ONT')",
+ 'bpy.ops.object.add()',
+ "f=bpy.ops.object.add; f(type='FO'+'NT')",
+ "bpy.ops.object.add(type='MESH', **kwargs)",
+ "b=diagram.Board(c); b.label('170 KM',(0,-0.8))",
+ 'f=b.label',
+ "model.callout('engine','ENGINE')",
+ "teardown._make_callout_label(c,'x','TEXT',1)",
+ 'f=wm.highlight; f("BRA",label=True)',
+ "wm.label('Brazil','BRA')",
+ "wm.highlight('BRA',label=True)",
+ "wm.highlight_group(['BRA'],label='BRAZIL')",
+ "wm.highlight('BRA','red',0,0.25,True,True,'BRAZIL')",
+]) test(`overlay review bypass refused: ${bypass}`,()=>{
+ assert.deepEqual(validateBuildScript(base,{nframes:90,shotStarts:[0],overlay:true,overlaySpec:spec}),[]);
+ assert.ok(validateBuildScript(base+'\n'+bypass,{nframes:90,shotStarts:[0],overlay:true,overlaySpec:spec}).length);
+ assert.deepEqual(validateBuildScript(base+'\n'+bypass,{nframes:90,shotStarts:[0]}),[]);
+});
+test('overlay accepts literal non-text object and curve constructors and unlabelled maps',()=>{
+ assert.deepEqual(overlayScriptProblems(good+"\nbpy.ops.object.add(type='MESH')\nbpy.data.curves.new('path',type='CURVE')\nwm.highlight('BRA',label=False)\nwm.highlight_group(['BRA'])",spec),[]);
+});
+
+for (const dur of [undefined,'30',null,NaN,Infinity,-Infinity,0,-1,Number.MAX_VALUE]) test(`overlay staging rejects invalid duration ${String(dur)}`,()=>{
+ const paths=jobPaths(root,'bad-dur-'+crypto.randomUUID()); ensureJobFolder(paths);
+ const wav=path.join(paths.work,'source.wav'); fs.writeFileSync(wav,'wav');
+ assert.throws(()=>writeInputs(paths,{script:'hello',brief:'brief',voWav:wav,words:{dur},pathPack:pack,overlaySpec:{version:1,tag:{text:'X',from:0,to:9999}}},[root]),e=>e.code==='BAD_JOB');
+ assert.equal(fs.existsSync(path.join(paths.inputs,'overlay.json')),false);
+});
+test('overlay staging enforces exact frame-rounded time bound',()=>{
+ const paths=jobPaths(root,'time-bound'); ensureJobFolder(paths);
+ const wav=path.join(paths.work,'source.wav'); fs.writeFileSync(wav,'wav');
+ const req={script:'hello',brief:'brief',voWav:wav,words,pathPack:pack,overlaySpec:{version:1,tag:{text:'X',from:0,to:3.001}}};
+ assert.throws(()=>writeInputs(paths,req,[root]),e=>e.code==='bad_time');
+ assert.ok(writeInputs(paths,{...req,overlaySpec:{version:1,tag:{text:'X',from:0,to:3}}},[root])['overlay.json']);
+});
 test('overlay repairs only JSON with at most two attempts',async()=>{
  const prompts=[];
  const result=await planCodebuiltBuild(planInput,{...deps,askFn:async prompt=>{
@@ -74,6 +124,7 @@ test('overlay repairs only JSON with at most two attempts',async()=>{
  assert.match(prompts[0],/shotcheck\.run_qa/);
  assert.match(prompts[0],/5\. Render the FINAL profile/);
  assert.doesNotMatch(prompts[0],/stage\.(?:text|hud_text|hud|fit_text)\(/);
+ assert.doesNotMatch(prompts[0],/\.label\(|\.callout\(|readout text|label\s*=/i);
  assert.match(prompts[1],/Reply with one json block only/);
  assert.equal(result.overlaySpec.version,1);
  assert.equal(result.buildScript,base);

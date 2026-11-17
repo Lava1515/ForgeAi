@@ -689,6 +689,7 @@ parents={c:n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
 problems=set(); points=set(); values=set()
 for n in ast.walk(tree):
  if isinstance(n,ast.ImportFrom):
+  if n.module and n.module.startswith('blender_worker.codebuilt.'): problems.add('overlay kit submodules cannot be imported directly')
   if n.module and 'anchors' in n.module: problems.add('import anchors only from blender_worker.codebuilt without aliases')
   for a in n.names:
    if a.name in ('anchors','stage') and (n.module!='blender_worker.codebuilt' or a.asname): problems.add('overlay kit modules must use canonical imports')
@@ -698,6 +699,13 @@ for n in ast.walk(tree):
   parent=parents.get(n)
   if not isinstance(parent,ast.Attribute) or parent.value is not n or not isinstance(n.ctx,ast.Load): problems.add('overlay kit modules cannot be aliased or reassigned')
  if isinstance(n,ast.Attribute):
+  if n.attr=='modules': problems.add('overlay builds cannot access module registries')
+  if n.attr in ('label','callout','_make_callout_label'): problems.add('overlay builds must not use kit text helpers')
+  if n.attr in ('highlight','highlight_group') and (not isinstance(parents.get(n),ast.Call) or parents[n].func is not n): problems.add('overlay map highlight helpers cannot be aliased')
+  if n.attr=='add':
+   call=parents.get(n)
+   typ=next((k.value for k in call.keywords if k.arg=='type'),None) if isinstance(call,ast.Call) and call.func is n else None
+   if not isinstance(typ,ast.Constant) or not isinstance(typ.value,str) or typ.value=='FONT' or any(k.arg is None for k in call.keywords): problems.add('overlay add type must be a literal non-FONT string')
   if n.attr in ('anchors','stage'): problems.add('overlay kit modules cannot be reached indirectly')
   if isinstance(n.value,ast.Name) and n.value.id=='anchors':
    call=parents.get(n)
@@ -719,6 +727,8 @@ for n in ast.walk(tree):
   typ=next((k.value for k in n.keywords if k.arg=='type'),n.args[1] if len(n.args)>1 else None)
   if not isinstance(typ,ast.Constant) or typ.value not in ('CURVE','SURFACE'): problems.add('overlay curve type must be literal CURVE or SURFACE')
  if isinstance(n,ast.Constant) and n.value=='FONT': problems.add('overlay builds must not create FONT curves')
+ if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr in ('highlight','highlight_group'):
+  if len(n.args)>1 or any(k.arg is None or (k.arg=='label' and not (isinstance(k.value,ast.Constant) and k.value.value in (None,False))) for k in n.keywords): problems.add('overlay map highlights must not create labels')
  if isinstance(n,ast.Name) and (n.id in ('getattr','setattr','delattr','globals','locals','vars') or n.id.startswith('__')): problems.add('overlay builds cannot use dynamic attribute access')
  if isinstance(n,ast.Attribute) and n.attr.startswith('__'): problems.add('overlay builds cannot use dynamic attribute access')
 needed=json.loads(sys.argv[1])
@@ -1047,7 +1057,7 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
   if (!skillGuidance) throw new PlannerError('PATH_PACK_INVALID', 'The approved build skill is missing or invalid');
   let initialPrompt = buildPrompt({ topic, duration, script: input.script, brief: input.brief, words, pack, shotStarts, nframes, choices, skillGuidance, direction });
   if (overlay) {
-    initialPrompt = initialPrompt.split('\n').filter(line => !/^- (?:Text framing:|Put dark plates behind readouts|Depth of field must not blur readouts)/.test(line) && (!/stage\.(?:text|hud_text|hud|fit_text)\(/.test(line) || /stage\.Camera/.test(line))).join('\n')
+    initialPrompt = initialPrompt.split('\n').filter(line => !/\.label\(|\.callout\(|readout text|label\s*=|^- (?:Text framing:|Put dark plates behind readouts|Depth of field must not blur readouts)/i.test(line) && (!/stage\.(?:text|hud_text|hud|fit_text)\(/.test(line) || /stage\.Camera/.test(line))).join('\n')
       .replace(/;  stage\.text\(c, name, body[^\n]*/g, '.')
       .replace('Output ONLY the Python source in one ```python block.', 'Output the Python source in one ```python block and the overlay spec in one ```json block.');
     initialPrompt += `\nNo text in 3D and no FONT curves. Import anchors from blender_worker.codebuilt. Only these generated APIs are allowed, inside shot functions:\nanchors.mark(name, world_point)\nanchors.value(name, number)\nNames are literal lowercase identifiers, max 24 characters. Return ONE python block and ONE json block (overlay.json). Use version 1, optional counter {value,format,unit,label,from,to}, labels [{anchor,title,value,side,from,to}], measures [{a,b,text,from,to}], bars [{value,label,min,max,from,to}], big [{text,sub,from,to}], tag {text,from,to}. Limits: 12 labels, 4 measures, 2 bars, 3 big. Text max 28 characters (sub 40), ASCII letters/digits/space and . , % \u00b0 \u00d7 - + / : ' ( ). Formats: int,int_commas,one_decimal,two_decimals,year,times. Side: left,right,auto. Times from measured words + ${LEAD_S}, 0 <= from < to <= ${nframes / FPS}. Mark every point and value referenced. Never call kit anchor write/reset/begin/capture/document/usage/discard helpers. Never alias kit modules or functions or use reflection.`;
