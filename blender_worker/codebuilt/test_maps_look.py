@@ -250,3 +250,57 @@ def test_replacement_retires_old_label_plate_and_halo(monkeypatch):
     new['fill'].pose(1)
     assert not new['label'].hide_render and not new['halo'].hide_render
     assert old['label'].hide_render and old['halo'].hide_render
+
+
+# G7 anchor_point: a world point above a country's centre for overlay labels. claude-pro · claude-sonnet-5-5, 2026-11-17.
+def _anchor_map(border_set=False):
+    wm = maps.WorldMap.__new__(maps.WorldMap)
+    wm.data = maps.load("110m")
+    wm.projection, wm.scale, wm.origin, wm.thickness = "equirectangular", 4.0, (1.0, 2.0, 0.5), 0.04
+    wm.border, wm._border_set = 0.01, border_set
+    wm.objs, wm._info = {}, {}
+    wm.extent = lambda: (-12.0, -6.0, 12.0, 6.0)
+    return wm
+
+
+def test_anchor_point_follows_center_and_sits_above_surface():
+    wm = _anchor_map()
+    p = wm.anchor_point("BRA")
+    lon, lat = wm.data.find("BRA").center("auto")
+    x, y = wm.xy(lon, lat)
+    assert p[0] == pytest.approx(float(x)) and p[1] == pytest.approx(float(y))
+    assert p[2] > wm.origin[2] + wm.thickness
+    assert len(p) == 3 and all(type(v) is float for v in p)
+    assert wm.anchor_point("Brazil") == p and wm.anchor_point("br") == p     # any key find() accepts
+
+
+def test_anchor_point_unknown_key_raises_like_find():
+    with pytest.raises(KeyError):
+        _anchor_map().anchor_point("Atlantis")
+
+
+def test_anchor_point_rises_with_lift():
+    wm = _anchor_map()
+    flat = wm.anchor_point("BRA")
+    wm._info["BRA"] = dict(lift=0.3)
+    lifted = wm.anchor_point("BRA")
+    assert lifted[2] == pytest.approx(flat[2] + 0.3) and lifted[:2] == flat[:2]
+    assert wm.anchor_point("FRA")[2] == pytest.approx(flat[2])               # an unlifted country is unaffected
+
+
+def test_anchor_point_rise_follows_shot_width_when_border_set():
+    wm = _anchor_map(border_set=True)
+    base = wm.origin[2] + wm.thickness
+    assert wm.anchor_point("BRA")[2] == pytest.approx(base + 0.02 * wm.border / 0.002)
+    wm._border_set = False
+    assert wm.anchor_point("BRA")[2] == pytest.approx(base + 0.035 * wm.scale)     # fixed fallback, not the map width
+
+
+def test_anchor_point_leaves_point_unchanged():
+    wm = _anchor_map()
+    assert wm.point(10.0, 20.0, 0.5) == (*[float(v) for v in wm.xy(10.0, 20.0)], 0.5 + wm.origin[2] + wm.thickness)
+
+
+def test_anchor_point_parts_reach_center():
+    wm = _anchor_map()
+    assert wm.anchor_point("FRA", parts="all")[:2] != pytest.approx(wm.anchor_point("FRA", parts="main")[:2])

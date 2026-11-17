@@ -435,6 +435,20 @@ class WorldMap:
         x, y = self.xy(lon, lat)
         return (float(x), float(y), self.origin[2] + self.thickness + float(z))
 
+    def anchor_point(self, key, parts="auto"):
+        """World (x, y, z) of the point just above a country's centre, for a label that sticks to it (see anchors.mark).
+        x, y follow Country.center(parts); z is the map surface plus the country's current lift (set_lift or a highlight, so call it
+        after the lift is posed) plus a small rise of 2 percent of the shot width (the one set_border(0.002 * span) was given, else the
+        default border read as a shot width, 0.035 * scale), so the point never sits inside the face. Three plain floats. An unknown key raises KeyError, as find() does."""
+        cty = self.data.find(key)
+        lon, lat = cty.center(parts)
+        lift = float(self._info.get(cty.iso, {}).get("lift", 0.0))
+        if self._border_set:
+            span = self.border / 0.002
+        else:
+            span = 0.0035 * self.scale / 0.002     # the default border read as a shot width, so the rise never grows with the map
+        return self.point(lon, lat, lift + 0.02 * span)
+
     def extent(self):
         """(x0, y0, x1, y1) world box of everything built."""
         x0 = y0 = 1e18
