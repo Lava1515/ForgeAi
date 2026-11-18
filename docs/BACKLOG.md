@@ -356,9 +356,11 @@ F1/F6 preserve their original checkouts, M6 active, caps fixture under independe
 | F3 | MERGED e4c3ecc | Haiku4ac5a2d, Luna PASS; gate includes all 44 overlay tests |
 | F4 | MERGED 1955184 | N2 5faad9a after whitespace cleanup; Sonnet PASS n2-review2/REPORT.md |
 | F5 | CLOSED NOT PRODUCED | H1 closed, no extra router call; live Auto picture=true for P2 |
-| F6 | FINISHING existing checkout | t3-dfb015d3, original Luna committing verified prompt fix |
+| F6 | MERGED 83cadea | Luna264d7e4, independent Haiku PASS: picture-off 48/48, journey26/26; integrated526server/430Python pass |
 | F7 | BUILDING | M6 original Luna, existing GET scope authorized |
 | F8 | DOCS CORRECTED | Python gate: python -m pytest blender_worker narrative_factory tools |
 | F9 | DOCS CORRECTED | Wave 2 rows above and FABLE-CHECK step 4 baseline tool |
 
 Window update 2026-11-18 14:03 +02:00 · codex · gpt-6.1-sol: caps44c4c6c, N21955184, F2c1449a1 and F3e4c3ecc merged locally at zero jobs; integrated524server/430Python/licence/secrets pass. F1/M6/F6 review still pending; no WAVE3DONE or P2 activation.
+
+F6 update 2026-11-18 14:07 +02:00 · codex · gpt-6.1-sol: independent Haiku review1 PASS S0L0C0, merged83cadea at zero jobs. Integrated526server/430Python/licence/secrets gates pass; F1/M6 preserved pending completion and reviews. No runtime activation or P2 yet.
