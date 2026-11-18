@@ -28,7 +28,12 @@ export function layoutRefusal(layout) {
   if (!layout || layout.version !== 1 || typeof layout.ok !== 'boolean' || !Array.isArray(layout.blocking) || !Array.isArray(layout.labelHidden) || !Array.isArray(layout.uncovered)) return 'the host layout check is missing or malformed';
   const fps = Number.isFinite(layout.fps) && layout.fps > 0 ? layout.fps : 30;
   const lines = layout.blocking.slice(0, 12).map((b) => `${String(b.code).slice(0, 30)} ${(b.elements ?? []).slice(0, 4).join(' + ')}: frames ${b.first_frame}-${b.last_frame} (${secs(b.first_frame, fps)}-${secs(b.last_frame, fps)} s)`);
-  for (const h of layout.labelHidden) if (h.share >= 1) lines.push(`label_hidden ${h.element}: hidden on ${h.frames === 1 ? 'its' : `all ${h.frames}`} previewed frame${h.frames === 1 ? '' : 's'} inside its window (its anchor is behind the camera, off screen, or crowded out)`);
+  // previewFrames === framesChecked: the anchors of every frame were exported (C2-AUTH-1), so label_hidden is measured on the whole window.
+  // A share measured on sampled preview frames only is an advisory: a label can be visible between the samples (the canonical blocking list
+  // above decides whole-window pin visibility on every frame).
+  const everyFrame = Number.isInteger(layout.framesChecked) && layout.previewFrames === layout.framesChecked;
+  const pinHidden = new Set(layout.blocking.filter((b) => b.code === 'label_pin_hidden').flatMap((b) => b.elements ?? []));
+  if (everyFrame) for (const h of layout.labelHidden) if (h.share >= 1 && !pinHidden.has(h.element)) lines.push(`label_hidden ${h.element}: hidden on all ${h.frames} frame${h.frames === 1 ? '' : 's'} of its window (its anchor is behind the camera, off screen, or crowded out)`);
   const uncovered = layout.uncovered.slice(0, 40).map((id) => String(id).slice(0, 30));
   if (uncovered.length) lines.push(`preview_uncovered ${uncovered.join(', ')}: no preview frame inside ${uncovered.length === 1 ? 'its window' : 'their windows'} (24-frame cap), so the sheets never show ${uncovered.length === 1 ? 'it' : 'them'}`);
   if (layout.ok === false && !layout.blocking.length) lines.push('the layout check reports not ok');
@@ -51,8 +56,9 @@ export function createLayoutGate({ repoRoot = REPO_ROOT, python = 'python', exec
   async function check({ overlaySpec, anchors, words, nframes, fps = 30, jobRoot, frames = [], lead = 0.35, signal } = {}) {
     if (!Number.isInteger(nframes) || nframes < 1) throw fail('nframes must be a positive whole number');
     if (!Number.isFinite(fps) || fps <= 0) throw fail('fps must be positive');
-    if (!Array.isArray(frames) || frames.some((f) => !Number.isInteger(f) || f < 0)) throw fail('frames must be whole numbers');
-    const args = ['-I', script, '--overlay', abs('overlaySpec', overlaySpec), '--nframes', String(nframes), '--fps', String(fps), '--job-root', abs('jobRoot', jobRoot), '--frames', frames.join(',')];
+    // `frames: 'all'` (C2-AUTH-1): every frame, for an anchors file that holds the positions of every frame.
+    if (frames !== 'all' && (!Array.isArray(frames) || frames.some((f) => !Number.isInteger(f) || f < 0))) throw fail('frames must be whole numbers or "all"');
+    const args = ['-I', script, '--overlay', abs('overlaySpec', overlaySpec), '--nframes', String(nframes), '--fps', String(fps), '--job-root', abs('jobRoot', jobRoot), '--frames', frames === 'all' ? 'all' : frames.join(',')];
     let wordsSha256 = null, anchorsSha256 = null;
     if (words !== undefined) { args.push('--words', abs('words', words), '--lead', String(lead)); wordsSha256 = sha(fs.readFileSync(words)); }
     if (anchors !== undefined) { args.push('--anchors', abs('anchors', anchors)); anchorsSha256 = sha(fs.readFileSync(anchors)); }
@@ -71,6 +77,8 @@ export function createLayoutGate({ repoRoot = REPO_ROOT, python = 'python', exec
     return {
       version: 1, ok: body.ok, framesChecked: body.frames_checked, fps: body.fps, previewFrames: body.preview_frames, anchoredFrames: body.anchored_frames,
       blocking: body.blocking.slice(0, 40).map((b) => ({ code: String(b.code), elements: (b.elements ?? []).map(String).slice(0, 4), first_frame: b.first_frame, last_frame: b.last_frame, frames: b.frames })),
+      // Canonical advisories (partly hidden pin, crowded-out label, counter reversal): kept in the receipt, never a refusal.
+      findings: (Array.isArray(body.findings) ? body.findings : []).slice(0, 40).map((f) => ({ code: String(f.code).slice(0, 30), elements: (f.elements ?? []).map(String).slice(0, 4), ...(Number.isFinite(f.share) ? { share: f.share } : {}), ...(Number.isFinite(f.frames) ? { frames: f.frames } : {}), ...(Number.isFinite(f.first_frame) ? { first_frame: f.first_frame } : {}) })),
       labelHidden: body.label_hidden.slice(0, 24).map((h) => ({ element: String(h.element), share: h.share, frames: h.frames })),
       inputs: { overlaySha256, anchorsSha256, wordsSha256 },
     };

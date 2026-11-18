@@ -130,6 +130,10 @@ PREVIEW_SCALE_RANGE = (25, 100)
 _PREVIEW_KEYS = {"version", "frames", "scale", "out"}
 ANCHORS_PATH = "/job/work/anchors.json"
 PREVIEW_ANCHORS_PATH = "/job/work/anchors-preview.json"
+# C2-AUTH-1: a preview of an overlay job also poses EVERY other frame of the build (no render) and saves the label and measure
+# anchor positions of all of them, in the same anchors.json contract, so the host checks the layout on the whole video.
+ALL_ANCHORS_PATH = "/job/work/anchors-all.json"
+ALL_ANCHORS_DONE_PATH = "/job/work/anchors-all.done.json"
 OVERLAY_SPEC_PATH = "/job/inputs/overlay.json"
 
 
@@ -225,6 +229,67 @@ def _project_anchor(point):
     return projected.x, 1.0 - projected.y, projected.z
 
 
+def export_all_frame_anchors(frames, apply, log=print, anchors_path=None, done_path=None, project=None):
+    """Pose each frame of `frames` with the build's own apply(f), project its marked points with the camera of that frame, and save
+    the result as one anchors.json (contract 2.2). Nothing is rendered and no image is written. Returns the completion record.
+
+    A fresh anchors state is used, so the preview anchors file written before this call is untouched. The record file
+    (`anchors-all.done.json`, written last and atomically) tells the host that every frame in 0..max_frame was posed:
+    {"version": 1, "frames": <count>, "max_frame": <last>, "anchors": <whether anchors-all.json exists>, "pose_s": <seconds>}.
+    A frame whose apply() raises stops the export with that error: the final render would stop on the same frame."""
+    from . import anchors
+    anchors_path = ALL_ANCHORS_PATH if anchors_path is None else anchors_path
+    done_path = ALL_ANCHORS_DONE_PATH if done_path is None else done_path
+    project = _project_anchor if project is None else project
+    ordered = sorted({int(f) for f in frames})
+    started = time.perf_counter()
+    width, height = _anchor_dimensions()
+    anchors.usage()
+    anchors.reset(width, height)
+    for f in ordered:
+        anchors.begin(f)
+        apply(f)
+        if anchors.has_points():
+            try:
+                import bpy
+                bpy.context.view_layer.update()
+            except ImportError:
+                pass
+            anchors.capture(f, project)
+        else:
+            anchors.capture(f, None)
+    wrote = anchors.write(anchors_path)
+    if not wrote:
+        try:
+            os.unlink(anchors_path)  # a stale file from an earlier run must not outlive a pass that marked nothing
+        except FileNotFoundError:
+            pass
+    record = {"version": 1, "frames": len(ordered), "max_frame": ordered[-1] if ordered else -1, "anchors": bool(wrote),
+              "pose_s": round(time.perf_counter() - started, 3)}
+    _write_json_atomic(done_path, record)
+    log("POSEALL " + json.dumps(record))
+    return record
+
+
+def _write_json_atomic(path, value):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".done-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, separators=(",", ":"), allow_nan=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def tune_cycles(log=print):
     """Two Cycles settings that decide the frame time of these short, simple scenes, applied to the current scene before the
     frame loop. Measured on the RTX 4070 Ti, 1080x1920, 12 samples (output/agent-jobs/fable-kit-0900/speed_ab.py, 2026-11-14):
@@ -278,11 +343,14 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         if not require_qa:
             raise PreviewSpecError("preview mode needs require_qa=True: a preview must prove the QA gate of the script that will ship")
         frames = list(frames)
+        all_frames = frames
         if not set(spec["frames"]) <= set(frames):
             raise PreviewSpecError("preview frames are not in the frames this build renders")
         set_preview_scale(spec["scale"])
         frames, out_dir, hold, skip_existing = spec["frames"], spec["out"], 1, False
 
+    else:
+        all_frames = None
     if hold < 1:
         raise ValueError("hold must be >= 1")
     out_dir = require_abs(out_dir)
@@ -376,6 +444,9 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         finally:
             copier.close()
     anchors.write(anchor_path)
+    if all_frames is not None and os.path.exists(OVERLAY_SPEC_PATH):
+        # Preview of an overlay job (never a classic job: it has no overlay input): pose the whole video without rendering.
+        export_all_frame_anchors(all_frames, apply, log)
     timing.update(rendered=len(done), held=held, loop_s=time.perf_counter() - started)
     timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
     _save_timing(timing)

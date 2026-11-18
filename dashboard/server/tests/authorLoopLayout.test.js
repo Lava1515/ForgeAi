@@ -46,7 +46,49 @@ test('Hypersaline accepted pair (mwm4wpiw-99a2cf) is refused: overlap big[1] bar
   assert.match(why, /overlap big\[1\] \+ bars\[0\]: frames 1011-1066/);
   assert.match(why, /all 1469 frames/);
 });
-test('Danube accepted pair (mwm4a61f-438a7a) passes the layout gate', { skip: !have('mwm4a61f-438a7a') }, async () => {
+// C2-AUTH-1: the final render of each job posed EVERY frame and saved its anchors (agent-jobs/<job>/work/anchors.json). That file is the
+// all-frame ground truth the preview export must reproduce; the replay below checks the accepted pair on it, on all frames, no render.
+const FINAL = (job) => path.join('C:/code/ForgeAi/output/agent-jobs', job, 'work', 'anchors.json');
+const haveFinal = (job) => have(job) && fs.existsSync(FINAL(job));
+async function replayAll(job, nframes) {
+  const dir = evidence(job), receipt = JSON.parse(fs.readFileSync(path.join(dir, 'receipt.json'), 'utf8'));
+  const round = path.join(dir, `a${receipt.attempt}`, `r${receipt.round}`);
+  const pair = JSON.parse(fs.readFileSync(path.join(dir, 'accepted.overlay.json'), 'utf8'));
+  const work = fs.mkdtempSync(path.join(TMP, 'replay-all-'));
+  const specFile = path.join(work, 'overlay-spec.json');
+  fs.writeFileSync(specFile, JSON.stringify(pair.spec, null, 2) + '\n');
+  fs.copyFileSync(path.join(round, 'words.json'), path.join(work, 'words.json'));
+  fs.copyFileSync(FINAL(job), path.join(work, 'anchors-all.json'));
+  const layout = await createLayoutGate({ execFileFn: execFile }).check({ overlaySpec: specFile, anchors: path.join(work, 'anchors-all.json'), words: path.join(work, 'words.json'), nframes, fps: 30, jobRoot: work, frames: 'all' });
+  return { ...layout, uncovered: [] };
+}
+const OVERLAP_CODES = ['overlap', 'outside_safe_zone', 'caption_overlap'];
+test('Hypersaline accepted pair on its all-frame anchors is still refused for overlap big[1] bars[0] frames 1011-1066', { skip: !haveFinal('mwm4wpiw-99a2cf') }, async () => {
+  const layout = await replayAll('mwm4wpiw-99a2cf', 1469);
+  assert.equal(layout.previewFrames, 1469, 'label_hidden was measured on every frame');
+  const hit = layout.blocking.find((b) => b.code === 'overlap' && b.elements.join() === 'big[1],bars[0]');
+  assert.ok(hit, JSON.stringify(layout.blocking));
+  assert.equal(hit.first_frame, 1011);
+  assert.equal(hit.last_frame, 1066);
+  assert.match(layoutRefusal(layout), /overlap big\[1\] \+ bars\[0\]: frames 1011-1066/);
+});
+// Reported separately (supervisor, taken not asked): the Danube pair PASSES the overlap check; its Black Sea label (labels[9], 40.00-41.05 s) has its
+// pin off screen on all 32 frames of its window, which the owner's visibility rule refuses. Neither result is bent to match the other.
+test('Danube accepted pair on its all-frame anchors: no text overlap, no safe-zone or caption clash on any of 1518 frames', { skip: !haveFinal('mwm4a61f-438a7a') }, async () => {
+  const layout = await replayAll('mwm4a61f-438a7a', 1518);
+  assert.equal(layout.framesChecked, 1518);
+  assert.deepEqual(layout.blocking.filter((b) => OVERLAP_CODES.includes(b.code)), []);
+});
+test('Danube accepted pair on its all-frame anchors: labels[9] (Black Sea) is hidden on its whole window and the pair is refused', { skip: !haveFinal('mwm4a61f-438a7a') }, async () => {
+  const layout = await replayAll('mwm4a61f-438a7a', 1518);
+  const hidden = layout.labelHidden.find((h) => h.element === 'labels[9]');
+  assert.deepEqual(hidden, { element: 'labels[9]', share: 1, frames: 32 });
+  const why = layoutRefusal(layout);
+  assert.match(why, /labels\[9\]/);
+  assert.notEqual(why, '');
+});
+// The sampled preview anchors that the cycle-2 gate saw on this pair: they hold a few frames only, so they could not show this.
+test('Danube accepted pair on its sampled preview anchors (the old evidence) shows nothing wrong: sampled hiding is only an advisory', { skip: !have('mwm4a61f-438a7a') }, async () => {
   const layout = await replay('mwm4a61f-438a7a', 1518);
   assert.equal(layout.ok, true, JSON.stringify(layout.blocking));
   assert.deepEqual(layout.blocking, []);
@@ -58,7 +100,13 @@ test('layoutRefusal: blocking, label hidden on every previewed frame, malformed;
   const base = { version: 1, ok: true, framesChecked: 900, fps: 30, blocking: [], labelHidden: [], uncovered: [] };
   assert.equal(layoutRefusal(base), '');
   assert.match(layoutRefusal({ ...base, ok: false, blocking: [{ code: 'caption_overlap', elements: ['labels[2]'], first_frame: 30, last_frame: 60 }] }), /caption_overlap labels\[2\]: frames 30-60 \(1\.0-2\.0 s\)/);
-  assert.match(layoutRefusal({ ...base, labelHidden: [{ element: 'labels[3]', share: 1, frames: 2 }] }), /label_hidden labels\[3\]: hidden on all 2 previewed frames/);
+  // C2-AUTH-1: only a share measured on every frame of the video refuses; a share on sampled preview frames is an advisory.
+  assert.equal(layoutRefusal({ ...base, previewFrames: 12, labelHidden: [{ element: 'labels[3]', share: 1, frames: 2 }] }), '', 'sampled label_hidden never refuses');
+  assert.match(layoutRefusal({ ...base, previewFrames: 900, labelHidden: [{ element: 'labels[3]', share: 1, frames: 2 }] }), /label_hidden labels\[3\]: hidden on all 2 frames of its window/);
+  assert.equal(layoutRefusal({ ...base, previewFrames: 900, labelHidden: [{ element: 'labels[3]', share: 0.5, frames: 2 }] }), '');
+  const pinned = layoutRefusal({ ...base, ok: false, previewFrames: 900, blocking: [{ code: 'label_pin_hidden', elements: ['labels[3]'], first_frame: 1200, last_frame: 1231 }], labelHidden: [{ element: 'labels[3]', share: 1, frames: 32 }] });
+  assert.match(pinned, /label_pin_hidden labels\[3\]: frames 1200-1231/);
+  assert.doesNotMatch(pinned, /label_hidden labels/, 'the canonical pin block is not repeated');
   assert.equal(layoutRefusal({ ...base, labelHidden: [{ element: 'labels[3]', share: 0.5, frames: 2 }] }), '');
   assert.match(layoutRefusal(null), /missing or malformed/);
   assert.match(layoutRefusal({ version: 1, ok: false, framesChecked: 9, blocking: [], labelHidden: [], uncovered: [] }), /not ok/);
@@ -140,16 +188,19 @@ const oneBig = { version: 1, big: [{ text: 'A', from: 1, to: 3 }] };
 const lookText = (verdict = 'pass', extra = {}) => JSON.stringify({ look: { sheet_codes: ['ABCDE'], verdict, shots: [{ id: 'shot-0', sees: 'The subject fills the frame.', ok: true }], findings: verdict === 'fix' ? [{ severity: 'P1', issue: 'Text windows overlap.' }] : [], targets: [], edits: [], ...extra.look }, notes: 'Noted.', ...(extra.overlay ? { overlay: extra.overlay } : {}) });
 const fixText = (overlay) => lookText('fix', { look: { targets: ['shot_0'], edits: [{ op: 'replace_def', name: 'shot_0', source: 'def shot_0(t):\n    x = 1' }] }, overlay });
 // A layout stub that applies the real rule to a fake spec: two big windows that share time are a blocking overlap.
-const stubLayout = async ({ overlaySpec, words, anchors, nframes }) => {
+const stubLayout = async ({ overlaySpec, words, anchors, nframes, frames }) => {
   const spec = JSON.parse(fs.readFileSync(overlaySpec, 'utf8')), big = spec.big ?? [];
   const blocking = big.length === 2 ? [{ code: 'overlap', elements: ['big[0]', 'big[1]'], first_frame: 60, last_frame: 90, frames: 31 }] : [];
-  return { version: 1, ok: !blocking.length, framesChecked: nframes, fps: 30, previewFrames: 1, anchoredFrames: 0, blocking, labelHidden: [], inputs: { overlaySha256: hash(fs.readFileSync(overlaySpec)), anchorsSha256: anchors ? hash(fs.readFileSync(anchors)) : null, wordsSha256: words ? hash(fs.readFileSync(words)) : null } };
+  return { version: 1, ok: !blocking.length, framesChecked: nframes, fps: 30, previewFrames: frames === 'all' ? nframes : 1, anchoredFrames: 0, blocking, labelHidden: [], inputs: { overlaySha256: hash(fs.readFileSync(overlaySpec)), anchorsSha256: anchors ? hash(fs.readFileSync(anchors)) : null, wordsSha256: words ? hash(fs.readFileSync(words)) : null } };
 };
 function rig({ writeSpec = oneBig, reply = () => lookText(), renderSeconds = null, flag = undefined, layoutCheck = stubLayout, renderBudget = 1.5 } = {}) {
   const stage = fs.mkdtempSync(path.join(TMP, 'loop-')); let calls = 0;
   const input = { jobId: 'test', stageDir: stage, measurementMode: true, probe: { passed: true }, writePrompt: 'Write code', brief: 'brief', script: 'script', kitContract: 'kit', shots: [{ subject: 'subject', narration: 'words' }], shotStarts: [0], nframes: 900, renderBudget, validate: () => [] };
   const deps = { layoutCheck, newCode: () => 'ABCDE',
-    runPreview: async () => { const dir = path.join(stage, 'frames'); fs.mkdirSync(dir, { recursive: true }); if (renderSeconds !== null) { fs.mkdirSync(path.join(stage, 'work'), { recursive: true }); fs.writeFileSync(path.join(stage, 'work', 'render-timing.json'), JSON.stringify({ render_s: renderSeconds, rendered: 10 })); } return { dir, frames: [{ name: '1.png', sha256: 'f' }] }; },
+    runPreview: async () => { const dir = path.join(stage, 'frames'); fs.mkdirSync(dir, { recursive: true }); fs.mkdirSync(path.join(stage, 'work'), { recursive: true });
+      // C2-AUTH-1: the preview job poses every frame; this stub marks nothing, so the export record says "no anchors file".
+      fs.writeFileSync(path.join(stage, 'work', 'anchors-all.done.json'), JSON.stringify({ version: 1, frames: 900, max_frame: 899, anchors: false, pose_s: 0.1 }));
+      if (renderSeconds !== null) { fs.writeFileSync(path.join(stage, 'work', 'render-timing.json'), JSON.stringify({ render_s: renderSeconds, rendered: 10 })); } return { dir, frames: [{ name: '1.png', sha256: 'f' }] }; },
     makeSheets: async ({ outDir }) => { fs.mkdirSync(outDir, { recursive: true }); const p = path.join(outDir, 'sheet.jpg'); fs.writeFileSync(p, 'pixels'); return [{ path: p, code: 'ABCDE', sha256: hash('pixels'), tiles: [{ n: 1, frame: 1, ...(flag ? { flag } : {}) }] }]; },
     askAuthor: async (prompt, images) => { calls++; return { text: calls === 1 ? '```python\n' + code + '```\n```json\n' + JSON.stringify(writeSpec) + '\n```' : reply(calls), rawUsage: { input_tokens: 10, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, receipt: { argvSha256: hash(JSON.stringify(authorArgv())), promptSha256: hash(prompt), imageSha256: images.map((i) => hash(i.bytes)), imageCount: images.length, noSessionPersistence: true, toolsOffered: 0, transport: 'stdin-image-blocks' } }; } };
   return { input, deps, stage, calls: () => calls };
@@ -178,9 +229,9 @@ test('a pass that never gets its layout repaired ends author_reply and writes no
   await assert.rejects(runAuthorLoop(r.input, r.deps), { code: 'author_reply' });
   assert.ok(!fs.existsSync(path.join(r.stage, 'author/accepted.build.py')));
 });
-test('a label hidden on every previewed frame blocks the pass', async () => {
-  const hidden = async (a) => ({ ...(await stubLayout(a)), labelHidden: [{ element: 'labels[0]', share: 1, frames: 1 }] });
-  const r = rig({ layoutCheck: hidden });
+test('a label hidden on every frame of its window blocks the pass', async () => {
+  const hidden = async (a) => ({ ...(await stubLayout(a)), labelHidden: [{ element: 'labels[0]', share: 1, frames: 30 }] });
+  const r = rig({ layoutCheck: hidden, writeSpec: { version: 1, big: [{ text: 'A', from: 1, to: 3 }], labels: [{ anchor: 'pin', title: 'X', from: 1, to: 2 }] } });
   await assert.rejects(runAuthorLoop(r.input, r.deps), { code: 'author_reply' });
   assert.match(prompt(r.stage, 0, 2), /label_hidden labels\[0\]/);
 });
