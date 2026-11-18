@@ -113,4 +113,3 @@ test('the picture-route script skill text forbids colours in narration and repea
   const classic = loadCodebuiltGuides({ pack: scriptPack, step: 'script', route: 'classic', formats: [] });
   assert.ok(!classic.includes('never in `narration`'));
 });
-
