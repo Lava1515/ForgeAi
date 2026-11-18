@@ -124,7 +124,8 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
         if isinstance(lead, bool) or not isinstance(lead, (int, float)) or not math.isfinite(lead):
             raise SheetError("lead must be finite")
         with _open_png(frames[0][1]) as first:
-            track = captions.Track(word_list, first.width, first.height, lead=lead)
+            track = captions.Track(word_list, first.width, first.height, lead=lead,
+                                   style="overlay" if overlay_spec is not None else "classic")
     if overlay_spec is not None:
         if isinstance(nframes, bool) or not isinstance(nframes, int) or nframes < 1:
             raise SheetError("nframes must be a positive whole number with overlay inputs")
