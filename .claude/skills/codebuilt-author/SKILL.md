@@ -141,3 +141,5 @@ The preview sheets come back with the overlay text drawn on, a short code for th
 <!-- Source corrections from the Opus report: digits in picture / words in voice = scene-generation guidance line 148; slow mesh construction = handmade B MAKING-OF line 67 (no measured minutes); haze, reference object and whale silhouette = B line 66. Diagram FONT construction = diagram.py lines 40 and 206, governed by plan 2.5. -->
 
 <!-- N1 corrections (2026-11-18): turn W has no notes field (authorPrompts writePair: one python block and one json block); caption band 67-79% with caption_overlap blocking (post/overlay.py BLOCKING, captions.py CAPTION_CY 1400 of 1920); hidden parts: anchors `front` is camera-depth sign only, W2-C6 stays OPEN/blocked (m4-label-layout REPORT); cost list from rl1-render-look REPORT. -->
+
+<!-- check2 fixes 3,5,6 (budget both directions, all-frame layout note): claude-pro · claude-sonnet-5-5 · 2026-11-18 17:56 +02:00 -->
