@@ -316,3 +316,25 @@ O1b 44b9b36 reviewed MERGE (review 2, no S, no L), merged as ec5b93d. The O1a sn
 
 ### 2026-11-17 22:43 +02:00 · codex · gpt-6.1-sol
 Wave 2 integration: classic guide restoration66fbf97 merged aebcb43, K2dc91d36 merged20e2fd0. Applied security probes close C14/C15; nine real Blender FONT cases refused,445 classic validator and prompt cases match archived717 after guide fix. Narrative restarted at zero jobs. A1 to A3 authorized by owner21:12; P2/S1 remain owner-only. W2-C1 closed; W2-G17b residual arbitrary text-as-mesh and malicious in-process tampering remain documented limits, not FONT detector guarantees.
+
+### Day 2026-11-18 Kola main way · codex · gpt-6.1-sol · 2026-11-18 11:40 +02:00
+Scope: ForgeBrain/plans/2026-11-18-finish-kola-main-way-day-plan.md. These ids belong to this dated section and do not replace older M lanes.
+
+| Package | State | Ownership / next gate |
+|---|---|---|
+| A2r | RECHECK 2026-11-18 11:48 +02:00 codex · gpt-6.1-sol | 5816505 no S/L, C7 fixed7433c0b; fresh Sonnet recheck before merge |
+| M0 | ACCEPTED 2026-11-18 11:46 +02:00 codex · gpt-6.1-sol | Haiku read-only preflight inspected; no active jobs; A3 serial; default has map profile |
+| M1 | REVIEW FIX 2026-11-18 11:54 +02:00 codex · gpt-6.1-sol | Sonnet executable harness built, Luna found setup can strand live lock; fix before A3; caps context rule needs explicit disposition |
+| M2 | BLOCKED | CLI setup absent in proof harness; count unknown, no retry; normal Auto fallback |
+| M3 | BUILDING | Local owner review page; Haiku review |
+| M4 | BLOCKED 2026-11-18 11:50 +02:00 codex · gpt-6.1-sol | Sonnet independently confirms79846d0 pin patch correct/S0/L0/full gates; whole lane blocked by absent occlusion contract. Branch preserved unmerged; no narrowed scope. G10/G11 subject coverage unchanged. |
+| M5 | CAPACITY BLOCKED 2026-11-18 11:46 +02:00 codex · gpt-6.1-sol | All three agy accounts failed; clean t3-c55b4038 preserved; Luna/Haiku fallback at 12:17 per day plan |
+| M6 | BUILDING | One author endpoint/start form; Luna review |
+| M7 | CAPACITY BLOCKED 2026-11-18 11:46 +02:00 codex · gpt-6.1-sol | All three agy accounts failed; clean t3-cdf04649 preserved; Luna/Haiku fallback at 12:17, independent family review |
+| M8 | CAPACITY BLOCKED 2026-11-18 11:54 +02:00 codex · gpt-6.1-sol | Three agy accounts failed, no runbook; fallback12:17 |
+| A3 | HELD | Needs reviewed merged A1 and runnable harness; preview-only measurements |
+| N1 | HELD | Author skill fixes after A1 merge |
+| N2 | HELD | Sol 90-minute render ceiling after A1 merge |
+| N3 | OWNER HOLD | Prepare after N2; merge only after owner watches videos and says go |
+| P2 | HELD | Three authored Auto videos after A3 and merge window 2 |
+| A1-C5 | FOLLOW-UP C LOW 2026-11-18 11:48 +02:00 codex · gpt-6.1-sol | A3 saves per-call observations; authorCaps should recompute reserve/caps from observations rather than accepting claimed runs/reserves. No invented floors. A2r no S/L; bounded shape gate currently accepts fabricated observations. |
