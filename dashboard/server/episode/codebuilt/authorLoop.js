@@ -5,7 +5,7 @@ import { authorArgv, hash, authorError, normalizeAuthorUsage, AUTHOR_REPO } from
 import { overlayPair, validateOverlayPair } from './overlaySpec.js';
 import { AUTHOR_HEADER, writePair, parseAuthorLook, authorState } from './authorPrompts.js';
 import { buildLookPrompt, sanitizeKitReport } from './visualLoopPrompts.js';
-import { pickAuthoredPreviewFrames } from './previewFrames.js';
+import { pickAuthoredPreviewFrames, overlayWindows } from './previewFrames.js';
 import { createLayoutGate, layoutRefusal, layoutBound } from './layoutGate.js';
 import { newSheetCode, readKitReport } from './visualLoop.js';
 function regular(file) {
@@ -61,6 +61,8 @@ export function verifyAuthorReceipt(out,input) {
 // claude-pro · claude-sonnet-5-5 · 2026-11-18 17:55 +02:00: the all-frame layout check is part of the receipt; an older accepted pair has no record and is refused.
  const layoutRecord=look.layout,specBytes=readBytes(path.join(roundDir,'overlay-spec.json'));
  if(JSON.stringify(JSON.parse(specBytes.toString('utf8')))!==JSON.stringify(spec) || !layoutBound(layoutRecord,{overlaySha256:hash(specBytes),wordsSha256:input.wordsPath?hash(readBytes(input.wordsPath)):null,nframes:input.nframes}) || receipt.layoutSha256!==hash(JSON.stringify(layoutRecord)))throw Error();
+ // Cycle 2 (C1): coverage is recomputed from the spec and the previewed frames, so an edited look.json cannot hide an uncovered window.
+ if(!Array.isArray(preview.frames)||preview.frames.length>24||overlayWindows(spec).some(w=>!preview.frames.some(f=>Number.isInteger(f)&&f/30>=w.from&&f/30<w.to)))throw Error();
  const anchorsFile=path.join(roundDir,'anchors-preview.json');
  if((layoutRecord.inputs.anchorsSha256??null)!==(fs.existsSync(anchorsFile)?hash(readBytes(anchorsFile)):null))throw Error();
  if(preview.sha256!==out.sha256 || preview.overlaySha256!==receipt.overlaySha256 || look.sha256!==out.sha256 || look.overlaySha256!==receipt.overlaySha256 || look.verdict!=='pass' || !look.sheets.length) throw Error();
@@ -109,7 +111,7 @@ export async function runAuthorLoop(input,deps={}) {
   for(round=0;round<5;round++){
    guard();const pair=pairCheck(code,spec,input);spec=pair.spec;
    // Fix 3: the frames follow the CURRENT overlay spec, so every big, tag, bars and counter window holds a frame the author sees.
-   const {frames,uncovered}=pickAuthoredPreviewFrames({nframes:input.nframes,shotStarts:input.shotStarts,fps:30,overlaySpec:spec});
+   const {frames,uncovered}=(deps.pickFrames??pickAuthoredPreviewFrames)({nframes:input.nframes,shotStarts:input.shotStarts,fps:30,overlaySpec:spec});
    const dir=path.join(stage,`r${round}`);fs.mkdirSync(dir);write(path.join(dir,'build.py'),code);json(path.join(dir,'overlay.json'),pair);
    const sha256=hash(code),overlaySha256=hash(JSON.stringify(spec)),previewId=`${input.jobId}-a${attempt}-pv${round+1}`;
    previews++;deps.onPhase?.('previewing');let preview=null,crash=null;
@@ -141,7 +143,7 @@ export async function runAuthorLoop(input,deps={}) {
     const unused=Number.isFinite(timing)&&Number.isFinite(input.renderBudget)&&input.renderBudget>0&&timing<input.renderBudget/2&&flatNums.length>0;
     if(unused)journal({kind:'budget_unused',round,secondsPerFrame:timing,budget:input.renderBudget});
     const budgetText=unused?`budget_unused: ${timing.toFixed(2)} s/frame is under half of the ${input.renderBudget} s/frame budget while ${flatNums.join(', ')} measure as flat or plain. The budget is meant to be spent: enrich the single largest hero surface (bands, bump, a colour ramp, more geometry, light) until a preview costs near the budget. The ceiling is unchanged.`:'';
-    const layoutText=layout?[layoutRefusal(layout),layout.uncovered.length?`${layout.uncovered.join(', ')} could not get a preview frame inside its window (24-frame cap), so the sheets do not show it.`:''].filter(Boolean).join(' '):'';
+    const layoutText=layout?layoutRefusal(layout):'';
     const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,60-(now()-started)/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}${budgetText?`\n${budgetText}`:''}${layoutText?`\n${layoutText}`:''}\n${feedback}`;
     let prompt=makePrompt();while(prompt.length>200000&&replay.length){replay.shift();prompt=makePrompt();}
     const text=await ask(prompt,images,editRefusals>=2&&!resynced?'resync':'look',dir);if(editRefusals>=2)resynced=true;

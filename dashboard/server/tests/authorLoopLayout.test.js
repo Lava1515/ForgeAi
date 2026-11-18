@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { runAuthorLoop, verifyAuthorReceipt } from '../episode/codebuilt/authorLoop.js';
 import { hash, authorArgv } from '../episode/codebuilt/authorCall.js';
 import { createLayoutGate, layoutRefusal, layoutBound } from '../episode/codebuilt/layoutGate.js';
-import { pickPreviewFrames, pickAuthoredPreviewFrames, overlayWindows } from '../episode/codebuilt/previewFrames.js';
+import { pickPreviewFrames, pickAuthoredPreviewFrames, overlayWindows, coverWindows } from '../episode/codebuilt/previewFrames.js';
 import { REPO_ROOT } from '../episode/engines/codebuilt/launch.js';
 
 const TMP = path.join(REPO_ROOT, 'output', 'agent-jobs', 'check2-author', 'tests-tmp');
@@ -30,7 +30,8 @@ async function replay(job, nframes) {
   const gate = createLayoutGate({ execFileFn: execFile });
   // The script only reads inside its job root, so the evidence is copied beside the spec (read-only source, scratch copy).
   for (const name of ['anchors-preview.json', 'words.json']) fs.copyFileSync(path.join(round, name), path.join(work, name));
-  return gate.check({ overlaySpec: specFile, anchors: path.join(work, 'anchors-preview.json'), words: path.join(work, 'words.json'), nframes, fps: 30, jobRoot: work, frames: preview });
+  const layout = await gate.check({ overlaySpec: specFile, anchors: path.join(work, 'anchors-preview.json'), words: path.join(work, 'words.json'), nframes, fps: 30, jobRoot: work, frames: preview });
+  return { ...layout, uncovered: overlayWindows(pair.spec).filter((w) => !preview.some((f) => f / 30 >= w.from && f / 30 < w.to)).map((w) => w.id) };
 }
 test('Hypersaline accepted pair (mwm4wpiw-99a2cf) is refused: overlap big[1] bars[0] on frames 1011-1066', { skip: !have('mwm4wpiw-99a2cf') }, async () => {
   const layout = await replay('mwm4wpiw-99a2cf', 1469);
@@ -54,20 +55,23 @@ test('Danube accepted pair (mwm4a61f-438a7a) passes the layout gate', { skip: !h
 
 // ---- pure helpers
 test('layoutRefusal: blocking, label hidden on every previewed frame, malformed; clean is empty', () => {
-  const base = { version: 1, ok: true, framesChecked: 900, fps: 30, blocking: [], labelHidden: [] };
+  const base = { version: 1, ok: true, framesChecked: 900, fps: 30, blocking: [], labelHidden: [], uncovered: [] };
   assert.equal(layoutRefusal(base), '');
   assert.match(layoutRefusal({ ...base, ok: false, blocking: [{ code: 'caption_overlap', elements: ['labels[2]'], first_frame: 30, last_frame: 60 }] }), /caption_overlap labels\[2\]: frames 30-60 \(1\.0-2\.0 s\)/);
   assert.match(layoutRefusal({ ...base, labelHidden: [{ element: 'labels[3]', share: 1, frames: 2 }] }), /label_hidden labels\[3\]: hidden on all 2 previewed frames/);
   assert.equal(layoutRefusal({ ...base, labelHidden: [{ element: 'labels[3]', share: 0.5, frames: 2 }] }), '');
   assert.match(layoutRefusal(null), /missing or malformed/);
-  assert.match(layoutRefusal({ version: 1, ok: false, framesChecked: 9, blocking: [], labelHidden: [] }), /not ok/);
+  assert.match(layoutRefusal({ version: 1, ok: false, framesChecked: 9, blocking: [], labelHidden: [], uncovered: [] }), /not ok/);
+  assert.match(layoutRefusal({ ...base, uncovered: ['big[3]', 'bars[1]'] }), /preview_uncovered big\[3\], bars\[1\]: no preview frame inside their windows/);
+  assert.match(layoutRefusal({ version: 1, ok: true, framesChecked: 9, blocking: [], labelHidden: [] }), /missing or malformed/, 'a record with no uncovered list is not trusted');
 });
 test('layoutBound needs the exact spec hash, frame count and words hash', () => {
-  const l = { version: 1, ok: true, framesChecked: 900, fps: 30, blocking: [], labelHidden: [], inputs: { overlaySha256: 'a', wordsSha256: 'w' } };
+  const l = { version: 1, ok: true, framesChecked: 900, fps: 30, blocking: [], labelHidden: [], uncovered: [], inputs: { overlaySha256: 'a', wordsSha256: 'w' } };
   assert.equal(layoutBound(l, { overlaySha256: 'a', wordsSha256: 'w', nframes: 900 }), true);
   assert.equal(layoutBound(l, { overlaySha256: 'b', wordsSha256: 'w', nframes: 900 }), false);
   assert.equal(layoutBound(l, { overlaySha256: 'a', wordsSha256: 'x', nframes: 900 }), false);
   assert.equal(layoutBound(l, { overlaySha256: 'a', wordsSha256: 'w', nframes: 901 }), false);
+  assert.equal(layoutBound({ ...l, uncovered: ['big[0]'] }, { overlaySha256: 'a', wordsSha256: 'w', nframes: 900 }), false, 'uncovered windows block receipt reuse');
   assert.equal(layoutBound(undefined, { overlaySha256: 'a', nframes: 900 }), false);
 });
 test('gate wrapper fails closed: a script error or a malformed report is author_layout_unavailable', async () => {
@@ -105,6 +109,28 @@ test('a window that cannot get a frame under the 24 cap is reported, not thrown'
   const { frames, uncovered } = pickAuthoredPreviewFrames({ nframes: 900, shotStarts: Array.from({ length: 11 }, (_, i) => i * 2.5), fps: 30, overlaySpec: { version: 1, big } });
   assert.ok(frames.length <= 24);
   assert.ok(Array.isArray(uncovered));
+});
+
+// Cycle 2 C1: the cap is real and every window left without a frame is reported.
+const hits = (frames, w, fps = 30) => frames.some((f) => f / fps >= w.from && f / fps < w.to);
+test('more than 24 distinct non-overlapping windows: at most 24 frames, every missed window reported', () => {
+  const big = Array.from({ length: 40 }, (_, i) => ({ text: 'W' + i, from: i * 0.7, to: i * 0.7 + 0.6 }));
+  const input = { nframes: 900, shotStarts: [0, 10, 20], fps: 30, overlaySpec: { version: 1, big } };
+  const { frames, uncovered } = pickAuthoredPreviewFrames(input);
+  assert.ok(frames.length <= 24, `${frames.length} frames`);
+  const wins = overlayWindows(input.overlaySpec);
+  assert.deepEqual(uncovered, wins.filter((w) => !hits(frames, w)).map((w) => w.id), 'uncovered is exactly the windows with no frame');
+  assert.ok(uncovered.length >= 40 - 24, `${uncovered.length} uncovered`);
+});
+test('an oversized base selection is cut to 24 and all uncovered windows are reported', () => {
+  const base = Array.from({ length: 40 }, (_, i) => i * 20);
+  const windows = Array.from({ length: 5 }, (_, i) => ({ id: `big[${i}]`, from: 1 + i * 5.01 + 0.003, to: 1 + i * 5.01 + 0.03 }));
+  const { frames, uncovered } = coverWindows({ base, windows, nframes: 900, fps: 30 });
+  assert.equal(frames.length, 24);
+  assert.deepEqual([...frames].sort((a, b) => a - b), frames);
+  assert.deepEqual(uncovered, windows.filter((w) => !hits(frames, w)).map((w) => w.id));
+  assert.ok(uncovered.length >= 1, 'a full selection cannot take more windows');
+  assert.equal(coverWindows({ base, windows: [], nframes: 900 }).frames.length, 24);
 });
 
 // ---- loop integration
@@ -182,6 +208,44 @@ test('a layout record that was rewritten to say ok, or that names another spec, 
     const r = rig(), out = await runAuthorLoop(r.input, r.deps), lookFile = path.join(r.stage, 'author/a0/r0/look.json'), receiptFile = path.join(r.stage, 'author/receipt.json');
     const look = JSON.parse(fs.readFileSync(lookFile, 'utf8'));
     if (tamper === 'spec') look.layout.inputs.overlaySha256 = 'x'; else if (tamper === 'frames') look.layout.framesChecked = 1; else { look.layout.ok = false; look.layout.blocking = [{ code: 'overlap', elements: ['big[0]', 'big[1]'], first_frame: 1, last_frame: 2, frames: 2 }]; }
+    fs.writeFileSync(lookFile, JSON.stringify(look));
+    const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8')); receipt.layoutSha256 = hash(JSON.stringify(look.layout)); fs.writeFileSync(receiptFile, JSON.stringify(receipt));
+    assert.throws(() => verifyAuthorReceipt({ ...out, receipt }, r.input), { code: 'author_hash' }, tamper);
+  }
+});
+// The real validator allows at most 3 big, 2 bars, 1 tag and 1 counter, so >24 windows reach the picker only through the injected picker (deps.pickFrames).
+const manyWindows = Array.from({ length: 30 }, (_, i) => ({ id: `big[${i}]`, from: i * 0.9, to: i * 0.9 + 0.6 }));
+test('adversarial: more than 24 distinct non-overlapping windows and a model pass is refused, naming uncovered windows; no accepted pair', async () => {
+  const r = rig({ reply: () => lookText() });
+  const sizes = [];
+  r.deps.pickFrames = ({ nframes }) => { const out = coverWindows({ base: [0, 30, 60], windows: manyWindows, nframes, fps: 30 }); sizes.push(out); return out; };
+  await assert.rejects(runAuthorLoop(r.input, r.deps), { code: 'author_reply' });
+  assert.ok(!fs.existsSync(path.join(r.stage, 'author/accepted.build.py')));
+  assert.ok(sizes[0].frames.length <= 24);
+  assert.ok(sizes[0].uncovered.length >= 6, 'at least 30 windows minus 24 frames');
+  const p = prompt(r.stage, 0, 2);
+  assert.match(p, /HOST LAYOUT CHECK/);
+  assert.match(p, /preview_uncovered big\[/);
+  assert.ok(p.includes(sizes[0].uncovered[sizes[0].uncovered.length - 1]), 'every uncovered window is named, also the last');
+});
+test('with 12 shots the base already takes 24 frames: narrow real windows that hold no even frame block the pass and are all named', async () => {
+  const r = rig({ writeSpec: { version: 1, tag: { text: 'T', from: 1.02, to: 1.05 }, big: [{ text: 'A', from: 4.02, to: 4.05 }, { text: 'B', from: 8.02, to: 8.05 }], bars: [{ label: 'x', value: 'v', min: 0, max: 1, from: 12.02, to: 12.05 }] }, reply: () => lookText() });
+  r.input.shots = Array.from({ length: 12 }, () => ({ subject: 'subject', narration: 'words' }));
+  r.input.shotStarts = Array.from({ length: 12 }, (_, i) => i * 2.5);
+  const out = await runAuthorLoop(r.input, r.deps).catch((e) => e);
+  assert.equal(out.code, 'author_reply', out.message);
+  const p = prompt(r.stage, 0, 2);
+  assert.match(p, /preview_uncovered tag, big\[0\], big\[1\]/);
+  const pv = JSON.parse(fs.readFileSync(path.join(r.stage, 'author/a0/r0/preview.json'), 'utf8'));
+  assert.ok(pv.frames.length <= 24);
+});
+test('a receipt that carries uncovered windows is refused, also when look.json is rewritten to hide them', async () => {
+  for (const tamper of ['listed', 'hidden']) {
+    const r = rig(), out = await runAuthorLoop(r.input, r.deps), lookFile = path.join(r.stage, 'author/a0/r0/look.json'), receiptFile = path.join(r.stage, 'author/receipt.json'), pvFile = path.join(r.stage, 'author/a0/r0/preview.json');
+    assert.equal(verifyAuthorReceipt(out, r.input), true);
+    const look = JSON.parse(fs.readFileSync(lookFile, 'utf8'));
+    if (tamper === 'listed') look.layout.uncovered = ['big[0]'];
+    else { const pv = JSON.parse(fs.readFileSync(pvFile, 'utf8')); pv.frames = pv.frames.filter((f) => !(f / 30 >= 1 && f / 30 < 3)); fs.writeFileSync(pvFile, JSON.stringify(pv)); }
     fs.writeFileSync(lookFile, JSON.stringify(look));
     const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8')); receipt.layoutSha256 = hash(JSON.stringify(look.layout)); fs.writeFileSync(receiptFile, JSON.stringify(receipt));
     assert.throws(() => verifyAuthorReceipt({ ...out, receipt }, r.input), { code: 'author_hash' }, tamper);

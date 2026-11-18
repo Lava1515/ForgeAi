@@ -22,16 +22,18 @@ function safeEnv(env) {
 
 /**
  * The text a blocking result gives back to the author, or '' when the layout is fine. Pure.
- * Blocks on: any blocking overlap / outside_safe_zone / caption_overlap on any frame, and a label that is hidden on every previewed frame of its window.
+ * Blocks on: any blocking overlap / outside_safe_zone / caption_overlap on any frame, and a label that is hidden on every previewed frame of its window, and any text window with no preview frame (`uncovered`).
  */
 export function layoutRefusal(layout) {
-  if (!layout || layout.version !== 1 || typeof layout.ok !== 'boolean' || !Array.isArray(layout.blocking) || !Array.isArray(layout.labelHidden)) return 'the host layout check is missing or malformed';
+  if (!layout || layout.version !== 1 || typeof layout.ok !== 'boolean' || !Array.isArray(layout.blocking) || !Array.isArray(layout.labelHidden) || !Array.isArray(layout.uncovered)) return 'the host layout check is missing or malformed';
   const fps = Number.isFinite(layout.fps) && layout.fps > 0 ? layout.fps : 30;
   const lines = layout.blocking.slice(0, 12).map((b) => `${String(b.code).slice(0, 30)} ${(b.elements ?? []).slice(0, 4).join(' + ')}: frames ${b.first_frame}-${b.last_frame} (${secs(b.first_frame, fps)}-${secs(b.last_frame, fps)} s)`);
   for (const h of layout.labelHidden) if (h.share >= 1) lines.push(`label_hidden ${h.element}: hidden on ${h.frames === 1 ? 'its' : `all ${h.frames}`} previewed frame${h.frames === 1 ? '' : 's'} inside its window (its anchor is behind the camera, off screen, or crowded out)`);
+  const uncovered = layout.uncovered.slice(0, 40).map((id) => String(id).slice(0, 30));
+  if (uncovered.length) lines.push(`preview_uncovered ${uncovered.join(', ')}: no preview frame inside ${uncovered.length === 1 ? 'its window' : 'their windows'} (24-frame cap), so the sheets never show ${uncovered.length === 1 ? 'it' : 'them'}`);
   if (layout.ok === false && !layout.blocking.length) lines.push('the layout check reports not ok');
   if (!lines.length) return '';
-  return `HOST LAYOUT CHECK, measured on all ${layout.framesChecked} frames of the final video, blocks this pair: ${lines.join('; ')}. The final render refuses a blocking overlap, so a pass is not accepted. Repair the overlay spec: move or shorten one of the named windows, shorten the text, or mark the label's point where the camera sees it. Name the element and its new window in notes.`;
+  return `HOST LAYOUT CHECK, measured on all ${layout.framesChecked} frames of the final video, blocks this pair: ${lines.join('; ')}. A pass is not accepted: the final render refuses a blocking overlap, and a text window that no sheet showed is unchecked. Repair the overlay spec: move or shorten one of the named windows, shorten the text, mark the label's point where the camera sees it, or widen, merge or drop windows (a preview shows even frames only and at most 24 frames fit) so every window holds a preview frame. Name the element and its new window in notes.`;
 }
 
 /** What a saved layout record must hold for a receipt to count: the check ran on this exact spec, words and frame count. */

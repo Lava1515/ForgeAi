@@ -64,7 +64,7 @@ export function pickPreviewFrames(input) {
 // claude-pro · claude-sonnet-5-5 · 2026-11-18 17:55 +02:00 (Fable check 2, fix 3). Route `authored` only; the classic pickPreviewFrames above is untouched.
 // The author must see each big, tag, bars and counter text once: every such window (seconds, from the current overlay spec) holds at least one
 // preview frame. Shot frames come first; a window that already holds a picked frame needs no new one; the rest get their middle (an even frame).
-// When the 24-frame cap leaves windows without a frame they are returned in `uncovered` and the caller says so to the author; nothing throws.
+// When the 24-frame cap leaves windows without a frame they are ALL returned in `uncovered`; the selection never exceeds 24. The author loop refuses a pass and a receipt while `uncovered` is not empty (layoutGate.js).
 export const COVERED_KINDS = ['big', 'tag', 'bars', 'counter'];
 export function overlayWindows(spec) {
   const out = [];
@@ -78,12 +78,18 @@ export function overlayWindows(spec) {
   return out.sort((a, b) => a.from - b.from || a.to - b.to);
 }
 const frameInside = (frame, w, fps) => frame / fps >= w.from && frame / fps < w.to;
-export function pickAuthoredPreviewFrames(input) {
-  const { overlaySpec, nframes, fps = 30 } = input;
-  const base = pickPreviewFrames(input);
-  const windows = overlayWindows(overlaySpec);
-  const picked = new Set(base);
-  const uncovered = [];
+/**
+ * Pure: caps `base` (sorted even frames) at PREVIEW_MAX_FRAMES, then gives every window without a frame its middle frame while room is left.
+ * Every window still without a frame afterwards is reported in `uncovered` (all of them, not only the first), whatever the size of `base`.
+ */
+export function coverWindows({ base, windows, nframes, fps = 30 }) {
+  let list = [...new Set(base)].sort((a, b) => a - b);
+  if (list.length > PREVIEW_MAX_FRAMES) {
+    // Oversized base: keep PREVIEW_MAX_FRAMES frames spread evenly over the sorted picks (first and last stay).
+    list = Array.from({ length: PREVIEW_MAX_FRAMES }, (_, i) => list[Math.round((i * (list.length - 1)) / (PREVIEW_MAX_FRAMES - 1))]);
+    list = [...new Set(list)];
+  }
+  const picked = new Set(list);
   const lastEven = even(nframes - 1);
   for (const w of windows) {
     if ([...picked].some((f) => frameInside(f, w, fps))) continue;
@@ -92,8 +98,15 @@ export function pickAuthoredPreviewFrames(input) {
     let frame = even(Math.round(((w.from + w.to) / 2) * fps));
     if (frame < first) frame += 2;
     if (frame > last) frame -= 2;
-    if (frame < first || frame > last || frame < 0 || picked.size >= PREVIEW_MAX_FRAMES) { uncovered.push(w.id); continue; }
+    if (frame < first || frame > last || frame < 0 || picked.size >= PREVIEW_MAX_FRAMES) continue;
     picked.add(frame);
   }
-  return { frames: [...picked].sort((a, b) => a - b), uncovered };
+  const frames = [...picked].sort((a, b) => a - b);
+  // Judged at the end, so a window that a later pick happens to land in is not reported.
+  const uncovered = windows.filter((w) => !frames.some((f) => frameInside(f, w, fps))).map((w) => w.id);
+  return { frames, uncovered };
+}
+export function pickAuthoredPreviewFrames(input) {
+  const { overlaySpec, nframes, fps = 30 } = input;
+  return coverWindows({ base: pickPreviewFrames(input), windows: overlayWindows(overlaySpec), nframes, fps });
 }
