@@ -109,7 +109,7 @@ def check_layout(frames, words, spec, marks, job, *, fps, lead):
     with run.open_frame(files[0]) as first:
         width, height = first.width, first.height
     _, word_list = captions.load_words(media.input_file(words))
-    track = captions.Track(word_list, width, height, lead=lead)
+    track = captions.Track(word_list, width, height, lead=lead, style="overlay")
     parsed = overlay.load_spec(spec, video_seconds=len(files) / fps, job_root=job)
     if marks is not None:
         anchors = anchors_file.load(marks, len(files), job_root=job)
