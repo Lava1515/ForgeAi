@@ -152,7 +152,8 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  const {createPreviewRunFn}=await import('../engines/codebuilt/composePreview.js');
  const {directionMarkdown}=await import('./direction.js');
  if(process.env.FORGEAI_AUTHOR_MODE!=='1')throw authorError('author_mode_disabled');
- authorCaps({capsFile:injected.capsFile});checkAuthorConfig(injected);
+ const measurementMode=injected.measurementMode===true; // code-only: createCodebuiltStarter's authorLoop option, never a request field
+ authorCaps({capsFile:injected.capsFile,measurementMode,caps:injected.caps});checkAuthorConfig(injected);
  const sheetMaker=injected.sheetMaker??createPreviewSheetMaker({execFileFn:hostExecFile});
  const ask=injected.askAuthor??((p,i,o)=>askAuthor(p,i,{...o,workRoot:path.join(stage,'author','calls')}));
  ensureAuthorRoot(stage);
@@ -171,7 +172,7 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
   if(!why.length){const bad=pl.pythonQaStructureCheck(code,{expect:{shotStarts,nframes}});if(Array.isArray(bad))why.push(...bad);}
   return why;
  };
- const input={jobId:rec.id,stageDir:stage,capsFile:injected.capsFile,previewAttempt:rec.resumes?.length??0,signal,probe,nframes,shotStarts,shots:plan.lookShots,brief:scripted.brief+'\n'+plan.directionMarkdown,script:scripted.script,kitContract:pl.KIT_CONTRACT,wordsPath:voice.wordsPath,renderBudget:pathPack.rules.routes.overlay.render.RENDER_BUDGET_S_PER_FRAME,validate,writePrompt:pl.authorBuildPrompt({topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,words,pathPack,formats:rec.formats,choices:rec.choices,direction,shotStarts,nframes})};
+ const input={jobId:rec.id,stageDir:stage,capsFile:injected.capsFile,measurementMode,caps:injected.caps,previewAttempt:rec.resumes?.length??0,signal,probe,nframes,shotStarts,shots:plan.lookShots,brief:scripted.brief+'\n'+plan.directionMarkdown,script:scripted.script,kitContract:pl.KIT_CONTRACT,wordsPath:voice.wordsPath,renderBudget:pathPack.rules.routes.overlay.render.RENDER_BUDGET_S_PER_FRAME,validate,writePrompt:pl.authorBuildPrompt({topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,words,pathPack,formats:rec.formats,choices:rec.choices,direction,shotStarts,nframes})};
  try {const receipt=read(path.join(stage,'author','receipt.json')),code=readBytes(path.join(stage,'author','accepted.build.py'),'utf8'),pair=read(path.join(stage,'author','accepted.overlay.json'));verifyAuthorReceipt({accepted:true,buildScript:code,overlaySpec:pair.spec,sha256:hash(code),receipt},input);probe={passed:true};}catch{}
  if(!probe)probe=injected.probe ? await injected.probe({rec,stage,signal}) : await probeAuthorSupport({stageDir:path.join(stage,'author'),nonce:cryptoNonce(),makeCanary:sheetMaker.makeCanary,askFn:ask,signal});
  input.probe=probe;

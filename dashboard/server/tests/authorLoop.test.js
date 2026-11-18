@@ -78,6 +78,23 @@ for(const field of ['script','brief','words'])test(`accepted identity refuses ch
  assert.throws(()=>verifyAuthorReceipt(out,r.input),{code:'author_hash'});
 });
 import {authorCaps} from '../episode/codebuilt/authorLoop.js';
+
+// codex · gpt-6.1-sol · 2026-11-18 11:47 +02:00: C-7, real adapter must forward measurement mode.
+test('adapter permits code-only measurement bootstrap but production still needs measured caps',async()=>{
+ const {runAuthorFor}=await import('../episode/codebuilt/authorLoop.js');
+ const stage=fs.mkdtempSync(path.join(root,'adapter-measure-'));
+ const wordsPath=path.join(stage,'words.json');fs.writeFileSync(wordsPath,'[]');
+ const cfg=path.join(stage,'config');fs.mkdirSync(cfg);
+ const previous=process.env.FORGEAI_AUTHOR_MODE;process.env.FORGEAI_AUTHOR_MODE='1';
+ const args={rec:{},stage,voice:{wordsPath},scripted:{script:'script'},injected:{repoRoot:'C:/code/ForgeAi',configDir:cfg,sheetMaker:{},capsFile:path.join(stage,'absent-caps.json')},pl:{planCodebuiltDirection:async()=>{throw Object.assign(Error('adapter reached'),{code:'measurement_adapter_reached'});}}};
+ try {
+  await assert.rejects(runAuthorFor(args),{code:'author_caps_unmeasured'});
+  args.injected.measurementMode=true;
+  await assert.rejects(runAuthorFor(args),{code:'measurement_adapter_reached'});
+  args.injected.measurementMode='true';
+  await assert.rejects(runAuthorFor(args),{code:'author_caps_unmeasured'});
+ }finally{if(previous===undefined)delete process.env.FORGEAI_AUTHOR_MODE;else process.env.FORGEAI_AUTHOR_MODE=previous;}
+});
 test('measured caps above A3 billable/context ceilings refused',()=>{
  const f=path.join(fs.mkdtempSync(path.join(root,'caps-')),'caps.json');
  const value={measuredAt:'2026-11-17',cliVersion:'test',model:'sonnet',runs:[{previews:3},{previews:3},{previews:3}],caps:{billableTotal:1472004,contextPeak:900000},reserves:{IMAGE_RESERVE:4000,OUTPUT_RESERVE:40000}};
