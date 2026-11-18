@@ -26,7 +26,7 @@ test('D2 ceiling stops final render above 90 minutes, permits equality, and fail
   {name:'missing timing', ceiling:90, error:'author_render_over_ceiling', reason:'render_timing_unavailable'},
   {name:'no ceiling and no timing'},
   {name:'invalid timing', ceiling:90, timing:{render_s:-1,rendered:900}, error:'author_render_over_ceiling', reason:'render_timing_unavailable'},
- ]) await t.test(c.name,async t=>{ 
+ ]) await t.test(c.name,async t=>{
  const r=rig({}, {reply:n=>{
   if(c.firstTiming&&n===2){const body=JSON.parse(look('fix'));body.look.targets=['shot_0'];body.look.edits=[{op:'replace_def',name:'shot_0',source:'def shot_0(t):\n    pass'}];return JSON.stringify(body);}
   return look();
