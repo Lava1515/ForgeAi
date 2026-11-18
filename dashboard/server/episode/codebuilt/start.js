@@ -105,6 +105,7 @@ const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
 // 30 s is about 900 frames (60 minutes -> 1.5 h) and 45 s about 1350 frames (90 minutes -> 2.25 h).
 export const TIMEOUT_MS = Object.freeze({ 30: 1.5 * 60 * 60 * 1000, 45: 2.25 * 60 * 60 * 1000, 60: 3 * 60 * 60 * 1000, 90: 4.5 * 60 * 60 * 1000 });
 const MESSAGES = Object.freeze({
+  author_layout_unavailable: 'The author layout check could not cover the required frames; nothing was rendered',
   author_render_over_ceiling: 'The last preview cannot establish a final render within the configured ceiling; nothing was rendered',
   author_mode_disabled: 'Author mode is disabled',
   bad_request: 'Invalid request', invalid_id: 'Invalid job id', not_found: 'Not found', conflict: 'The job is not in a state that allows this',
@@ -669,12 +670,13 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         if (error?.code === 'OVERLAY_LAYOUT_BLOCKED') { saveCorrected(); throw layoutBlockedError(error); }
         throw new StartError('build_failed', 502);
       }
+      // codex · gpt-6.1-sol · 2026-11-18 18:11 +02:00: cancellation precedes host completion receipts.
+      checkAbort();
       saveCorrected();
       writeCalls(rec.id, allCalls, true);
       writeLoopReceipt(rec.id, post.receipt);
       if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
       rec.post_correction = { at: clock(), refused_overlay_sha256: post.originalOverlaySha256 ?? null, corrected_overlay_sha256: overlayBytesSha(correctedPair.spec), blocking_refused: post.blocking.length, rendered_again: false };
-      checkAbort();
       await draftStage(resume.scripted, rec.factCheck ? restoreFactCheck(stage) : null);
       return;
     }

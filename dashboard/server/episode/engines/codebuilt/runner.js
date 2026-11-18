@@ -321,6 +321,8 @@ export function createBuildJobRunner({
         if (error instanceof CodebuiltError) throw error;
         throw new CodebuiltError('PRODUCER_FAILED', String(error?.message ?? error).slice(0, 300));
       }
+      // codex · gpt-6.1-sol · 2026-11-18 18:11 +02:00: an abort before commit restores the refused input and state.
+      if (signal?.aborted) throw new CodebuiltError('ABORTED', 'aborted before post-only completion');
       verifyInputs(paths, inputs);
       verifyBuildScript(paths, inputs[BUILD_SCRIPT]);
       const found = collectOutputs(paths);

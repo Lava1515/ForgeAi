@@ -47,7 +47,7 @@ function wavFixture() {
 }
 
 /** A failed overlay job whose accepted pair, voice and receipts are saved; the fence is a counting stub. */
-function makeJob({ route = 'overlay' } = {}) {
+function makeJob({ route = 'overlay', afterPost = () => {} } = {}) {
   const root = path.join(REPO, 'output/agent-jobs/check2-post', `test-${route}-${crypto.randomBytes(4).toString('hex')}`);
   const state = path.join(root, '.start', ID);
   const dir = path.join(state, route === 'authored' ? 'author' : 'loop');
@@ -76,8 +76,9 @@ function makeJob({ route = 'overlay' } = {}) {
   fs.writeFileSync(path.join(state, 'status.json'), JSON.stringify({ version: START_VERSION, id: ID, topic: 'Resume post', duration: VOICE_S, voice: 'aiden', route, status: 'failed', step: 'looking', steps: [] }));
 
   const counts = { renders: 0 };
+  const produce = createHostOutputProducer({ execFileFn: hostExecFile, repoRoot: REPO });
   const runner = createBuildJobRunner({
-    root, inputRoots: [state], produceOutputs: createHostOutputProducer({ execFileFn: hostExecFile, repoRoot: REPO }),
+    root, inputRoots: [state], produceOutputs: async (args) => { const result = await produce(args); afterPost(args); return result; },
     runIsolatedJob: async ({ jobDir }) => {
       counts.renders += 1;
       const frames = path.join(jobDir, 'frames'); fs.mkdirSync(frames, { recursive: true });
@@ -158,6 +159,31 @@ test('post-only resume: corrected overlay and the kept frames finish the job wit
     assert.equal(recorded.status, 'complete'); assert.equal(recorded.postOnly, true); assert.equal(recorded.inputs['overlay.json'], hash(`${JSON.stringify(CORRECTED, null, 2)}\n`));
     assert.equal(status.post_correction.rendered_again, false);
     assert.equal(JSON.parse(fs.readFileSync(path.join(j.root, ID, 'visual_loop.json'), 'utf8')).note, 'saved look receipt', 'the accepted look receipt is carried');
+  } finally { j.cleanup(); }
+});
+
+// codex · gpt-6.1-sol · 2026-11-18 18:11 +02:00: cancellation at the producer boundary must leave a retryable refusal.
+test('abort after post output but before completion restores the refusal and writes no correction receipt', needsKit, async () => {
+  let abortPost = () => {};
+  const j = makeJob({ afterPost: () => abortPost() });
+  try {
+    await j.refuse();
+    const starter = j.starter();
+    abortPost = () => starter.abort(ID);
+    starter.resume(ID, { correctedOverlay: CORRECTED }); await starter.idle();
+    const status = starter.get(ID);
+    assert.equal(status.status, 'aborted');
+    assert.equal(status.post_correction, undefined);
+    assert.equal(j.drafts.length, 0);
+    assert.equal(j.runnerState().status, 'failed');
+    assert.equal(j.runnerState().failure.code, 'OVERLAY_LAYOUT_BLOCKED');
+    assert.equal(j.runnerState().postOnlyFailure.code, 'ABORTED');
+    assert.deepEqual(j.overlayOnDisk(), BLOCKED);
+    assert.equal(status.resumeNeeds, 'corrected_overlay');
+    abortPost = () => {};
+    starter.resume(ID, { correctedOverlay: CORRECTED }); await starter.idle();
+    assert.equal(starter.get(ID).status, 'done');
+    assert.equal(j.counts.renders, 1);
   } finally { j.cleanup(); }
 });
 
