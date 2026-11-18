@@ -388,3 +388,14 @@ Fable check 2 fix10 reconciles M6/F7/P2 with the ledger; report output/agent-job
 | 10 | RECONCILED | M6/F7 are merged, P2 is terminal with one draft and two failures; record sheet names the Fable report and both causes. |
 
 The friendly author_layout_unavailable message is on the parked post branch, so C2-AUTH-2 remains open. M5 is blocked and N3 stays owner-held. This closes the authorized fix round with explicit limitations, not a successful three-video proof. No new video, repost, publishing or default-route switch was performed.
+
+### 2026-11-18 20:52 +02:00 · codex · gpt-6.1-sol — evening window 1
+
+| Lane | State | Evidence |
+|---|---|---|
+| Fix 2 / C2-AUTH-2 | MERGED b94b25b | Opus8ab0bab independent appliedsecurityPASS; supervisor0377a86 independentlyagyPASS S0L0C0, completedpostdraftrecovery/junctionrefusal/staleoutputs covered. Friendly layout message included. |
+| M4 / fix9 / C2-AUTH-1 | MERGED 04288bd (contained in b94b25b) | Combined2d26067 independentagyPASS572server459Python; all-framezero-renderpose export, optionalgeometryvisibility, canonicalwholehiddenrefusal/partialadvisory receipt. FrozenDanube overlaponlyPASS/fullBlackSea32of32hiddenREFUSE per newerowner rule; geometryraylimits explicit. |
+| M5 captions | BUILT 7524fe3, REVIEW ACTIVE | InstalledArialBlack bitmaplicencechecked; classic39RGBcomparisons; integrated572server465PythonPASS. Finalpostbranch check_layout must selectoverlaystyle aftercombinedintegration. |
+| N3/default/H2look/T2/publishing/auto release | OWNER HOLD | No change authorized in evening order. |
+
+Window1 integrated584server466Python/licence36/secretpatternandrootenvvaluesPASS, zerojobs; narrative restarted. No proof started. Supersedes earlierdayclosure states for these explicitlyauthorizedlanes only.
