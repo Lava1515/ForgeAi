@@ -103,6 +103,7 @@ const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
 // 30 s is about 900 frames (60 minutes -> 1.5 h) and 45 s about 1350 frames (90 minutes -> 2.25 h).
 export const TIMEOUT_MS = Object.freeze({ 30: 1.5 * 60 * 60 * 1000, 45: 2.25 * 60 * 60 * 1000, 60: 3 * 60 * 60 * 1000, 90: 4.5 * 60 * 60 * 1000 });
 const MESSAGES = Object.freeze({
+  author_render_over_ceiling: 'The last preview cannot establish a final render within the configured ceiling; nothing was rendered',
   author_mode_disabled: 'Author mode is disabled',
   bad_request: 'Invalid request', invalid_id: 'Invalid job id', not_found: 'Not found', conflict: 'The job is not in a state that allows this',
   launch_not_approved: 'The code-built launch is not approved yet (waiting for the security activation); nothing was started',
