@@ -184,7 +184,8 @@ export function buildLookPrompt({
   if (flagged.length) parts.push(`MEASURED FROM THE PIXELS (facts, not opinions; a flat tile can never pass):\n${flagged.join('\n')}`);
   if (hasSheets) parts.push(...kitPromptSections(kit, sheets));
   if (layoutFindings.length) {
-    const clean = layoutFindings.slice(0, 120).map((f) => `frame ${Number.isInteger(f.frame) ? f.frame : 'unknown'}: ${String(f.code ?? 'layout issue').slice(0, 50)}${Array.isArray(f.elements) && f.elements.length ? ` (${f.elements.slice(0, 8).join(', ')})` : ''}`);
+    // preview_sheet.py writes frame -1 for findings that belong to no single frame (label_hidden): print no frame for them, never "frame -1".
+    const clean = layoutFindings.slice(0, 120).map((f) => `${Number.isInteger(f.frame) && f.frame >= 0 ? `frame ${f.frame}` : 'no single frame'}: ${String(f.code ?? 'layout issue').slice(0, 50)}${Array.isArray(f.elements) && f.elements.length ? ` (${f.elements.slice(0, 8).join(', ')})` : ''}`);
     parts.push(`PREVIEW TEXT LAYOUT FINDINGS (measured on the previewed frames; consider these alongside the framing numbers):\n${clean.join('\n')}`);
   }
   if (qaText) parts.push(`WHY THERE ARE NO PICTURES (preview/QA output):\n${cleanDiagnostic(qaText)}`);
