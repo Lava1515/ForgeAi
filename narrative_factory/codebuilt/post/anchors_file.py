@@ -1,3 +1,5 @@
+# codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
+# codex · gpt-6.1-sol · 2026-11-18 19:36 +0200
 """Untrusted reader of anchors.json: screen positions the kit saved while it posed each frame (KO1, plan 2026-11-17 contract 2.2).
 
 The job container writes this file, so every byte is untrusted: at most 8 MB, a strict shape, finite numbers only, x and y clamped to
@@ -6,6 +8,9 @@ holds all text). A bad file raises AnchorsError with a message that starts with 
 
     {"version": 1, "width": 1080, "height": 1920,
      "frames": {"0": {"p": {"lid": [0.512, 0.431, 1]}, "v": {"depth": 0.0}}}}
+
+Optional per frame, added without changing "front": "o": [names] lists points whose line from the camera is blocked by geometry in that frame
+(a projected point behind a surface). A frame without "o" says nothing about occlusion. Readers that do not know "o" must not be fed a file with it.
 
 p: name -> [x, y, front], x left to right and y top to bottom as a share of the frame, front 1 when the point is in front of the camera.
 v: name -> one number (the running number of that frame). Either may be absent in a frame.
@@ -69,13 +74,18 @@ def _keys(obj, allowed, where):
 class Anchors:
     """Parsed positions. point() returns (x, y, front) or None; value() holds the last known number (or the first, before it)."""
 
-    def __init__(self, width, height, points, values):
+    def __init__(self, width, height, points, values, occluded=None):
         self.width, self.height = width, height
         self._points = points                 # frame -> {name: (x, y, front)}
+        self._occluded = occluded or {}       # frame -> {names behind geometry}
         self._values = {}                     # name -> (sorted frames, numbers)
         for name, seq in values.items():
             seq.sort()
             self._values[name] = ([f for f, _ in seq], [v for _, v in seq])
+
+    def occluded(self, frame, name):
+        """True when the file says geometry blocks the camera's line to this point in this frame. False also means "not tested"."""
+        return name in self._occluded.get(frame, ())
 
     @classmethod
     def empty(cls, width=1080, height=1920):
@@ -128,7 +138,7 @@ def parse(raw, nframes):
     frames = data["frames"]
     if not isinstance(frames, dict):
         _fail("frames is not an object")
-    points, values = {}, {}
+    points, values, occluded = {}, {}, {}
     point_names = set()
     for key, rec in frames.items():
         if not isinstance(key, str) or not FRAME_KEY.fullmatch(key) or int(key) >= nframes:
@@ -136,7 +146,7 @@ def parse(raw, nframes):
         f = int(key)
         if not isinstance(rec, dict):
             _fail(f"frame {f} is not an object")
-        _keys(rec, ("p", "v"), f"frame {f}")
+        _keys(rec, ("p", "v", "o"), f"frame {f}")
         p, v = rec.get("p", {}), rec.get("v", {})
         if not isinstance(p, dict) or not isinstance(v, dict):
             _fail(f"frame {f} p and v must be objects")
@@ -157,12 +167,18 @@ def parse(raw, nframes):
             _fail(f"has more than {MAX_POINT_NAMES} point names")
         if pts:
             points[f] = pts
+        blocked = rec.get("o", [])
+        if (not isinstance(blocked, list) or len(blocked) > MAX_POINTS_PER_FRAME or any(not isinstance(n, str) or n not in pts for n in blocked)
+                or len(set(blocked)) != len(blocked)):
+            _fail(f"frame {f} o must be a list of unique names of the points in that frame")
+        if blocked:
+            occluded[f] = frozenset(blocked)
         for name, num in v.items():
             _name(name, f"frame {f} value")
             values.setdefault(name, []).append((f, _number(num, f"frame {f} value {name!r}")))
             if len(values) > MAX_VALUE_NAMES:
                 _fail(f"has more than {MAX_VALUE_NAMES} value names")
-    return Anchors(data["width"], data["height"], points, values)
+    return Anchors(data["width"], data["height"], points, values, occluded)
 
 
 def load(path, nframes, *, job_root):

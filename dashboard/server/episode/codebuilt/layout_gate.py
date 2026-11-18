@@ -5,10 +5,12 @@ Runs the canonical post-step layout algorithm (narrative_factory/codebuilt/post/
 the video, at the final 1080x1920 size, before the author's `pass` is accepted. It is CPU only, reads three host-owned files, writes
 nothing, and prints one JSON line. No model, no shell, no network.
 
-What it can know at preview time: the preview render only poses the previewed frames, so anchors-preview.json holds points for those
-frames alone. The fixed elements (tag, counter, big, bars) do not depend on points, so their windows are checked on all frames. Labels
-and measures stick to points: on a frame without a point they are not drawn, so they are checked only on the previewed frames
-(label_hidden is therefore measured on those frames only). The counter box uses the last known value, so its width is approximate.
+What it can know at preview time: the preview render poses and renders only the previewed frames, but an overlay preview also poses every
+other frame without rendering and saves all positions in anchors-all.json (C2-AUTH-1, renderloop.export_all_frame_anchors). With
+`--frames all` and that file, labels and measures are laid out on every frame exactly as the post step will draw them, and label_hidden is
+measured on every frame of the label's window. With a list of frames (and an anchors file that holds only those frames) the fixed
+elements are still checked on all frames and label_hidden only on the listed frames, as before. The counter box uses the last known
+value, so its width is approximate when the file holds few frames.
 
     python -I layout_gate.py --overlay FILE --nframes N --job-root DIR --frames 6,54,... [--anchors FILE] [--words FILE]
                              [--lead 0.35] [--fps 30] [--width 1080] [--height 1920]
@@ -34,8 +36,12 @@ def run(opts):
         track = captions.Track(words, opts.width, opts.height, lead=opts.lead, style="overlay")
     ov = overlay.Overlay(spec, marks, opts.width, opts.height, captions_track=track, fps=opts.fps, nframes=opts.nframes)
     rep = ov.layout_report()
-    preview = sorted({int(f) for f in opts.frames.split(",") if f.strip()} if opts.frames else set())
-    # label_hidden on the previewed frames only: elsewhere a label has no point, which is not "hidden from the camera".
+    if opts.frames == "all":
+        preview = list(range(opts.nframes))
+    else:
+        preview = sorted({int(f) for f in opts.frames.split(",") if f.strip()} if opts.frames else set())
+    # label_hidden on the listed frames only (all of them with `--frames all`): with a sparse anchors file a label has no point on the
+    # other frames, which is not "hidden from the camera".
     active, hidden = {}, {}
     for f in preview:
         if not 0 <= f < opts.nframes:
@@ -48,7 +54,7 @@ def run(opts):
                 hidden[i] = hidden.get(i, 0) + (f"labels[{i}]" not in ids)
     label_hidden = [{"element": f"labels[{i}]", "share": round(hidden[i] / n, 3), "frames": n} for i, n in sorted(active.items()) if hidden.get(i)]
     return {"status": "ok", "version": 1, "frames_checked": rep["frames_checked"], "fps": opts.fps, "ok": rep["ok"], "blocking": rep["blocking"],
-            "label_hidden": label_hidden, "preview_frames": len(preview), "anchored_frames": len(marks._points)}
+            "findings": rep["findings"], "label_hidden": label_hidden, "preview_frames": len(preview), "anchored_frames": len(marks._points)}
 
 
 def main(argv):
