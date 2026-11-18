@@ -330,13 +330,15 @@ Scope: ForgeBrain/plans/2026-11-18-finish-kola-main-way-day-plan.md. These ids b
 | M4 | BLOCKED 2026-11-18 11:50 +02:00 codex · gpt-6.1-sol | Sonnet independently confirms79846d0 pin patch correct/S0/L0/full gates; whole lane blocked by absent occlusion contract. Branch preserved unmerged; no narrowed scope. G10/G11 subject coverage unchanged. |
 | M5 | BLOCKED | Luna fallback made no changes; installed Arial Black bitmap use checked at Microsoft source, but register inclusion is outside assigned files. Checkout t3-c55b4038 clean at a51a19a. |
 | M6 | BLOCKED | Luna fallback: endpoint needs explicit app.js mount outside owned files. No changes; exact dependency in m6-author-form/REPORT.md. |
-| M7 | REVIEWED / HELD WINDOW 2 | Haiku 641b084, Luna PASS; classic prompt unchanged, full gates pass. |
+| M7 | MERGED 39309a2 | Haiku 641b084, Luna PASS; classic prompt unchanged, integrated full gates pass. |
 | M8 | ACCEPTED | Haiku runbook/request/record templates inspected and corrected by supervisor. P2 request remains unsent. |
-| A3 | REVIEW PASS / CAPS PACKAGING | Three real accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Proposal 940000 billable / 90000 context, reserves 11097 / 105079; exact-byte branch packaging and full gates underway. No final render or draft. |
-| N1 | REVIEWED / HELD WINDOW 2 | Sonnet 2d56f9c, Luna substantive PASS and supervisor full gates. |
+| A3 | MEASUREMENT PASS / CAPS BLOCKED | Three real accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Exact caps branch 2b0852d has one failing lifecycle test assuming caps absent; test is outside assigned files. Proposal 940000 / 90000, reserves 11097 / 105079, unadopted. No final render or draft. |
+| N1 | MERGED c9a9733 | Sonnet 2d56f9c, Luna substantive PASS; integrated full gates pass. |
 | N2 | BLOCKED | Sol fe5fd27, Sonnet independently confirms logic/S0/L0; named error maps to internal in unowned start.js. Five contract failures; branch unmerged, P2 D2 held. |
 | N3 | OWNER HOLD | Prepare after N2; merge only after owner watches videos and says go |
 | P2 | HELD | Three authored Auto videos after A3 and merge window 2 |
 | A1-C5 | FOLLOW-UP C LOW 2026-11-18 11:48 +02:00 codex · gpt-6.1-sol | A3 saves per-call observations; authorCaps should recompute reserve/caps from observations rather than accepting claimed runs/reserves. No invented floors. A2r no S/L; bounded shape gate currently accepts fabricated observations. |
 
 Day-plan status table updated 2026-11-18 13:26 +02:00 · codex · gpt-6.1-sol from the supervisor ledger and accepted review evidence; no WAVE 3 DONE or P2 readiness claim.
+
+Window 2 partial landing updated 2026-11-18 13:30 +02:00 · codex · gpt-6.1-sol: N1/M7 merged, caps and D2 blocked; no WAVE 3 DONE.
