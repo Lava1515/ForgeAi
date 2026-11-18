@@ -853,7 +853,14 @@ class BlenderProbe:
         """Overlay jobs (contract 2.5): every FONT object a render can draw. Wider than text_objects, which the classic readout checks keep
         using unchanged: a FONT with ONE axis near zero still draws a flat outline (largest axis counts, not the smallest), and a FONT that
         only an instance draws counts (collection instances, and geometry-nodes or point instances from the evaluated depsgraph)."""
-        found = {o.name: o for o in rendered_text_objects(self.scene.collection)}
+        found = {}
+        scene = self.scene
+        seen_scenes = set()
+        while scene is not None and id(scene) not in seen_scenes:
+            seen_scenes.add(id(scene))
+            for obj in rendered_text_objects(scene.collection):
+                found.setdefault(obj.name, obj)
+            scene = getattr(scene, "background_set", None)
         try:
             instances = self.bpy.context.evaluated_depsgraph_get().object_instances
         except Exception:   # no Blender (pure tests) or no depsgraph: the collection walk above stands
