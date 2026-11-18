@@ -18,13 +18,13 @@ This is project-authored guidance for route `authored`. It restates, for a sessi
 
 - The topic, its picture (what the eye watches, what changes, the running number, the last image) and its story (the question, the turn, the answer) are given. So are the script, the voice timing and the direction. Do not change, add or "improve" any of them. Your job is to make the picture the story needs.
 - The direction names the places (1 to 4) by id. Register each in `colls` under exactly that id. Keep one place if the story is one move through one world; use more only when the direction asks.
-- If the given picture cannot be built, build the nearest honest version; explain it in a comment at the top of the timeline block and again in `notes` on the first look turn. Do not swap the subject.
+- If the given picture cannot be built, build the nearest honest version; explain it in a comment at the top of the timeline block (turn W has no `notes` field, so the comment is the only place) and again in `notes` on the first look turn. Do not swap the subject.
 
 ## Two kinds of turn, two reply shapes
 
 The prompt states the exact reply format. In short:
 
-- **Turn W (write):** one python block (the whole scene program) and one json block (the overlay spec). Exactly one of each, nothing else that looks like code. Both must pass or the whole reply is refused with reasons.
+- **Turn W (write):** one python block (the whole scene program) and one json block (the overlay spec). Exactly one of each, nothing else that looks like code. Both must pass or the whole reply is refused with reasons. Turn W has **no `notes` field**: put what you decided and what you could not build as comments in the program, because the host sends the code back to you.
 - **Look turn (look and fix):** one JSON object with your look reply as the prompt defines it, a `notes` string of at most 600 characters, and an `overlay` key only when the spec changes (then give the full spec). Fixes are scoped edits to the code you were sent. A reply that fails any check is refused whole: neither the edits nor the new spec are applied.
 - The host always sends back the current code and the current spec with a hash. Edit those, not your memory of them. You do not see the pictures of earlier rounds again, so write into `notes` what you tried and what you decided, for your next turn.
 
@@ -84,9 +84,27 @@ One json object. `version` is 1. Times are seconds from the start of the video; 
 ## Safe area and placement
 
 - Keep the top 12 percent and the bottom 20 percent of the frame clear of anything a label sticks to. The overlay keeps the same zones clear for its own text, and the Shorts buttons cover them.
-- Keep the subject and every anchor in the upper middle. The captions occupy 67-79% from the top of the frame. Keep important subjects and anchors above that band; the lower fifth is also covered by buttons.
+- Keep the subject and every anchor in the upper middle. The captions occupy 67-79% from the top of the frame (the centre line is at about 73%). Keep important subjects and anchors above that band, and never place a label so its box reaches into it: a label box that meets the caption box is a blocking `caption_overlap` finding. The lower fifth is also covered by buttons.
 - The sheets come back with the framing numbers. Use them: if an anchor is outside the band or near an edge, move the camera or the point, not the text.
+- **Hidden parts get no label.** Only label a part the camera sees at that moment: not behind another solid, not inside a body, not on the far side. The host cannot check this for you today: an anchor's `front` flag only says the point is in front of the camera, not that it is unobstructed, so a part inside or behind a solid still counts as in front and its label would be drawn. This guidance does not close that gap; it is up to you. Choose the camera and the label time so the part is seen, or leave that label out and say so in `notes`. Do not mark a point just to keep a spec entry alive.
 - Two pieces of text never overlap and none is clipped. If two labels would meet at the same moment, move one time later, shorten the text, or choose the other `side`.
+
+## Render cost: stay near the budget
+
+The host reports `render_too_slow` when a preview costs more than `RENDER_BUDGET_S_PER_FRAME`, which is **1.5 seconds per frame** on the card at the render profile. Measured in the fenced container (Cycles, AgX, 16 samples, report RL1): the hand-made Kola scene cost about 15.7 s per frame (about ten times the budget) and the hand-made scene P about 7.9 s (about five times). A video of 45 seconds is 1,350 frames, so every second per frame is about 22 minutes of the only card. Treat the following as the cost list; it is a one-frame measurement on the Kola scene (frame 520), not a general law:
+
+| What was hidden for the test | Render time change | Read |
+|---|---|---|
+| One large procedural rock face with its shader | about 70% less | the clear cost driver |
+| A procedural mountain mesh with its material | about 17% less | indicative only (within the noise) |
+| An emissive ocean mesh with its shader | about 15% less | indicative only |
+| Dust and ember particles | about 12-13% less each | small |
+| Loose chunks | no change | not a cost |
+
+- The test hid the object and its shader together, so it does not say whether the mesh or the shader cost the time. Cut both: fewer polygons and a simpler node tree.
+- A big procedural surface that fills much of the frame is the first thing to simplify: make it from fewer, larger shapes, reuse one prepared shape, keep the node tree short (a few large bands, one bump), and keep it out of the frame when the shot does not need it.
+- Spend the budget on what the eye follows. If a preview is over, remove or simplify the single heaviest surface first, then the next, instead of trimming everything a little. Say in `notes` which one you cut.
+- The budget is a target, not a proven guarantee: these numbers come from one scene and one frame, and the lighter your scene the closer you will be. The profile's view transform, look and sample count still come from the render profile line.
 
 ## Render profile
 
@@ -118,3 +136,5 @@ The preview sheets come back with the overlay text drawn on, a short code for th
 <!-- Adopted with W2 C1-C5 corrections: codex ? gpt-6.1-sol ? 2026-11-17 22:46 +02:00. Sources: accepted A0 sections 5.4 and 9; plan 2.5; overlay.py caption band. -->
 
 <!-- Source corrections from the Opus report: digits in picture / words in voice = scene-generation guidance line 148; slow mesh construction = handmade B MAKING-OF line 67 (no measured minutes); haze, reference object and whale silhouette = B line 66. Diagram FONT construction = diagram.py lines 40 and 206, governed by plan 2.5. -->
+
+<!-- N1 corrections (2026-11-18): turn W has no notes field (authorPrompts writePair: one python block and one json block); caption band 67-79% with caption_overlap blocking (post/overlay.py BLOCKING, captions.py CAPTION_CY 1400 of 1920); hidden parts: anchors `front` is camera-depth sign only, W2-C6 stays OPEN/blocked (m4-label-layout REPORT); cost list from rl1-render-look REPORT. -->
