@@ -38,9 +38,11 @@ import { createPreviewRunFn } from '../engines/codebuilt/composePreview.js';
 import { sanitizeRouterCall } from './routerCalls.js';
 import { defaultFactCheckStage } from './factCheckStage.js';
 import { normalizeProductionChoices } from './productionChoices.js';
-import { jobUsesOverlay, overlayPair, validateOverlayPair } from './overlaySpec.js';
+import { jobUsesOverlay, overlayPair, validateOverlayPair, validateOverlaySpec } from './overlaySpec.js';
 import { frameCountFor, shotStartsFor, validateBuildScript, loadCodebuiltPathPack } from './planner.js';
 import { jobWriteBlockedReason, writeHostJobReceipt } from './hostJobReceipts.js';
+import { readJobState } from '../engines/codebuilt/jobState.js';
+import { STATE_DIR as STATE_DIR_NAME } from '../engines/codebuilt/jobFolder.js';
 
 // Production default is the real router. Under `node --test` (NODE_TEST_CONTEXT is set by the runner) the default refuses before any CLI
 // is spawned, so a rig that never injects askRoleFn cannot reach a model; tests that want metadata inject askRoleFn or lightMetadataStage.
@@ -103,6 +105,7 @@ const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/;
 // 30 s is about 900 frames (60 minutes -> 1.5 h) and 45 s about 1350 frames (90 minutes -> 2.25 h).
 export const TIMEOUT_MS = Object.freeze({ 30: 1.5 * 60 * 60 * 1000, 45: 2.25 * 60 * 60 * 1000, 60: 3 * 60 * 60 * 1000, 90: 4.5 * 60 * 60 * 1000 });
 const MESSAGES = Object.freeze({
+  author_layout_unavailable: 'The author layout check could not cover the required frames; nothing was rendered',
   author_render_over_ceiling: 'The last preview cannot establish a final render within the configured ceiling; nothing was rendered',
   author_mode_disabled: 'Author mode is disabled',
   bad_request: 'Invalid request', invalid_id: 'Invalid job id', not_found: 'Not found', conflict: 'The job is not in a state that allows this',
@@ -118,6 +121,10 @@ const MESSAGES = Object.freeze({
   claude_limit: 'Claude usage limit reached; resume after the reset',
   loop_timeout: 'The visual check ran out of time; nothing was rendered',
   preview_failed: 'The preview render could not be made; nothing was rendered',
+  // Fix 2 (fable-check-2): a post layout refusal is its own named end, with the blocking list, and the render is kept.
+  overlay_layout_blocked: 'The overlay layout has blocking findings; the frames are kept, resume with a corrected overlay to finish without a new render',
+  overlay_correction_required: 'This job stopped on an overlay layout refusal; resume needs a corrected overlay (the frames are kept, no new render)',
+  overlay_correction_invalid: 'The corrected overlay was refused',
 });
 // Private planner diagnostics use fixed text only. Never persist an exception message or CLI output.
 const PLANNER_REASONS = Object.freeze({
@@ -155,7 +162,9 @@ export class StartError extends Error {
   constructor(code, status = 400) { super(MESSAGES[code] || MESSAGES.internal); this.name = 'StartError'; this.code = MESSAGES[code] ? code : 'internal'; this.status = status; }
 }
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
-const now = () => new Date().toISOString();
+/** The job's own end for a post layout refusal: its code, and the bounded blocking list the post kit reported. */
+const layoutBlockedError = (error) => Object.assign(new StartError('overlay_layout_blocked', 422), { blocking: Array.isArray(error?.detail?.blocking) ? error.detail.blocking : [] });
+const now =() => new Date().toISOString();
 
 // codex · gpt-6.1-sol · 2026-11-16 08:56 +02:00: shared across starter instances.
 // Voice bypasses the render fence, so it must share this lease with previews/render.
@@ -220,7 +229,7 @@ export function checkStartRequest(input) {
 export function publicJob(rec) {
   if (!rec) return null;
   const { id, topic, duration, status, step, createdAt, updatedAt, error, draftId, steps, buildModel, length_check: lengthCheckRec, runId, batchIndex } = rec;
-  return { route: rec.route ?? 'classic', id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message } : null, ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}) };
+  return { route: rec.route ?? 'classic', id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message, ...(Array.isArray(error.blocking) ? { blocking: error.blocking } : {}) } : null, ...(rec.post_correction ? { post_correction: rec.post_correction } : {}), ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}) };
 }
 
 export function createCodebuiltStarter({
@@ -363,9 +372,49 @@ export function createCodebuiltStarter({
     if (scriptOk) reused.push('script');
     if (voiceOk) reused.push('voice');
     if (build) reused.push('buildScript');
-    const resumeFrom = !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : !build ? 'planning' : 'visual_loop';
+    const postOnly = postOnlyArtifacts(id, rec, stage, scriptOk && voiceOk, words ? frameCountFor(words) : 0);
+    if (postOnly?.ok) reused.push('frames');
+    const resumeFrom = postOnly?.ok ? (postOnly.completed ? 'drafting' : 'post') : !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : !build ? 'planning' : 'visual_loop';
     let scriptMeta = {}; try { scriptMeta = JSON.parse(readSafe(path.join(stage, 'script-meta.json')) || '{}'); } catch {}
-    return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [], ...(scriptMeta.endingCheck ? { endingCheck: scriptMeta.endingCheck } : {}) } : null, voice, words, reused, resumeFrom };
+    return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [], ...(scriptMeta.endingCheck ? { endingCheck: scriptMeta.endingCheck } : {}) } : null, voice, words, reused, resumeFrom, postOnly };
+  }
+
+  // Fix 2: a job that ended on overlay_layout_blocked keeps its rendered frames. It can finish from the post step alone when the host's own
+  // records still tie the pieces together: the runner's state names the refusal and the frames it left (hashed on the host), the accepted build
+  // and overlay form a valid pair whose build hash is the one the job ran, and the overlay in the job is that pair's, or the last corrected one.
+  // Light checks only (no frame hashing): jobStatus calls this for every failed job. The runner re-checks the frames before it posts.
+  const overlayBytesSha = (spec) => sha(`${JSON.stringify(spec, null, 2)}\n`);
+  const postResumeFile = (stage) => path.join(stage, 'post-resume', 'overlay.json');
+  function postOnlyArtifacts(id, rec, stage, ready, savedFrames) {
+    if (!rec || !['overlay', 'authored'].includes(rec.route)) return null; // classic jobs never have a post layout refusal
+    const no = (reason) => ({ ok: false, reason });
+    // The runner's own record decides, not the job record: a post-only attempt that failed for another reason leaves it as the refusal it was.
+    let state; try { state = readJobState(path.join(jobsDir, STATE_DIR_NAME, `${id}.json`)); } catch { return null; }
+    const completed = state?.status === 'complete' && state.postOnly === true && state.kind === 'generated-code' && state.cleanupUncertain !== true;
+    if (!completed && state?.failure?.code !== 'OVERLAY_LAYOUT_BLOCKED') return null;
+    const refusal = completed ? { frames: { count: savedFrames }, build_sha256: state.inputs?.['build/build.py'] } : state?.refusal;
+    if (!ready) return no('The saved script or voice cannot be reused');
+    if ((!completed && (state.status !== 'failed' || !refusal?.frames?.sha256)) || !Number.isInteger(refusal?.frames?.count) || refusal.frames.count < 1) return no('No post layout refusal with kept frames is recorded');
+    const dir = path.join(stage, rec.route === 'authored' ? 'author' : 'loop');
+    try {
+      const code = readSafe(path.join(dir, 'accepted.build.py'));
+      if (!code || !code.trim()) return no('The accepted build is missing');
+      const videoSeconds = refusal.frames.count / 30;
+      const acceptedSpec = validateOverlayPair(JSON.parse(readSafe(path.join(dir, 'accepted.overlay.json')) || 'null'), code, { videoSeconds });
+      if (sha(code) !== state.inputs?.['build/build.py'] || refusal.build_sha256 !== sha(code)) return no('The accepted build is not the build the job ran');
+      let currentSpec = acceptedSpec;
+      if (state.inputs?.['overlay.json'] !== overlayBytesSha(acceptedSpec)) {
+        // A corrected overlay that was refused again is the job's overlay now; it must be the one this module saved, as a valid pair.
+        const saved = readSafe(postResumeFile(stage));
+        currentSpec = saved ? validateOverlayPair(JSON.parse(saved), code, { videoSeconds }) : null;
+        if (!currentSpec || state.inputs?.['overlay.json'] !== overlayBytesSha(currentSpec)) return no('The overlay in the job is not the accepted or the last corrected overlay');
+      }
+      let receipt;
+      if (rec.route === 'authored') receipt = JSON.parse(readSafe(path.join(dir, 'receipt.json')) || 'null');
+      else { const saved = JSON.parse(readSafe(path.join(dir, 'accepted-receipt.json')) || 'null'); receipt = saved?.sha256 === sha(code) ? saved.receipt : null; }
+      if (!receipt || typeof receipt !== 'object') return no('The accepted look receipt is missing');
+      return { ok: true, completed, buildScript: code, nframes: refusal.frames.count, currentSpec, originalOverlaySha256: refusal.overlay_sha256 ?? state.inputs['overlay.json'], receipt, blocking: Array.isArray(refusal.blocking) ? refusal.blocking : [] };
+    } catch { return no('The accepted build and overlay are not a valid pair'); }
   }
   const load = (id) => {
     if (!JOB_ID.test(id)) throw new StartError('invalid_id');
@@ -401,6 +450,26 @@ export function createCodebuiltStarter({
     } catch { /* host-only cost history is best effort */ }
     // Only successful runner completion establishes container exit and output audit.
     if (createJobDir) writeHostJobReceipt(jobsDir, id, 'cost_calls.json', bytes);
+  }
+
+  /** The fact check the job already passed (receipt, else a verified facts.json), or null. Shared by a normal resume and a post-only resume. */
+  function restoreFactCheck(stage) {
+    try {
+      const receipt = JSON.parse(readSafe(path.join(stage, 'fact-check.json')) || 'null');
+      if (receipt && receipt.verified === true && receipt.summary) return receipt;
+      const facts = JSON.parse(readSafe(path.join(stage, 'facts.json')) || 'null');
+      if (facts && (facts.verified === true || facts.status === 'verified') && facts.blocked !== true) {
+        return {
+          verified: true,
+          summary: {
+            claims: Array.isArray(facts.claims) ? facts.claims.length : null,
+            false_claims: Array.isArray(facts.false_claims) ? facts.false_claims.length : 0,
+            uncertain_claims: Array.isArray(facts.uncertain_claims) ? facts.uncertain_claims.length : 0,
+          },
+        };
+      }
+    } catch { /* unverified */ }
+    return null;
   }
 
   // Every build script the checks refuse is kept beside the job state (refused-build-1.py, -2.py with the reasons on
@@ -557,7 +626,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
 
   async function execute(rec, controller) {
     checkJobRoute(rec.route);
-    if (rec.route === 'authored') { try { authorCaps({capsFile:authorLoop.capsFile}); checkAuthorConfig(authorLoop); } catch(error) { throw new StartError(error.code,409); } }
+    // A post-only resume asks the author for nothing, so it does not need the author caps or config.
+    if (rec.route === 'authored' && !resumeData.get(rec.id)?.postOnlyRun) { try { authorCaps({capsFile:authorLoop.capsFile}); checkAuthorConfig(authorLoop); } catch(error) { throw new StartError(error.code,409); } }
     const { signal } = controller;
     let verifiedFactCheck = null;
     const resume = resumeData.get(rec.id) ?? null;
@@ -583,6 +653,44 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       }
     })();
     checkAbort();
+
+    // 1a. Fix 2: a job that ended on overlay_layout_blocked finishes from the post step with a corrected overlay and its kept frames.
+    // No script, voice, planner, look or render step runs; the runner re-checks the frames and every input before it posts.
+    if (resume?.postOnlyRun) {
+      const post = resume.postOnly;
+      step(rec, 'building');
+      const correctedPair = overlayPair(post.buildScript, resume.postOnlyRun.overlaySpec, { videoSeconds: post.nframes / 30 });
+      const correctionDir = path.dirname(postResumeFile(stage));
+      // codex · gpt-6.1-sol · 2026-11-18: reject host-stage links before the producer or any corrected-pair write.
+      if (!safeDirectory(stage)) throw new StartError('overlay_correction_invalid', 409);
+      try { if (!fs.existsSync(correctionDir)) fs.mkdirSync(correctionDir); } catch { throw new StartError('overlay_correction_invalid', 409); }
+      if (!safeDirectory(correctionDir) || (fs.existsSync(postResumeFile(stage)) && !safeRegular(postResumeFile(stage)))) throw new StartError('overlay_correction_invalid', 409);
+      const saveCorrected = () => {
+        if (!safeDirectory(correctionDir)) throw new StartError('overlay_correction_invalid', 409);
+        atomicWrite(correctionDir, 'overlay.json', `${JSON.stringify(correctedPair, null, 1)}\n`);
+      };
+      try {
+        if (typeof runtime.runner.runPostOnly !== 'function') throw new StartError('runner_unavailable', 501);
+        await runtime.runner.runPostOnly({ jobId: rec.id, buildScript: post.buildScript, overlaySpec: resume.postOnlyRun.overlaySpec, signal, completed: post.completed === true });
+        // Persist the pair even if cancellation arrived just after the runner committed; later recovery only drafts.
+        saveCorrected();
+      } catch (error) {
+        writeCalls(rec.id, allCalls);
+        if (error instanceof StartError) throw error;
+        if (signal.aborted || error?.code === 'ABORTED') throw new StartError('aborted');
+        if (error?.code === 'OVERLAY_LAYOUT_BLOCKED') { saveCorrected(); throw layoutBlockedError(error); }
+        throw new StartError('build_failed', 502);
+      }
+      // codex · gpt-6.1-sol · 2026-11-18 18:11 +02:00: cancellation precedes host completion receipts.
+      checkAbort();
+      saveCorrected();
+      writeCalls(rec.id, allCalls, true);
+      writeLoopReceipt(rec.id, post.receipt);
+      if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
+      rec.post_correction = { at: clock(), refused_overlay_sha256: post.originalOverlaySha256 ?? null, corrected_overlay_sha256: overlayBytesSha(correctedPair.spec), blocking_refused: post.blocking.length, rendered_again: false };
+      await draftStage(resume.scripted, rec.factCheck ? restoreFactCheck(stage) : null);
+      return;
+    }
 
     // 1b. The visual check must be possible before anything is paid for: one small probe proves the CLI takes pictures (KAN-934).
     let probe = null;
@@ -691,24 +799,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         fs.writeFileSync(path.join(stage, 'fact-check.json'), `${JSON.stringify(verifiedFactCheck, null, 1)}\n`);
       } catch { /* audit artifact only */ }
     } else if (rec.factCheck) {
-      try {
-        const receipt = JSON.parse(readSafe(path.join(stage, 'fact-check.json')) || 'null');
-        if (receipt && receipt.verified === true && receipt.summary) {
-          verifiedFactCheck = receipt;
-        } else {
-          const facts = JSON.parse(readSafe(path.join(stage, 'facts.json')) || 'null');
-          if (facts && (facts.verified === true || facts.status === 'verified') && facts.blocked !== true) {
-            verifiedFactCheck = {
-              verified: true,
-              summary: {
-                claims: Array.isArray(facts.claims) ? facts.claims.length : null,
-                false_claims: Array.isArray(facts.false_claims) ? facts.false_claims.length : 0,
-                uncertain_claims: Array.isArray(facts.uncertain_claims) ? facts.uncertain_claims.length : 0,
-              },
-            };
-          }
-        }
-      } catch { /* unverified */ }
+      verifiedFactCheck = restoreFactCheck(stage);
     }
 
     // 3. Voice: the existing TTS stage and measured word times (an estimate is refused by the voice module).
@@ -848,6 +939,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         writeCalls(rec.id, allCalls);
         if (signal.aborted || error?.code === 'ABORTED') throw new StartError('aborted');
         if (error?.code === 'LAUNCH_NOT_APPROVED') throw new StartError('launch_not_approved', 409);
+        if (error?.code === 'OVERLAY_LAYOUT_BLOCKED') throw layoutBlockedError(error);
         throw new StartError('build_failed', 502);
       }
       writeCalls(rec.id, allCalls, true);
@@ -856,7 +948,12 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       checkAbort();
     });
 
-    // 6. Titles and tags are the only model-authored draft metadata. Failures retain the topic fallback.
+    await draftStage(scripted, verifiedFactCheck);
+
+    // 6. Titles and tags are the only model-authored draft metadata. Failures retain the topic fallback. (A function so a post-only resume
+    // reaches the same step with the saved script and fact check; the body is unchanged.)
+    async function draftStage(scripted, verifiedFactCheck) {
+    const pathPack = scripted.pathPack;
     step(rec, 'drafting');
     let metadata = {};
     let publishGuide = ''; try { publishGuide = loadCodebuiltGuides({ pack: pathPack, step: 'publish' }); } catch { /* no guide: topic-only prompts */ }
@@ -873,6 +970,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const check = lengthCheck(rec.duration, Number.isFinite(probed) && probed > 0 ? probed : null);
       if (check) rec.length_check = check;
     } catch { throw new StartError('draft_failed', 500); }
+    }
   }
 
   function pump() {
@@ -894,7 +992,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     if (!error) { rec.status = 'done'; rec.step = 'done'; rec.error = null; }
     else {
       const e = error instanceof StartError ? error : new StartError('internal', 500);
-      rec.status = e.code === 'aborted' ? 'aborted' : 'failed'; rec.error = { code: e.code, message: e.message };
+      rec.status = e.code === 'aborted' ? 'aborted' : 'failed'; rec.error = { code: e.code, message: e.message, ...(Array.isArray(e.blocking) ? { blocking: e.blocking } : {}) };
     }
     try { save(rec); live.delete(rec.id); } catch { /* Keep the terminal record live and queryable when persistence fails. */ }
     resumeData.delete(rec.id);
@@ -941,7 +1039,12 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       try { for (const name of fs.readdirSync(stateRoot())) if (!out.has(name) && JOB_ID.test(name)) { const rec = load(name); if (rec) out.set(name, rec); } } catch { /* none yet */ }
       return [...out.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 50).map(jobStatus);
     },
-    resume(id) {
+    /**
+     * Resumes a failed or aborted job. `options.correctedOverlay` (an overlay spec object, never a path) is used only for a job that ended on
+     * overlay_layout_blocked with its frames kept: the job then finishes from the post step with that overlay and no second render.
+     * Such a job refuses a resume without a correction (the same overlay would be refused again), and any other job refuses a correction.
+     */
+    resume(id, options = {}) {
       const rec = load(id);
       if (!rec) throw new StartError('not_found', 404);
       if (!['failed', 'aborted'].includes(rec.status)) throw new StartError('conflict', 409);
@@ -949,10 +1052,23 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const route = effectiveJobRoute(checkJobRoute(rec.route), rec.formats);
       const artifacts = reusable(id);
       if (artifacts.blockedReason) throw new StartError('conflict', 409);
+      const corrected = options?.correctedOverlay;
+      const post = artifacts.postOnly?.ok === true ? artifacts.postOnly : null;
+      let postOnlyRun = null;
+      if (corrected !== undefined && !post) throw new StartError('overlay_correction_invalid', 409);
+      if (post?.completed) {
+        if (corrected !== undefined) throw new StartError('overlay_correction_invalid', 409);
+        postOnlyRun = { overlaySpec: post.currentSpec };
+      } else if (post) {
+        if (corrected === undefined) throw new StartError('overlay_correction_required', 409);
+        let spec; try { spec = validateOverlaySpec(corrected, { videoSeconds: post.nframes / 30 }); } catch { throw new StartError('overlay_correction_invalid', 400); }
+        if (overlayBytesSha(spec) === overlayBytesSha(post.currentSpec)) throw new StartError('overlay_correction_invalid', 400);
+        postOnlyRun = { overlaySpec: spec };
+      }
       rec.route = route;
       rec.resumes = Array.isArray(rec.resumes) ? rec.resumes : [];
       rec.resumes.push({ at: clock(), fromStep: artifacts.resumeFrom, reused: artifacts.reused });
-      rec.status = 'queued'; rec.step = 'queued'; rec.error = null; rec.resumeFrom = artifacts.resumeFrom; resumeData.set(rec.id, artifacts);
+      rec.status = 'queued'; rec.step = 'queued'; rec.error = null; rec.resumeFrom = artifacts.resumeFrom; resumeData.set(rec.id, { ...artifacts, ...(postOnlyRun ? { postOnlyRun } : {}) });
       rec.steps = Array.isArray(rec.steps) ? rec.steps : [];
       rec.steps.push({ step: 'resume', at: clock() });
       save(rec); live.set(id, { rec, controller: new AbortController() }); waiting.push(id); void pump();
@@ -978,7 +1094,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     const artifacts = resumable ? reusable(rec.id) : null;
     const blockedReason = artifacts?.blockedReason ?? (resumable && otherActive ? 'Another code-built job is active' : null);
     const priorResume = rec.resumes?.at(-1);
-    return { ...publicJob(rec), resumable: resumable && !blockedReason, resumeFrom: resumable ? artifacts.resumeFrom : priorResume?.fromStep ?? null, reuses: resumable ? artifacts.reused : priorResume?.reused ?? [], ...(blockedReason ? { resumeBlockedReason: blockedReason } : {}) };
+    return { ...publicJob(rec), resumable: resumable && !blockedReason, ...(resumable && artifacts.postOnly?.ok && !artifacts.postOnly.completed ? { resumeNeeds: 'corrected_overlay' } : {}), resumeFrom: resumable ? artifacts.resumeFrom : priorResume?.fromStep ?? null, reuses: resumable ? artifacts.reused : priorResume?.reused ?? [], ...(blockedReason ? { resumeBlockedReason: blockedReason } : {}) };
   }
 }
 
