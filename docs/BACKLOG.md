@@ -329,14 +329,14 @@ Scope: ForgeBrain/plans/2026-11-18-finish-kola-main-way-day-plan.md. These ids b
 | M3 | ACCEPTED | Haiku page, Luna review; supervisor corrected H1 to skipped/normal Auto. Local owner-review-1118/owner-review.html. |
 | M4 | BLOCKED 2026-11-18 11:50 +02:00 codex · gpt-6.1-sol | Sonnet independently confirms79846d0 pin patch correct/S0/L0/full gates; whole lane blocked by absent occlusion contract. Branch preserved unmerged; no narrowed scope. G10/G11 subject coverage unchanged. |
 | M5 | BLOCKED | Luna fallback made no changes; installed Arial Black bitmap use checked at Microsoft source, but register inclusion is outside assigned files. Checkout t3-c55b4038 clean at a51a19a. |
-| M6 | INDEPENDENT REVIEW | Luna234672d in original t3-12c5d582, existing GET /jobs boolean + client; Haiku review1 active. |
+| M6 | MERGED 018dd15 / PASS | Luna234672d, independent Haiku review; author availability and client built. |
 | M7 | MERGED 39309a2 | Haiku 641b084, Luna PASS; classic prompt unchanged, integrated full gates pass. |
-| M8 | ACCEPTED | Haiku runbook/request/record templates inspected and corrected by supervisor. P2 request remains unsent. |
+| M8 | ACCEPTED | Haiku runbook/request/record templates inspected and corrected by supervisor. P2 ran and is terminal: one draft of three; record sheet filled. |
 | A3 | MERGED 44c4c6c / PASS | Three accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Exact caps 2b0852d plus Haiku fixture 3fd5f3b independently Luna PASS; caps 940000 / 90000, reserves 11097 / 105079. Integrated 524 server pass. No final/draft. |
 | N1 | MERGED c9a9733 | Sonnet 2d56f9c, Luna substantive PASS; integrated full gates pass. |
 | N2 | MERGED 1955184 / PASS | Sol d997406 plus whitespace5faad9a, Sonnet review2 PASS; 90-minute named ceiling before final render, profile pending_review. Integrated 524 server/430 Python pass. |
 | N3 | OWNER HOLD | Prepare after N2; merge only after owner watches videos and says go |
-| P2 | HELD | Three authored Auto videos after A3 and merge window 2 |
+| P2 | TERMINAL: 1 DONE / 2 FAILED | run-mwm412ec-9b4e25; Danube draft cb-mwm4a61f-438a7a; Bosporus fact_check_blocked, Hypersaline final layout overlap. See output/agent-jobs/fable-check-2/REPORT.md and p2-proof/record-sheet.md. No new run or repost authorized. |
 | A1-C5 | FOLLOW-UP C LOW 2026-11-18 11:48 +02:00 codex · gpt-6.1-sol | A3 saves per-call observations; authorCaps should recompute reserve/caps from observations rather than accepting claimed runs/reserves. No invented floors. A2r no S/L; bounded shape gate currently accepts fabricated observations. |
 
 Day-plan status table updated 2026-11-18 13:26 +02:00 · codex · gpt-6.1-sol from the supervisor ledger and accepted review evidence; no WAVE 3 DONE or P2 readiness claim.
@@ -357,7 +357,7 @@ F1/F6 preserve their original checkouts, M6 active, caps fixture under independe
 | F4 | MERGED 1955184 | N2 5faad9a after whitespace cleanup; Sonnet PASS n2-review2/REPORT.md |
 | F5 | CLOSED NOT PRODUCED | H1 closed, no extra router call; live Auto picture=true for P2 |
 | F6 | MERGED 83cadea | Luna264d7e4, independent Haiku PASS: picture-off 48/48, journey26/26; integrated526server/430Python pass |
-| F7 | INDEPENDENT REVIEW | M6 Luna234672d, Haiku review1 active; dist built in worker checkout, root build waits merge |
+| F7 | MERGED 018dd15 / PASS | M6, Luna234672d independently Haiku reviewed; client built and authored runtime activated at zero jobs. |
 | F8 | DOCS CORRECTED | Python gate: python -m pytest blender_worker narrative_factory tools |
 | F9 | DOCS CORRECTED | Wave 2 rows above and FABLE-CHECK step 4 baseline tool |
 
@@ -366,3 +366,25 @@ Window update 2026-11-18 14:03 +02:00 · codex · gpt-6.1-sol: caps44c4c6c, N219
 F6 update 2026-11-18 14:07 +02:00 · codex · gpt-6.1-sol: independent Haiku review1 PASS S0L0C0, merged83cadea at zero jobs. Integrated526server/430Python/licence/secrets gates pass; F1/M6 preserved pending completion and reviews. No runtime activation or P2 yet.
 
 F1 update 2026-11-18 14:17 +02:00 · codex · gpt-6.1-sol: Sonnet review1 PASS exacta2a8ed4; merged362edb5 at zero jobs and restarted forgeai-narrative as required. Integrated526server/431Python/licence/secrets gates pass. M6 independent review pending; no P2 or dashboard activation.
+
+### 2026-11-18 17:45 +02:00 · codex · gpt-6.1-sol
+Fable check 2 fix10 reconciles M6/F7/P2 with the ledger; report output/agent-jobs/fable-check-2/REPORT.md. Fix1/3/5/6 share one author acceptance branch; fix2 has a disjoint post/resume branch; fix4/7/8 share a prompt branch. All require independent cross-family review and full gates before zero-job merge. Fix9 remains owner-held because the camera-visibility contract is missing; no question sent under day orders. M4/M5/N3 remain held. No new video or repost authorized.
+
+### 2026-11-18 18:02 +02:00 · codex · gpt-6.1-sol — check 2 author follow-ups
+| Id | State | Finding |
+|---|---|---|
+| C2-AUTH-1 | FOLLOW-UP C MEDIUM | Fixed overlays get all-frame canonical layout checks; moving labels/measures use sampled preview anchors only. Full anchor pose export remains unimplemented, so do not claim all-frame dynamic geometry validation. Reviewer codex · gpt-6-luna classified C medium at final38a9cc2; no S/L finding reported. |
+| C2-AUTH-2 | FOLLOW-UP C LOW | start.js needs friendly author_layout_unavailable wording; post worker currently owns file. |
+| C2-MAP-PROOF | FOLLOW-UP C LOW | Marker size and land appearance guidance merged; no new rendered still proves its effect. Next owner-authorized proof only. |
+
+### 2026-11-18 18:16 +02:00 · codex · gpt-6.1-sol — check 2 final disposition
+
+| Fix | State | Evidence and limit |
+|---|---|---|
+| 1, 3, 5, 6 | MERGED f7362e9 | Author acceptance and preview coverage, independent Luna reviews; fixed overlays checked on every frame, dynamic labels/measures sampled only (C2-AUTH-1). Actual Hypersaline pair refused and Danube pair passed in saved CPU replay. No new video proof. |
+| 2 | PARKED 8ab0bab | Branch t3/fix-post-only-resume, checkout C:/Users/Lava/.t3/worktrees/ForgeAi/t3-0a8189d3. Sonnet implementation 73132c1 plus supervisor cancellation fix; focused 10, server 537, Python 438, licence 36 pass. Two Luna reviews did not deliver required independent security mutation evidence. Do not merge or perform an actual resume/repost. Renewed review authorization is needed; preserve all work. |
+| 4, 7, 8 | MERGED 21633c5 | Picture narration and evidence-based fact rewrites, map guidance and missing-frame wording; Luna then Sonnet review. Map appearance proof remains C2-MAP-PROOF. |
+| 9 | OWNER HOLD | Camera visibility contract remains undecided; M4 is blocked. |
+| 10 | RECONCILED | M6/F7 are merged, P2 is terminal with one draft and two failures; record sheet names the Fable report and both causes. |
+
+The friendly author_layout_unavailable message is on the parked post branch, so C2-AUTH-2 remains open. M5 is blocked and N3 stays owner-held. This closes the authorized fix round with explicit limitations, not a successful three-video proof. No new video, repost, publishing or default-route switch was performed.
