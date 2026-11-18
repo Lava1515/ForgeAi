@@ -178,6 +178,22 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  input.probe=probe;
  const base=injected.runPreview??(request=>createPreviewRunFn({runner:{run:args=>runtime.runner.run({...args,route:'authored',overlaySpec:request.overlaySpec})},inputs:{script:scripted.script,voWav:voice.voPath,words:voice.wordsPath,pathPack,brief:scripted.brief},jobRoot:jobsDir})(request));
  const outcome=await runAuthorLoop(input,{...injected,askAuthor:ask,runPreview:request=>base({...request,route:'authored'}),makeSheets:args=>sheetMaker.makeSheets(args),onCall:addCall,onPhase});
- return {...plan,...outcome,verifyReceipt:()=>verifyAuthorReceipt(outcome,input)};
+ // codex - gpt-6.1-sol - 2026-11-18 11:57 +02:00: D2 is a forecast gate, including accepted final retries.
+ const verifyReceipt=()=>{
+  verifyAuthorReceipt(outcome,input);
+  const ceiling=pathPack.rules.routes.overlay.render.maxFinalMinutes;
+  if(ceiling!==undefined){
+   let timing;
+   try {
+    const journal=readBytes(path.join(stage,'author',`a${outcome.receipt.attempt}`,'journal.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    timing=journal.findLast(entry=>entry.round===outcome.receipt.round && ['render_timing','render_timing_unavailable'].includes(entry.kind))?.secondsPerFrame;
+   }catch{ /* Without the accepted preview's timing, D2 cannot establish an estimate. */ }
+   if(!Number.isFinite(timing)||timing<=0)throw Object.assign(authorError('author_render_over_ceiling'),{detail:{reason:'render_timing_unavailable'}});
+   if(!Number.isFinite(ceiling)||ceiling<=0||!Number.isInteger(nframes)||nframes<=0||timing*nframes>ceiling*60)throw authorError('author_render_over_ceiling');
+  }
+  return true;
+ };
+ verifyReceipt();
+ return {...plan,...outcome,verifyReceipt};
 }
 function cryptoNonce(){return hash(`${Date.now()}-${newSheetCode()}`).slice(0,32);}

@@ -130,7 +130,8 @@
             "kola": 15.685,
             "p": 7.871
           },
-          "RENDER_BUDGET_S_PER_FRAME": 1.5
+          "RENDER_BUDGET_S_PER_FRAME": 1.5,
+          "maxFinalMinutes": 90
         }
       }
     },
