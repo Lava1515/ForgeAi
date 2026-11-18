@@ -1,3 +1,4 @@
+// codex - gpt-6.1-sol - 2026-11-17 22:59 +02:00: A1 transport, caps and authored route regressions.
 // codex · gpt-6.1-sol · 2026-11-17 18:03 +02:00: route-specific resume regression probes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -189,6 +190,7 @@ for (const route of ['classic','overlay','authored']) test(`O1a route survives f
   try {
     const job=starter.start({topic:'Bridge',duration:30,route},{factCheck:true,runId:'route-fresh',choices:{type:'factual'}});
     await starter.idle();
+    if(route==='authored'){assert.equal(starter.get(job.id).error.code,'author_caps_unmeasured');assert.equal(scripts.length,0);assert.equal(builds,0);assert.equal(renders,0);return;}
     assert.equal(starter.get(job.id).status,'done',JSON.stringify(starter.get(job.id).error));
     assert.equal(scripts.length,3);assert.ok(scripts[1].corrections.length);assert.ok(scripts[2].pace);
     assert.equal(builds,1);assert.equal(renders,1);assert.equal(voices,2);

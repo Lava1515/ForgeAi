@@ -1162,3 +1162,34 @@ export async function planCodebuiltBuild(input = {}, deps = {}) {
     ...(direction ? { direction, places, lookShots: directionLookShots(direction), directionMarkdown: directionMarkdown(direction, shotStarts, videoSeconds) } : {}),
   };
 }
+
+// codex ? gpt-6.1-sol ? 2026-11-17 22:46 +02:00: text only; no model call, classic untouched.
+export function authorBuildPrompt(input) {
+  const {topic,duration,script,brief,words,direction,shotStarts,nframes} = input;
+  const pack=input.pathPack, choices=input.choices??null;
+  const skillGuidance=guidesFor(pack,'author',`${topic} ${script}`,choices?.type,'authored',input.formats??[]);
+  let initialPrompt=buildPrompt({topic,duration,script,brief,words,pack,shotStarts,nframes,choices,direction,skillGuidance});
+  {
+    initialPrompt = initialPrompt.split('\n').map(line => /^(?:cutaway_planet|polar_penguin|tunnel)\.build\(/.test(line) ? line.replace(/, (?:clock|label|readouts)\b/g, '').replace(' and readout text', '') : line).filter(line => !/\.label\(|\.callout\(|readout text|label\s*=|^- (?:Text framing:|Put dark plates behind readouts|Depth of field must not blur readouts)/i.test(line) && (!/stage\.(?:text|hud_text|hud|fit_text)\(/.test(line) || /stage\.Camera/.test(line))).join('\n')
+      .replace(/;  stage\.text\(c, name, body[^\n]*/g, '.')
+      .replace('pops a label or dot in', 'pops a dot in; mark label points with anchors.mark and put their text in overlay.json')
+      .replace('The text safe area and the 70 percent readout width of shotcheck still apply to every label.', 'Put labels in overlay.json; keep their anchors in frame and leave room for the overlay text.')
+      .replace('Output ONLY the Python source in one ```python block.', 'Output the Python source in one ```python block and the overlay spec in one ```json block.');
+    initialPrompt += `\nNo text in 3D and no FONT curves. Import anchors from blender_worker.codebuilt. Only these generated APIs are allowed, inside shot functions:\nanchors.mark(name, world_point)\nanchors.value(name, number)\nNames are literal lowercase identifiers, max 24 characters. Return ONE python block and ONE json block (overlay.json). Use version 1, optional counter {value,format,unit,label,from,to}, labels [{anchor,title,value,side,from,to}], measures [{a,b,text,from,to}], bars [{value,label,min,max,from,to}], big [{text,sub,from,to}], tag {text,from,to}. Limits: 12 labels, 4 measures, 2 bars, 3 big. Text max 28 characters (sub 40), ASCII letters/digits/space and . , % \u00b0 \u00d7 - + / : ' ( ). Formats: int,int_commas,one_decimal,two_decimals,year,times. Side: left,right,auto. Times from measured words + ${LEAD_S}, 0 <= from < to <= ${nframes / FPS}. Mark every point and value referenced. Never call kit anchor write/reset/begin/capture/document/usage/discard helpers. Never alias kit modules or functions or use reflection.`;
+  }
+  // codex · gpt-6.1-sol · 2026-11-17 18:03 +02:00: route-only look; the executor owns GPU selection.
+  {
+    const render = pack.rules.routes?.overlay?.render;
+    if (!render) throw new PlannerError('PATH_PACK_INVALID', 'overlay render profile is missing');
+    initialPrompt = initialPrompt.split('\n').filter(line => !line.startsWith('- AgX washes cartoon colours;')).join('\n')
+      .replace('Cycles CPU with 8..16 samples', `Cycles with ${render.samples} samples`)
+      .replace('scene.cycles.samples=8..16', `scene.cycles.samples=${render.samples}`)
+      .replaceAll("scene.view_settings.view_transform='Standard'", `scene.view_settings.view_transform=${JSON.stringify(render.viewTransform)}; scene.view_settings.look=${JSON.stringify(render.look)}`)
+      .replace('Surface helpers (Cycles CPU, Standard)', `Surface helpers (Cycles, ${render.viewTransform})`)
+      .replaceAll('configure Cycles CPU and Standard explicitly, as the planner requires', `configure Cycles CPU and ${render.viewTransform} explicitly, as the planner requires`)
+      .replaceAll('Standard view transform', `${render.viewTransform} view transform`);
+    initialPrompt += `\nRL1 render profile (pending review): ${render.engine} ${render.device}, view transform ${JSON.stringify(render.viewTransform)}, look ${JSON.stringify(render.look)}, ${render.samples} samples. Keep scene.cycles.device='CPU' in generated code; the fenced executor selects the GPU. Do not configure GPU backends. Render budget: ${render.RENDER_BUDGET_S_PER_FRAME} s/frame (measured Kola ${render.measuredSecondsPerFrame.kola}, P ${render.measuredSecondsPerFrame.p}).`;
+  }
+
+  return initialPrompt.replaceAll('68 to 80 percent','67 to 79 percent')+'\nTurn W: one python block and one json block only; no notes. Diagram boards create FONT objects and are forbidden. Keep anchors and important subjects above the 67-79% caption band.';
+}

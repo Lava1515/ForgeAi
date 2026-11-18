@@ -28,6 +28,8 @@ import { channelJobFormats } from './autoTopic.js';
 import { askRole } from '../../routes/askRole.js';
 import { postFactory } from '../../routes/factoryClient.js';
 import { askClaude } from '../../routes/claudeCli.js';
+import { runAuthorFor, authorCaps } from './authorLoop.js';
+import { checkAuthorConfig } from './authorCall.js';
 import { runVisualBuildLoop } from './visualLoop.js';
 import { probeLookSupport, askClaudeLook } from './lookCall.js';
 import { createPreviewSheetMaker } from './previewSheet.js';
@@ -106,6 +108,7 @@ const MESSAGES = Object.freeze({
   launch_not_approved: 'The code-built launch is not approved yet (waiting for the security activation); nothing was started',
   planner_unavailable: 'The code-built planner is not available', script_unavailable: 'The code-built script writer is not available',
   runner_unavailable: 'The code-built runner is not available', script_failed: 'The script step failed', voice_failed: 'The voice step failed',
+  author_caps_unmeasured: 'Author caps have not been measured', author_state_outside_code: 'Author config must resolve inside the repository', author_model_unavailable: 'Only Sonnet may author', author_transport_unavailable: 'Author transport probe failed', author_rounds: 'Author preview limit reached', author_time: 'Author time limit reached', author_calls: 'Author call limit reached', author_tokens: 'Author token limit reached', author_context_full: 'Author context limit reached', author_tool_event: 'Author tool event refused', tools_offered: 'Author tools refused', author_receipt: 'Author receipt mismatch', author_hash: 'Author accepted pair changed', author_reply: 'Author replies refused', author_failed: 'Author failed',
   planner_failed: 'The planner step failed', too_short: 'The voice is too short for the requested video length', too_long: 'The voice is too long for the requested video length', build_failed: 'The build failed', draft_failed: 'The draft could not be written', aborted: 'Aborted by the owner', interrupted: 'The server restarted while the job ran', internal: 'The job failed', build_model_unavailable: 'The requested build model is not available',
   fact_check_blocked: 'The fact check did not verify the script', fact_check_failed: 'The fact check step failed', fact_check_unavailable: 'The fact check is not available',
   retrieval_unavailable: 'The fact check could not retrieve and validate independent sources; no voice or build was started',
@@ -224,7 +227,7 @@ export function createCodebuiltStarter({
   scriptStage, planner, composeRunner, voiceStage = runCodebuiltVoice, toDraft = codebuiltToDraft, clock = now, newId = () => `${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
   postFactoryFn, inputRoot, lightMetadataStage, askRoleFn = defaultAskRole, factCheckStage = defaultFactCheckStage,
   // KAN-934: the visual loop. On by default; only an injected `false` turns it off (tests). An object injects its pieces (probe, askLook, askText, runPreview, sheetMaker, validate, runLoop).
-  visualLoop, validateReusableBuild = validateBuildScript,
+  visualLoop, authorLoop = {}, validateReusableBuild = validateBuildScript,
 } = {}) {
   const stateRoot = () => path.join(jobsDir, STAGE_DIR);
   const recFile = (id) => path.join(stateRoot(), id, 'status.json');
@@ -553,6 +556,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
 
   async function execute(rec, controller) {
     checkJobRoute(rec.route);
+    if (rec.route === 'authored') { try { authorCaps({capsFile:authorLoop.capsFile}); checkAuthorConfig(authorLoop); } catch(error) { throw new StartError(error.code,409); } }
     const { signal } = controller;
     let verifiedFactCheck = null;
     const resume = resumeData.get(rec.id) ?? null;
@@ -581,7 +585,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
 
     // 1b. The visual check must be possible before anything is paid for: one small probe proves the CLI takes pictures (KAN-934).
     let probe = null;
-    if (visualLoop !== false) {
+    if (visualLoop !== false && rec.route !== 'authored') {
       try { probe = await probeFor({ rec, stage, signal }); } catch (error) {
         if (signal.aborted || error?.code === 'aborted') throw new StartError('aborted');
         if (error?.quota === true || error?.detail?.reason === 'quota') throw new StartError('claude_limit', 502);
@@ -763,7 +767,17 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     break;
     }
     const pathPack = scripted.pathPack;
-    let plan = resume?.build ? { buildScript: resume.build.code, ...(resume.build.overlaySpec ? {overlaySpec:resume.build.overlaySpec} : {}), shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
+    let plan = rec.route === 'authored' ? null : resume?.build ? { buildScript: resume.build.code, ...(resume.build.overlaySpec ? {overlaySpec:resume.build.overlaySpec} : {}), shotStarts: resume.build.shotStarts, nframes: resume.build.nframes, kitContract: pl.KIT_CONTRACT, ...(resume.build.places ? { places: resume.build.places } : {}), ...(resume.build.lookShots ? { lookShots: resume.build.lookShots } : {}), ...(resume.build.directionMarkdown ? { directionMarkdown: resume.build.directionMarkdown } : {}) } : null;
+    if (rec.route === 'authored') {
+      step(rec,'planning');
+      try { plan = await withGpu(signal,jobsDir,()=>runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected:authorLoop,addCall,onPhase:name=>step(rec,name)})); }
+      catch(error) {
+        if(signal.aborted || error.aborted) throw new StartError('aborted');
+        if(error.quota || error.detail?.reason === 'quota') throw new StartError('claude_limit',502);
+        if(error.unavailable || error.code === 'look_unavailable') throw new StartError('look_unavailable',502);
+        throw new StartError(error.timedOut ? 'author_time' : error.code?.startsWith('author_') || error.code === 'tools_offered' ? error.code : 'author_failed',502);
+      }
+    }
     if (!plan) try {
       step(rec, 'planning');
       if (typeof pl.planCodebuiltBuild !== 'function') throw new StartError('planner_unavailable', 501);
@@ -799,7 +813,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       let buildScript = plan.buildScript;
       let loopReceipt = null;
       const acceptedResume = plan.overlaySpec && resume?.build?.path === path.join(stage,'loop','accepted.build.py') ? JSON.parse(readSafe(path.join(stage,'loop','accepted-receipt.json')) || 'null') : null;
-      if (acceptedResume?.sha256 === sha(buildScript)) loopReceipt = acceptedResume.receipt;
+      if (rec.route === 'authored') { plan.verifyReceipt(); loopReceipt=plan.receipt; }
+      else if (acceptedResume?.sha256 === sha(buildScript)) loopReceipt = acceptedResume.receipt;
       else if (visualLoop !== false) {
         if (resume?.build) step(rec, 'visual_loop');
         const outcome = await runLoopFor({ rec, stage, signal, scripted, voice, pathPack, plan, pl, runtime, probe, addCall, resumeBuild: resume?.build ? { code: resume.build.code, ...(resume.build.overlaySpec ? {overlaySpec:resume.build.overlaySpec} : {}), startRound: resume.build.startRound, history: resume.build.history } : null, onPhase: (name) => { if (name === 'previewing' || name === 'looking') step(rec, name); } })
@@ -817,9 +832,10 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       }
 
       if (jobUsesOverlay(pathPack,rec.formats,rec.route)) {
-        const accepted = validateOverlayPair(JSON.parse(readSafe(path.join(stage,'loop','accepted.overlay.json')) || 'null'),buildScript,{videoSeconds:plan.nframes/30});
+        const accepted = validateOverlayPair(JSON.parse(readSafe(path.join(stage,rec.route === 'authored' ? 'author' : 'loop','accepted.overlay.json')) || 'null'),buildScript,{videoSeconds:plan.nframes/30});
         if (!loopReceipt || JSON.stringify(accepted) !== JSON.stringify(plan.overlaySpec)) throw new StartError('look_failed',502);
       }
+      if (rec.route === 'authored') { try { plan.verifyReceipt(); } catch(error) { throw new StartError(error.code,502); } }
       // 5. Build in the isolated runner. The job request has no say in image, command or limits.
       step(rec, 'building');
       try {

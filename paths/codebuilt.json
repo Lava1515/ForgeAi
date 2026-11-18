@@ -1,6 +1,7 @@
 {
   "id": "codebuilt",
   "skills": [
+    {"id":"codebuilt-author","skill":"codebuilt-author","mode":"guidance_only"},
     {
       "id": "video-shot-planner",
       "skill": "video-shot-planner",
@@ -172,6 +173,7 @@
       }
     },
     "skillsByStep": {
+      "author": ["codebuilt-scene-generation", "codebuilt-author"],
       "script": [
         "codebuilt-script"
       ],
