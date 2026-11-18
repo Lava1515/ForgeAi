@@ -399,3 +399,7 @@ The friendly author_layout_unavailable message is on the parked post branch, so 
 | N3/default/H2look/T2/publishing/auto release | OWNER HOLD | No change authorized in evening order. |
 
 Window1 integrated584server466Python/licence36/secretpatternandrootenvvaluesPASS, zerojobs; narrative restarted. No proof started. Supersedes earlierdayclosure states for these explicitlyauthorizedlanes only.
+
+### 2026-11-18 21:01 +02:00 · codex · gpt-6.1-sol — evening M5 integration
+
+M5 captions MERGED b829852 from reviewed 7524fe3 and approved one-line integration d699f9b. Independent agy PASS S0 L0 C0 with 57 classic byte comparisons and all nine G13 rules. Combined 584 server / 472 Python / 36 licences and secret checks pass. The final post precheck now uses the same overlay caption envelope as preview and encode; classic unchanged. Evidence: output/agent-jobs/evening-M5-review1/REVIEW.md and evening-supervisor/m5-combined-*.log. Evening three-video proof pending; N3/default, H2/look, T2, publishing and auto release remain held. Supersedes earlier M5 blocked/review-active statuses only.
