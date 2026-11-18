@@ -1,0 +1,48 @@
+{
+  "measuredAt": "2026-11-18T11:12:12.975Z",
+  "cliVersion": "2.1.322",
+  "model": "sonnet",
+  "runs": [
+    {
+      "session": "history",
+      "jobId": "a3m-history",
+      "previews": 4,
+      "calls": 6,
+      "billableTotal": 445038,
+      "contextPeak": 55551,
+      "outputTotal": 172242,
+      "minutes": 23.61093333333333,
+      "endStatus": "accepted"
+    },
+    {
+      "session": "kola",
+      "jobId": "a3m-kola",
+      "previews": 5,
+      "calls": 6,
+      "billableTotal": 374935,
+      "contextPeak": 49992,
+      "outputTotal": 111680,
+      "minutes": 15.51435,
+      "endStatus": "accepted"
+    },
+    {
+      "session": "map",
+      "jobId": "a3m-map",
+      "previews": 5,
+      "calls": 8,
+      "billableTotal": 621324,
+      "contextPeak": 57127,
+      "outputTotal": 231492,
+      "minutes": 33.27211666666667,
+      "endStatus": "accepted"
+    }
+  ],
+  "caps": {
+    "billableTotal": 940000,
+    "contextPeak": 90000
+  },
+  "reserves": {
+    "IMAGE_RESERVE": 11097,
+    "OUTPUT_RESERVE": 105079
+  }
+}
