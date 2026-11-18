@@ -776,6 +776,10 @@ for n in ast.walk(tree):
   if any(isinstance(a,ast.Starred) for a in n.args) or len(n.args)>2 or any(k.arg is None or (k.arg=='label' and not (isinstance(k.value,ast.Constant) and k.value.value in (None,False))) for k in n.keywords): problems.add('overlay map highlights must not create labels')
  if isinstance(n,ast.Name) and (n.id in ('getattr','setattr','delattr','globals','locals','vars') or n.id.startswith('__')): problems.add('overlay builds cannot use dynamic attribute access')
  if isinstance(n,ast.Attribute) and n.attr.startswith('__'): problems.add('overlay builds cannot use dynamic attribute access')
+ # claude-pro · claude-sonnet-5-5 · 2026-11-18 (Fable check 1, fix 2): early refusal of mesh-conversion and node routes that turn text into geometry
+ # or hide a FONT in another scene. Early feedback only (overlay builds only): meshes, textures and primitives that merely look like text are not caught here.
+ if isinstance(n,ast.Attribute) and n.attr in ('new_from_object','to_mesh','background_set'): problems.add('overlay builds cannot convert objects to meshes or use a background set (new_from_object, to_mesh, background_set): text must be drawn by the host after the render')
+ if isinstance(n,ast.Constant) and isinstance(n.value,str) and (n.value in ('new_from_object','to_mesh','background_set') or 'StringToCurves' in n.value or 'ObjectInfo' in n.value): problems.add('overlay builds cannot use the Geometry Nodes String to Curves or Object Info nodes, or name new_from_object, to_mesh or background_set: text must be drawn by the host after the render')
 needed=json.loads(sys.argv[1])
 if not set(needed['points'])<=points: problems.add('overlay point names must all be marked with anchors.mark')
 if not set(needed['values'])<=values: problems.add('overlay value names must all be marked with anchors.value')
