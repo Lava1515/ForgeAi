@@ -1,3 +1,5 @@
+# codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
+# codex · gpt-6.1-sol · 2026-11-18 19:36 +0200
 """Capture named world points and values for the host's screen-space overlay."""
 import json
 import math
@@ -86,7 +88,8 @@ def _load(path):
     for key, row in data["frames"].items():
         if not isinstance(key, str) or not key.isdecimal() or str(int(key)) != key:
             raise AnchorError(f"invalid existing frame key {key!r}")
-        if not isinstance(row, dict) or set(row) != {"p", "v"} or not isinstance(row["p"], dict) or not isinstance(row["v"], dict):
+        if (not isinstance(row, dict) or not {"p", "v"} <= set(row) <= {"p", "v", "o"}
+                or not isinstance(row["p"], dict) or not isinstance(row["v"], dict)):
             raise AnchorError(f"invalid existing frame {key}")
         if len(row["p"]) > MAX_POINTS_PER_FRAME:
             raise AnchorError(f"too many points in existing frame {key}")
@@ -107,6 +110,13 @@ def _load(path):
                 raise AnchorError(f"too many value names (maximum {MAX_VALUES})")
             clean["v"][name] = _number(value_, f"value {name}")
             _value_names.add(name)
+        if "o" in row:
+            occluded = row["o"]
+            if (not isinstance(occluded, list) or any(not isinstance(n, str) or n not in clean["p"] for n in occluded)
+                    or len(set(occluded)) != len(occluded)):
+                raise AnchorError(f"invalid occluded list in existing frame {key}")
+            if occluded:
+                clean["o"] = sorted(occluded)
         frames[key] = clean
     _frames = frames
 
@@ -180,8 +190,12 @@ def discard_missing_frames(existing_png_frames):
     _value_names.update(name for row in _frames.values() for name in row["v"])
 
 
-def capture(frame, project):
-    """Project buffered points into contract coordinates and store the frame."""
+def capture(frame, project, occluded=None):
+    """Project buffered points into contract coordinates and store the frame.
+
+    occluded: optional callable(point) -> bool, asked only for points in front of the camera and inside the frame. A true answer means
+    geometry stands between the camera and the point; the name is then listed under the optional frame key "o" (never repurposing the
+    front flag, which stays the sign of the camera depth). No callable, or no occluded point: the frame has no "o" key."""
     global _frame
     if _frame != frame:
         raise AnchorError(f"capture frame {frame} does not match active frame {_frame}")
@@ -197,8 +211,19 @@ def capture(frame, project):
             raise AnchorError(f"projector for point {name!r} must return x, y, depth")
         x, y, depth = (_number(v, f"projected point {name}") for v in result)
         projected[name] = [x, y, 1 if depth > 0 else 0]
+    blocked = []
+    if callable(occluded):
+        for name, point in _points.items():
+            x, y, front = projected[name]
+            if front and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
+                try:
+                    hit = occluded(point)
+                except Exception as error:
+                    raise AnchorError(f"cannot test occlusion of point {name!r}: {error}") from error
+                if hit is True:
+                    blocked.append(name)
     if projected or _values:
-        _frames[str(frame)] = {"p": projected, "v": dict(_values)}
+        _frames[str(frame)] = {"p": projected, "v": dict(_values), **({"o": sorted(blocked)} if blocked else {})}
     else:
         _frames.pop(str(frame), None)
     _frame = None

@@ -15,6 +15,15 @@ const readBytes=(file,encoding)=>{regular(file);return fs.readFileSync(file,enco
 function write(file,bytes){if(fs.existsSync(file))regular(file);fs.writeFileSync(file,bytes);}
 const json=(file,value)=>write(file,JSON.stringify(value,null,2)+'\n');
 const read=file=>{regular(file);return JSON.parse(readBytes(file,'utf8'));};
+// claude-pro · claude-sonnet-5-5 · 2026-11-18 (C2-AUTH-1): labels, measures, a counter and bars read the exported anchor positions of EVERY frame.
+// The preview job poses all frames without rendering (renderloop.export_all_frame_anchors) and leaves anchors-all.json (same anchors.json contract)
+// plus anchors-all.done.json ({version:1,frames,max_frame,anchors,pose_s}) in its work folder; the round keeps a copy of both.
+const needsPose=spec=>!!spec&&((spec.labels?.length??0)>0||(spec.measures?.length??0)>0||!!spec.counter||(spec.bars?.length??0)>0);
+function poseRecord(dir,nframes){
+ try{const r=read(path.join(dir,'anchors-all.done.json'));
+  if(r.version===1&&r.frames===nframes&&r.max_frame===nframes-1&&typeof r.anchors==='boolean')return r;}catch{ /* no complete export */ }
+ return null;
+}
 function ensureAuthorRoot(stage){
  const root=path.join(stage,'author');fs.mkdirSync(root,{recursive:true});
  if(fs.lstatSync(root).isSymbolicLink() || path.dirname(fs.realpathSync(root))!==fs.realpathSync(stage))throw authorError('author_state_outside_code');
@@ -63,8 +72,14 @@ export function verifyAuthorReceipt(out,input) {
  if(JSON.stringify(JSON.parse(specBytes.toString('utf8')))!==JSON.stringify(spec) || !layoutBound(layoutRecord,{overlaySha256:hash(specBytes),wordsSha256:input.wordsPath?hash(readBytes(input.wordsPath)):null,nframes:input.nframes}) || receipt.layoutSha256!==hash(JSON.stringify(layoutRecord)))throw Error();
  // Cycle 2 (C1): coverage is recomputed from the spec and the previewed frames, so an edited look.json cannot hide an uncovered window.
  if(!Array.isArray(preview.frames)||preview.frames.length>24||overlayWindows(spec).some(w=>!preview.frames.some(f=>Number.isInteger(f)&&f/30>=w.from&&f/30<w.to)))throw Error();
- const anchorsFile=path.join(roundDir,'anchors-preview.json');
- if((layoutRecord.inputs.anchorsSha256??null)!==(fs.existsSync(anchorsFile)?hash(readBytes(anchorsFile)):null))throw Error();
+ // C2-AUTH-1: when the spec has anchored elements the record must come from the all-frame export, bound by hash; otherwise (fixed text only) the preview file as before.
+ if(needsPose(spec)){
+  const pose=poseRecord(roundDir,input.nframes);
+  if(!pose||layoutRecord.previewFrames!==input.nframes||(layoutRecord.inputs.anchorsSha256??null)!==(pose.anchors?hash(readBytes(path.join(roundDir,'anchors-all.json'))):null))throw Error();
+ }else{
+  const anchorsFile=path.join(roundDir,'anchors-preview.json');
+  if((layoutRecord.inputs.anchorsSha256??null)!==(fs.existsSync(anchorsFile)?hash(readBytes(anchorsFile)):null))throw Error();
+ }
  if(preview.sha256!==out.sha256 || preview.overlaySha256!==receipt.overlaySha256 || look.sha256!==out.sha256 || look.overlaySha256!==receipt.overlaySha256 || look.verdict!=='pass' || !look.sheets.length) throw Error();
  for(const sheet of look.sheets){if(!/^sheet-[0-9]+\.jpg$/.test(sheet.file) || hash(readBytes(path.join(roundDir,'sheets',sheet.file)))!==sheet.sha256) throw Error();}
  return true;
@@ -127,8 +142,18 @@ export async function runAuthorLoop(input,deps={}) {
     deps.onPhase?.('looking');
     sheets=await timed('sheet',()=>deps.makeSheets({framesDir:preview.dir,outDir:path.join(dir,'sheets'),code:(deps.newCode??newSheetCode)(),signal:input.signal,overlaySpec:raw,nframes:input.nframes,fps:30,jobRoot:dir,...(input.wordsPath?{words,lead:0.35}:{}),...(fs.existsSync(path.join(dir,'anchors-preview.json'))?{anchors:path.join(dir,'anchors-preview.json')}:{})}));
     // Fix 1: the post step's own layout algorithm on EVERY frame, on the exact spec just previewed. Fail closed when it cannot run.
+    // C2-AUTH-1: labels and measures are laid out on EVERY frame from the exported positions of the whole video; a spec with such elements and no complete export fails closed.
     const anchorsCopy=path.join(dir,'anchors-preview.json'),shown=sheets.flatMap(s=>s.tiles.map(t=>t.frame)).filter(Number.isInteger);
-    layout={...await timed('layout',()=>deps.layoutCheck({overlaySpec:raw,nframes:input.nframes,fps:30,jobRoot:dir,frames:shown,lead:0.35,signal:input.signal,...(input.wordsPath?{words}:{}),...(fs.existsSync(anchorsCopy)?{anchors:anchorsCopy}:{})})),uncovered};
+    let layoutAnchors=fs.existsSync(anchorsCopy)?anchorsCopy:undefined,layoutFrames=shown;
+    if(needsPose(spec)){
+     const doneSrc=path.join(work,'anchors-all.done.json'),allSrc=path.join(work,'anchors-all.json'),allCopy=path.join(dir,'anchors-all.json');
+     if(fs.existsSync(doneSrc)){regular(doneSrc);fs.copyFileSync(doneSrc,path.join(dir,'anchors-all.done.json'));}
+     const pose=poseRecord(dir,input.nframes);
+     if(pose?.anchors){if(fs.existsSync(allSrc)){regular(allSrc);fs.copyFileSync(allSrc,allCopy);}}
+     if(!pose||(pose.anchors&&!fs.existsSync(allCopy)))throw Object.assign(authorError('author_layout_unavailable'),{detail:{reason:'anchor_export_missing'}});
+     layoutAnchors=pose.anchors?allCopy:undefined;layoutFrames='all';
+    }
+    layout={...await timed('layout',()=>deps.layoutCheck({overlaySpec:raw,nframes:input.nframes,fps:30,jobRoot:dir,frames:layoutFrames,lead:0.35,signal:input.signal,...(input.wordsPath?{words}:{}),...(layoutAnchors?{anchors:layoutAnchors}:{})})),uncovered};
     guard();journal({kind:'layout',round,ok:layout.ok,blocking:layout.blocking.length,labelHidden:layout.labelHidden.length,uncovered});
     try{const t=read(path.join(work,'render-timing.json'));if(!Number.isFinite(t.render_s)||!(t.rendered>0))throw Error();timing=t.render_s/t.rendered*4;journal({kind:'render_timing',round,secondsPerFrame:timing});}catch{journal({kind:'render_timing_unavailable',round});}
    }

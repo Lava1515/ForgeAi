@@ -1,3 +1,4 @@
+# codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
 """Arguments and the per-frame render loop. Pure Python; the render call is injected."""
 import argparse
 import json
@@ -123,13 +124,17 @@ class _FrameCopyWorker:
 PREVIEW_SPEC = "/job/work/preview.json"
 PREVIEW_OUT = "/job/preview"
 RAM_FRAME_DIR = "/tmp"
-# codex · gpt-6.1-sol · 2026-11-14: diagnostics stay in the existing writable job mount.
+# codex Â· gpt-6.1-sol Â· 2026-11-14: diagnostics stay in the existing writable job mount.
 TIMING_PATH = "/job/work/render-timing.json"
 PREVIEW_MAX_FRAMES = 24
 PREVIEW_SCALE_RANGE = (25, 100)
 _PREVIEW_KEYS = {"version", "frames", "scale", "out"}
 ANCHORS_PATH = "/job/work/anchors.json"
 PREVIEW_ANCHORS_PATH = "/job/work/anchors-preview.json"
+# C2-AUTH-1: a preview of an overlay job also poses EVERY other frame of the build (no render) and saves the label and measure
+# anchor positions of all of them, in the same anchors.json contract, so the host checks the layout on the whole video.
+ALL_ANCHORS_PATH = "/job/work/anchors-all.json"
+ALL_ANCHORS_DONE_PATH = "/job/work/anchors-all.done.json"
 OVERLAY_SPEC_PATH = "/job/inputs/overlay.json"
 
 
@@ -225,6 +230,97 @@ def _project_anchor(point):
     return projected.x, 1.0 - projected.y, projected.z
 
 
+# codex · gpt-6.1-sol · 2026-11-18 19:36 +0200: overlay captures include geometry visibility; classic stays projection-only.
+OCCLUSION_TOLERANCE = (0.02, 0.005)   # the ray stops this far (world units, and share of the distance; the larger) before the point
+
+
+def _occluded_by_geometry(point):
+    """True when a ray from the active camera to the world point hits geometry before reaching it. A hit within the endpoint tolerance is ignored so surface pins stay visible.
+    Used only for points in front of the camera and inside the frame; interior pins are physically occluded."""
+    import bpy
+    from mathutils import Vector
+    scene = bpy.context.scene
+    origin = scene.camera.matrix_world.translation.copy()
+    if scene.camera.data.type == "ORTHO":
+        forward = scene.camera.matrix_world.to_quaternion() @ Vector((0, 0, -1))
+        origin = Vector(point) - forward * (Vector(point) - origin).dot(forward)
+    delta = Vector(point) - origin
+    distance = delta.length
+    stop = distance - max(OCCLUSION_TOLERANCE[0], OCCLUSION_TOLERANCE[1] * distance)
+    if stop <= 0.0:
+        return False
+    hit = scene.ray_cast(bpy.context.view_layer.depsgraph, origin, delta / distance, distance=stop)
+    return bool(hit[0])
+
+
+def export_all_frame_anchors(frames, apply, log=print, anchors_path=None, done_path=None, project=None, occluded=None):
+    """Pose each frame of `frames` with the build's own apply(f), project its marked points with the camera of that frame, and save
+    the result as one anchors.json (contract 2.2). Nothing is rendered and no image is written. Returns the completion record.
+
+    A fresh anchors state is used, so the preview anchors file written before this call is untouched. The record file
+    (`anchors-all.done.json`, written last and atomically) tells the host that every frame in 0..max_frame was posed:
+    {"version": 1, "frames": <count>, "max_frame": <last>, "anchors": <whether anchors-all.json exists>, "occlusion": <whether the
+    camera-ray test ran>, "pose_s": <seconds>}. With an `occluded` callable each frame also lists the points whose
+    camera ray is blocked by geometry under the optional frame key "o".
+    A frame whose apply() raises stops the export with that error: the final render would stop on the same frame."""
+    from . import anchors
+    anchors_path = ALL_ANCHORS_PATH if anchors_path is None else anchors_path
+    done_path = ALL_ANCHORS_DONE_PATH if done_path is None else done_path
+    project = _project_anchor if project is None else project
+    # Invalidate an earlier completion before any pose can fail.
+    try:
+        os.unlink(done_path)
+    except FileNotFoundError:
+        pass
+    ordered = sorted({int(f) for f in frames})
+    started = time.perf_counter()
+    width, height = _anchor_dimensions()
+    anchors.usage()
+    anchors.reset(width, height)
+    for f in ordered:
+        anchors.begin(f)
+        apply(f)
+        if anchors.has_points():
+            try:
+                import bpy
+                bpy.context.view_layer.update()
+            except ImportError:
+                pass
+            anchors.capture(f, project, occluded)
+        else:
+            anchors.capture(f, None)
+    wrote = anchors.write(anchors_path)
+    if not wrote:
+        try:
+            os.unlink(anchors_path)  # a stale file from an earlier run must not outlive a pass that marked nothing
+        except FileNotFoundError:
+            pass
+    record = {"version": 1, "frames": len(ordered), "max_frame": ordered[-1] if ordered else -1, "anchors": bool(wrote),
+              "occlusion": occluded is not None, "pose_s": round(time.perf_counter() - started, 3)}
+    _write_json_atomic(done_path, record)
+    log("POSEALL " + json.dumps(record))
+    return record
+
+
+def _write_json_atomic(path, value):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".done-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, separators=(",", ":"), allow_nan=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def tune_cycles(log=print):
     """Two Cycles settings that decide the frame time of these short, simple scenes, applied to the current scene before the
     frame loop. Measured on the RTX 4070 Ti, 1080x1920, 12 samples (output/agent-jobs/fable-kit-0900/speed_ab.py, 2026-11-14):
@@ -278,11 +374,14 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         if not require_qa:
             raise PreviewSpecError("preview mode needs require_qa=True: a preview must prove the QA gate of the script that will ship")
         frames = list(frames)
+        all_frames = frames
         if not set(spec["frames"]) <= set(frames):
             raise PreviewSpecError("preview frames are not in the frames this build renders")
         set_preview_scale(spec["scale"])
         frames, out_dir, hold, skip_existing = spec["frames"], spec["out"], 1, False
 
+    else:
+        all_frames = None
     if hold < 1:
         raise ValueError("hold must be >= 1")
     out_dir = require_abs(out_dir)
@@ -338,7 +437,7 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
                         bpy.context.view_layer.update()
                     except ImportError:
                         pass
-                    anchors.capture(f, _project_anchor)
+                    anchors.capture(f, _project_anchor, _occluded_by_geometry if os.path.exists(OVERLAY_SPEC_PATH) else None)
                 else:
                     anchors.capture(f, None)
                 anchored = anchored or anchors.has_marks()
@@ -376,6 +475,9 @@ def render_frames(frames, out_dir, apply, render_fn, skip_existing=True, log=pri
         finally:
             copier.close()
     anchors.write(anchor_path)
+    if all_frames is not None and os.path.exists(OVERLAY_SPEC_PATH):
+        # Preview of an overlay job (never a classic job: it has no overlay input): pose the whole video without rendering.
+        export_all_frame_anchors(all_frames, apply, log, occluded=_occluded_by_geometry)
     timing.update(rendered=len(done), held=held, loop_s=time.perf_counter() - started)
     timing["other_s"] = timing["loop_s"] - timing["apply_s"] - timing["render_s"]
     _save_timing(timing)
