@@ -200,7 +200,7 @@ Binding plan: ForgeBrain/plans/2026-11-17-kola-main-way-refactor-plan.md section
 | G17 | ACCEPTED probe report and review; K2 correction merged 20e2fd0 | output/agent-jobs/g17-probes/REPORT.md; no non-FONT guarantee claimed |
 | A1 | MERGED a51a19a; security-reviewed 7433c0b | Author loop per accepted A0; Sol builds, Sonnet reviews. |
 | A2 | PASS Sonnet applied security review 2 | output/agent-jobs/a2-review2/ |
-| A3 | MEASUREMENTS PASS; caps 2b0852d plus fixture 3fd5f3b under review, held unmerged | output/agent-jobs/a3-measure/REPORT.md; three serial Sonnet sessions, no final/draft |
+| A3 | MERGED caps 44c4c6c; measurements and fixture independently PASS | output/agent-jobs/a3-measure/REPORT.md; caps 2b0852d and fixture 3fd5f3b; three serial Sonnet sessions, no final/draft |
 | P2 | AUTHORIZED day order; HELD until caps+D2 merged and activated | Three authored Sonnet videos, normal Auto picture=true; no publishing. |
 | S1 | OWNER | Binding plan sections 4 and 13. |
 
@@ -332,9 +332,9 @@ Scope: ForgeBrain/plans/2026-11-18-finish-kola-main-way-day-plan.md. These ids b
 | M6 | BUILDING authorized Fable fix 7 | Existing GET /jobs now in scope; original Luna task preserved, no new app.js mount required. |
 | M7 | MERGED 39309a2 | Haiku 641b084, Luna PASS; classic prompt unchanged, integrated full gates pass. |
 | M8 | ACCEPTED | Haiku runbook/request/record templates inspected and corrected by supervisor. P2 request remains unsent. |
-| A3 | MEASUREMENT PASS / CAPS UNDER REVIEW | Three accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Exact caps 2b0852d preserved; Haiku test-fixture 3fd5f3b injects missing caps path, independent Luna review pending. Caps 940000 / 90000, reserves 11097 / 105079, unmerged. No final/draft. |
+| A3 | MERGED 44c4c6c / PASS | Three accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Exact caps 2b0852d plus Haiku fixture 3fd5f3b independently Luna PASS; caps 940000 / 90000, reserves 11097 / 105079. Integrated 524 server pass. No final/draft. |
 | N1 | MERGED c9a9733 | Sonnet 2d56f9c, Luna substantive PASS; integrated full gates pass. |
-| N2 | REVIEW PASS / READY WINDOW | Sol d997406 closes named error mapping under Fable fix 4; Sonnet review2 PASS, 473 server/430 Python. Whitespace-only follow-up 5faad9a verified; branch unmerged, P2 D2 held. |
+| N2 | MERGED 1955184 / PASS | Sol d997406 plus whitespace5faad9a, Sonnet review2 PASS; 90-minute named ceiling before final render, profile pending_review. Integrated 524 server/430 Python pass. |
 | N3 | OWNER HOLD | Prepare after N2; merge only after owner watches videos and says go |
 | P2 | HELD | Three authored Auto videos after A3 and merge window 2 |
 | A1-C5 | FOLLOW-UP C LOW 2026-11-18 11:48 +02:00 codex · gpt-6.1-sol | A3 saves per-call observations; authorCaps should recompute reserve/caps from observations rather than accepting claimed runs/reserves. No invented floors. A2r no S/L; bounded shape gate currently accepts fabricated observations. |
@@ -352,11 +352,13 @@ F1/F6 preserve their original checkouts, M6 active, caps fixture under independe
 | Fix | State | Evidence / next step |
 |---|---|---|
 | F1 | FINISHING existing checkout | t3-fa784d8c, original Luna completing CPU F04 and gates |
-| F2 | REVIEW PASS / UNMERGED | 7da41f4, f2-f3-review1/REPORT.md; plan 2.5 limits documented |
-| F3 | REVIEW PASS / UNMERGED | 4ac5a2d, full gate 499 pass; f2-f3-review1/REPORT.md |
-| F4 | REVIEW PASS / UNMERGED | N2 5faad9a after whitespace cleanup; n2-review2/REPORT.md |
+| F2 | MERGED c1449a1 | Sonnet7da41f4, Luna PASS f2-f3-review1/REPORT.md; plan 2.5 limits documented |
+| F3 | MERGED e4c3ecc | Haiku4ac5a2d, Luna PASS; gate includes all 44 overlay tests |
+| F4 | MERGED 1955184 | N2 5faad9a after whitespace cleanup; Sonnet PASS n2-review2/REPORT.md |
 | F5 | CLOSED NOT PRODUCED | H1 closed, no extra router call; live Auto picture=true for P2 |
 | F6 | FINISHING existing checkout | t3-dfb015d3, original Luna committing verified prompt fix |
 | F7 | BUILDING | M6 original Luna, existing GET scope authorized |
 | F8 | DOCS CORRECTED | Python gate: python -m pytest blender_worker narrative_factory tools |
 | F9 | DOCS CORRECTED | Wave 2 rows above and FABLE-CHECK step 4 baseline tool |
+
+Window update 2026-11-18 14:03 +02:00 · codex · gpt-6.1-sol: caps44c4c6c, N21955184, F2c1449a1 and F3e4c3ecc merged locally at zero jobs; integrated524server/430Python/licence/secrets pass. F1/M6/F6 review still pending; no WAVE3DONE or P2 activation.
