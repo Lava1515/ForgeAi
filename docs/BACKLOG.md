@@ -171,37 +171,37 @@ Binding plan: ForgeBrain/plans/2026-11-17-kola-main-way-refactor-plan.md section
 | U1a | MERGED in 4a8aacf; reviewed 508b5ff | dashboard/server/episode/codebuilt/start.js; dashboard/server/episode/codebuilt/visualLoop.js (preview id only); dashboard/server/episode/codebuilt/overlaySpec.js; dashboard/server/episode/engines/codebuilt/jobFolder.js; dashboard/server/episode/codebuilt/runCoordinator.js; new resume integration test file dashboard/server/episode/codebuilt/overlayResume.test.js |
 | U1b | MERGED in 4a8aacf; reviewed e9ad0ba | blender_worker/codebuilt/shotcheck.py; blender_worker/codebuilt/test_shotcheck.py; dashboard/server/episode/codebuilt/visualLoopPrompts.js (KIT_CHECKS name only) |
 | U1c | MERGED in 4a8aacf; reviewed 464c938 | dashboard/server/episode/codebuilt/planner.js (overlay parts only); dashboard/server/episode/codebuilt/overlaySpec.test.js |
-| T1 | CODE MERGED 00ac1be; H1 proof BLOCKED, no router retry | dashboard/server/episode/codebuilt/autoTopic.js; dashboard/server/episode/codebuilt/theme.js; their dedicated tests; output/agent-jobs/t1-topics/ |
+| T1 | CODE MERGED 00ac1be; H1 CLOSED not produced (Fable fix 5); P2 uses live Auto picture=true, no router retry | dashboard/server/episode/codebuilt/autoTopic.js; dashboard/server/episode/codebuilt/theme.js; their dedicated tests; output/agent-jobs/t1-topics/ |
 | RL1 | REPORT ACCEPTED with C follow-ups; H2 OPEN | C:/code/ForgeAi/output/agent-jobs/rl1-render-look/ only |
 | A0 | ACCEPTED design, review2 MERGE | C:/code/ForgeAi/output/agent-jobs/a0-design/ only |
-| G1 | BLOCKED server capacity on all three accounts | .claude/skills/codebuilt-scene-generation/SKILL.md |
-| G2 | DISPATCHING wave 1 | .claude/skills/codebuilt-look-review/SKILL.md |
-| G3 | DISPATCHING wave 1 | .claude/skills/codebuilt-maps/SKILL.md |
-| G4 | DISPATCHING wave 1 | .claude/skills/codebuilt-teardown/SKILL.md |
-| G5 | DISPATCHING wave 1 | .claude/skills/codebuilt-direction/SKILL.md |
-| G6 | DISPATCHING wave 1 | .claude/skills/codebuilt-script/SKILL.md |
-| G7 | BLOCKED server capacity on all three accounts | blender_worker/codebuilt/maps.py; new blender_worker/codebuilt/test_maps_anchor_point.py |
-| G8 | BLOCKED server capacity on all three accounts | blender_worker/codebuilt/teardown.py; new blender_worker/codebuilt/test_teardown_anchor_point.py |
-| G9 | DISPATCHING wave 1 | dashboard/client/src/components/episode/CodebuiltStart.jsx only |
-| G10 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/map/ only |
-| G11 | DISPATCHING wave 1 | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/teardown/ only |
-| G12 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/handmade-1118/RUNBOOK.md only |
-| G13 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/g13-captions/ only |
-| G14 | BLOCKED server capacity on all three accounts | C:/code/ForgeAi/output/agent-jobs/g14-stages/ only |
-| G15 | RETRYING on clash | C:/code/ForgeAi/output/agent-jobs/classic-baseline/ only |
+| G1 | MERGED f4878f8; classic correction 66fbf97 | .claude/skills/codebuilt-scene-generation/SKILL.md |
+| G2 | MERGED 60e9db4; classic correction 66fbf97 | .claude/skills/codebuilt-look-review/SKILL.md |
+| G3 | MERGED c486f61; classic correction 66fbf97 | .claude/skills/codebuilt-maps/SKILL.md |
+| G4 | MERGED de832fa; classic correction 66fbf97 | .claude/skills/codebuilt-teardown/SKILL.md |
+| G5 | MERGED 169ed97; later M7 correction 39309a2 | .claude/skills/codebuilt-direction/SKILL.md |
+| G6 | MERGED 3865d0a | .claude/skills/codebuilt-script/SKILL.md |
+| G7 | MERGED c07a7b0 | blender_worker/codebuilt/maps.py; new blender_worker/codebuilt/test_maps_anchor_point.py |
+| G8 | MERGED 75ac8b6 | blender_worker/codebuilt/teardown.py; new blender_worker/codebuilt/test_teardown_anchor_point.py |
+| G9 | MERGED 6b92c9e; M6 availability correction pending | dashboard/client/src/components/episode/CodebuiltStart.jsx only |
+| G10 | ACCEPTED still proof; label coverage caveats W2-C8 | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/map/ only |
+| G11 | ACCEPTED still proof; subject quality remains weak | C:/code/ForgeAi/output/agent-jobs/o1-overlay-types/teardown/ only |
+| G12 | ACCEPTED corrected runbook; unused because T2 dropped | C:/code/ForgeAi/output/agent-jobs/handmade-1118/RUNBOOK.md only |
+| G13 | ACCEPTED caption comparison report; M5 remains held | C:/code/ForgeAi/output/agent-jobs/g13-captions/ only |
+| G14 | ACCEPTED A3 saved-stage inventory | C:/code/ForgeAi/output/agent-jobs/g14-stages/ only |
+| G15 | REPLACED: P1 before/after and G17 corpus; Fable check 1 independent baseline tool | output/agent-jobs/fable-check-1/probes/classic-capture.mjs; captures 649 prompts and 15 validator verdicts against 717d65f; post keys use P1 comparisons |
 | U1 | MERGED 4a8aacf; integrated gates pass | Binding plan sections 4 and 13. |
-| O1 | WAITING for dependencies | Binding plan sections 4 and 13. |
-| O1a | BUILDING wave 2 | Binding plan sections 4 and 13. |
-| O1b | BUILDING wave 2 | Binding plan sections 4 and 13. |
-| O1c | PREPARING integration; G dependencies pending | Binding plan sections 4 and 13. |
-| P1 | RUNNING fenced proof only | Binding plan sections 4 and 13. |
-| T2 | BLOCKED missing ranked topics; H1 unavailable | Binding plan sections 4 and 13. |
-| G16 | BLOCKED server capacity on all three accounts | Binding plan sections 4 and 13. |
-| G17 | BLOCKED server capacity on all three accounts | Binding plan sections 4 and 13. |
-| A1 | READY (owner 21:12; wave 2 integrated) | Author loop per accepted A0; Sol builds, Sonnet reviews. |
-| A2 | BLOCKED on A1 (authorized 21:12) | Sonnet applied security review; Sol fixes. |
-| A3 | BLOCKED on A2 (authorized 21:12) | Three to five Sonnet sessions, fenced previews only; no final render/draft. |
-| P2 | OWNER | Binding plan sections 4 and 13. |
+| O1 | MERGED wave 2; Fable check 1 fixes F1/F2/M6 in progress | Binding plan sections 4 and 13. |
+| O1a | MERGED in 17d5d10 | Binding plan sections 4 and 13. |
+| O1b | MERGED in 17d5d10 | Binding plan sections 4 and 13. |
+| O1c | MERGED HTTP mount acc5bff; integrated G1 to G9 | Binding plan sections 4 and 13. |
+| P1 | ACCEPTED proof clip; H3 owner watch/listen OPEN | output/agent-jobs/kola-phase1-proof/main-way-1810/P1-REPORT.md and p1-proof/ |
+| T2 | DROPPED by owner day order D1 | Binding day plan; no hand-made topic sessions. |
+| G16 | ACCEPTED author skill draft, adopted by A1 | output/agent-jobs/a1-skill-draft/ |
+| G17 | ACCEPTED probe report and review; K2 correction merged 20e2fd0 | output/agent-jobs/g17-probes/REPORT.md; no non-FONT guarantee claimed |
+| A1 | MERGED a51a19a; security-reviewed 7433c0b | Author loop per accepted A0; Sol builds, Sonnet reviews. |
+| A2 | PASS Sonnet applied security review 2 | output/agent-jobs/a2-review2/ |
+| A3 | MEASUREMENTS PASS; caps 2b0852d plus fixture 3fd5f3b under review, held unmerged | output/agent-jobs/a3-measure/REPORT.md; three serial Sonnet sessions, no final/draft |
+| P2 | AUTHORIZED day order; HELD until caps+D2 merged and activated | Three authored Sonnet videos, normal Auto picture=true; no publishing. |
 | S1 | OWNER | Binding plan sections 4 and 13. |
 
 
@@ -325,16 +325,16 @@ Scope: ForgeBrain/plans/2026-11-18-finish-kola-main-way-day-plan.md. These ids b
 | A2r | MERGED / PASS | Sonnet security review accepted A1 7433c0b, merged a51a19a and pushed. |
 | M0 | ACCEPTED 2026-11-18 11:46 +02:00 codex · gpt-6.1-sol | Haiku read-only preflight inspected; no active jobs; A3 serial; default has map profile |
 | M1 | ACCEPTED | Sonnet executable harness; lock cleanup corrected and verified before three live A3 sessions. |
-| M2 | BLOCKED | CLI setup absent in proof harness; count unknown, no retry; normal Auto fallback |
+| M2 | CLOSED NOT PRODUCED | Fable fix 5 disposition: H1 closed; CLI setup absent in harness, count unknown, no retry. P2 live Auto picture=true. |
 | M3 | ACCEPTED | Haiku page, Luna review; supervisor corrected H1 to skipped/normal Auto. Local owner-review-1118/owner-review.html. |
 | M4 | BLOCKED 2026-11-18 11:50 +02:00 codex · gpt-6.1-sol | Sonnet independently confirms79846d0 pin patch correct/S0/L0/full gates; whole lane blocked by absent occlusion contract. Branch preserved unmerged; no narrowed scope. G10/G11 subject coverage unchanged. |
 | M5 | BLOCKED | Luna fallback made no changes; installed Arial Black bitmap use checked at Microsoft source, but register inclusion is outside assigned files. Checkout t3-c55b4038 clean at a51a19a. |
-| M6 | BLOCKED | Luna fallback: endpoint needs explicit app.js mount outside owned files. No changes; exact dependency in m6-author-form/REPORT.md. |
+| M6 | BUILDING authorized Fable fix 7 | Existing GET /jobs now in scope; original Luna task preserved, no new app.js mount required. |
 | M7 | MERGED 39309a2 | Haiku 641b084, Luna PASS; classic prompt unchanged, integrated full gates pass. |
 | M8 | ACCEPTED | Haiku runbook/request/record templates inspected and corrected by supervisor. P2 request remains unsent. |
-| A3 | MEASUREMENT PASS / CAPS BLOCKED | Three real accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Exact caps branch 2b0852d has one failing lifecycle test assuming caps absent; test is outside assigned files. Proposal 940000 / 90000, reserves 11097 / 105079, unadopted. No final render or draft. |
+| A3 | MEASUREMENT PASS / CAPS UNDER REVIEW | Three accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Exact caps 2b0852d preserved; Haiku test-fixture 3fd5f3b injects missing caps path, independent Luna review pending. Caps 940000 / 90000, reserves 11097 / 105079, unmerged. No final/draft. |
 | N1 | MERGED c9a9733 | Sonnet 2d56f9c, Luna substantive PASS; integrated full gates pass. |
-| N2 | BLOCKED | Sol fe5fd27, Sonnet independently confirms logic/S0/L0; named error maps to internal in unowned start.js. Five contract failures; branch unmerged, P2 D2 held. |
+| N2 | REVIEW PASS / READY WINDOW | Sol d997406 closes named error mapping under Fable fix 4; Sonnet review2 PASS, 473 server/430 Python. Whitespace-only follow-up 5faad9a verified; branch unmerged, P2 D2 held. |
 | N3 | OWNER HOLD | Prepare after N2; merge only after owner watches videos and says go |
 | P2 | HELD | Three authored Auto videos after A3 and merge window 2 |
 | A1-C5 | FOLLOW-UP C LOW 2026-11-18 11:48 +02:00 codex · gpt-6.1-sol | A3 saves per-call observations; authorCaps should recompute reserve/caps from observations rather than accepting claimed runs/reserves. No invented floors. A2r no S/L; bounded shape gate currently accepts fabricated observations. |
@@ -342,3 +342,21 @@ Scope: ForgeBrain/plans/2026-11-18-finish-kola-main-way-day-plan.md. These ids b
 Day-plan status table updated 2026-11-18 13:26 +02:00 · codex · gpt-6.1-sol from the supervisor ledger and accepted review evidence; no WAVE 3 DONE or P2 readiness claim.
 
 Window 2 partial landing updated 2026-11-18 13:30 +02:00 · codex · gpt-6.1-sol: N1/M7 merged, caps and D2 blocked; no WAVE 3 DONE.
+
+### 2026-11-18 13:59 +02:00 · codex · gpt-6.1-sol
+Fable check 1 fix 9 reconciles the wave 2 table with the WAVE 2 DONE ledger entry of 2026-11-17 22:44 and the
+check's independent baseline evidence. G15 is replaced, not a claimed missing folder. Fixes 2.5/8/9 docs are corrected
+in the binding plan, orders and check runbook. F2 Sonnet 7da41f4 and F3 Haiku 4ac5a2d independently Luna PASS;
+F1/F6 preserve their original checkouts, M6 active, caps fixture under independent review. No WAVE 3 DONE or P2 claim.
+
+| Fix | State | Evidence / next step |
+|---|---|---|
+| F1 | FINISHING existing checkout | t3-fa784d8c, original Luna completing CPU F04 and gates |
+| F2 | REVIEW PASS / UNMERGED | 7da41f4, f2-f3-review1/REPORT.md; plan 2.5 limits documented |
+| F3 | REVIEW PASS / UNMERGED | 4ac5a2d, full gate 499 pass; f2-f3-review1/REPORT.md |
+| F4 | REVIEW PASS / UNMERGED | N2 5faad9a after whitespace cleanup; n2-review2/REPORT.md |
+| F5 | CLOSED NOT PRODUCED | H1 closed, no extra router call; live Auto picture=true for P2 |
+| F6 | FINISHING existing checkout | t3-dfb015d3, original Luna committing verified prompt fix |
+| F7 | BUILDING | M6 original Luna, existing GET scope authorized |
+| F8 | DOCS CORRECTED | Python gate: python -m pytest blender_worker narrative_factory tools |
+| F9 | DOCS CORRECTED | Wave 2 rows above and FABLE-CHECK step 4 baseline tool |
