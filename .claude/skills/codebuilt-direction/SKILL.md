@@ -68,7 +68,7 @@ The subject and the premise text are on screen in the first frame. No logo or ti
 
 ## When text is drawn after the render
 
-This section applies only to the `overlay` and `authored` routes, where the text is drawn after the render and no text is built into the 3D scene. For these routes plan 1 to 4 places and let a shot last up to 16 seconds, unless the prompt gives other limits (a format's own limits win). The classic route keeps the 2 to 5 places above.
+This section applies only to the `overlay` and `authored` routes, where the text is drawn after the render and no text is built into the 3D scene. For these routes this section replaces the place count of Places above: plan 1 to 4 places (the pack's overlay route limit), and let a shot last up to 16 seconds, unless the prompt gives other limits (a format's own limits win). The classic route keeps the 2 to 5 places above.
 
 Each shot carries one overlay element that fits what the narration needs:
 
