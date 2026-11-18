@@ -349,3 +349,56 @@ export function outputsMatch(paths, hashes) {
     return Object.entries(found.hashes).every(([name, hash]) => hashes?.[name] === hash) ? found : null;
   } catch { return null; }
 }
+
+// ---- post-only resume (a post layout refusal; the frames are kept) -----------------------------------------------------
+/**
+ * The identity of the executor's frames: {count, sha256} over every frames/*.png (name, size, content hash). null when frames/ is
+ * not a real folder inside the job, holds no PNG, or holds a link, hard link or folder named like one. Called only with the fence gone.
+ */
+export function framesDigest(paths) {
+  try {
+    const dir = path.join(paths.dir, 'frames');
+    requireRealFolder(dir, fs.realpathSync(paths.dir), 'frames');
+    const names = fs.readdirSync(dir).filter((name) => /\.png$/i.test(name)).sort();
+    if (!names.length) return null;
+    const all = crypto.createHash('sha256');
+    for (const name of names) {
+      const file = path.join(dir, name);
+      const digest = hashRegularFile(file);
+      if (!digest) return null;
+      all.update(`${name}\t${fs.lstatSync(file).size}\t${digest}\n`);
+    }
+    return { count: names.length, sha256: all.digest('hex') };
+  } catch { return null; }
+}
+
+/**
+ * Replaces the host-written inputs/overlay.json with a corrected spec that passes the same strict parser as the first write.
+ * `videoSeconds` is frames / fps of the kept frames. Returns {sha256, previous}: previous is the replaced bytes so a failed post-only
+ * attempt can put them back (restoreOverlayInput). A spec equal to the one it replaces is refused: it cannot change the outcome.
+ */
+export function replaceOverlayInput(paths, overlaySpec, videoSeconds) {
+  if (!overlaySpec || typeof overlaySpec !== 'object' || Array.isArray(overlaySpec)) throw new CodebuiltError('BAD_JOB', 'the corrected overlay must be an object');
+  const parsed = parseOverlaySpec(JSON.stringify(overlaySpec), { videoSeconds });
+  const next = Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`);
+  const target = path.join(paths.inputs, 'overlay.json');
+  const stat = fs.lstatSync(target);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new CodebuiltError('INPUT_CHANGED', 'input overlay.json is not a regular file', { name: 'overlay.json' });
+  const previous = fs.readFileSync(target);
+  const sha256 = crypto.createHash('sha256').update(next).digest('hex');
+  if (previous.equals(next)) throw new CodebuiltError('BAD_JOB', 'the corrected overlay equals the refused overlay');
+  writeOverlayBytes(target, next);
+  return { sha256, previous };
+}
+
+function writeOverlayBytes(target, bytes) {
+  fs.chmodSync(target, 0o666); // the read-only mark is advisory (see the top of this file); the hash check is the protection
+  fs.unlinkSync(target);
+  fs.writeFileSync(target, bytes, { flag: 'wx' });
+  fs.chmodSync(target, 0o444);
+}
+
+/** Puts back the overlay bytes replaceOverlayInput returned. */
+export function restoreOverlayInput(paths, previous) {
+  writeOverlayBytes(path.join(paths.inputs, 'overlay.json'), previous);
+}

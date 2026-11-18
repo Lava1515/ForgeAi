@@ -39,4 +39,5 @@ export const listCodebuiltHandler = handler(async (req, res) => {
 });
 export const getCodebuiltHandler = handler(async (req, res) => { res.json(codebuiltStarter().get(String(req.params.jobId))); });
 export const abortCodebuiltHandler = handler(async (req, res) => { body(req, []); res.json(codebuiltStarter().abort(String(req.params.jobId))); });
-export const resumeCodebuiltHandler = handler(async (req, res) => { body(req, []); res.status(202).json(codebuiltStarter().resume(String(req.params.jobId))); });
+// correctedOverlay (an overlay spec object) finishes a job that stopped on overlay_layout_blocked from the post step, without a new render.
+export const resumeCodebuiltHandler = handler(async (req, res) => { const input = body(req, ['correctedOverlay']); res.status(202).json(codebuiltStarter().resume(String(req.params.jobId), input.correctedOverlay === undefined ? {} : { correctedOverlay: input.correctedOverlay })); });

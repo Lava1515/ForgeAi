@@ -27,7 +27,10 @@ import {
   ensureJobFolder, jobPaths, writeInputs, verifyInputs, clearOutputs, collectOutputs, outputsMatch, assertReportOk,
   writeBuildScript, verifyBuildScript, BUILD_SCRIPT,
   PREVIEW_SPEC, checkPreviewRequest, writePreviewSpec, verifyPreviewSpec, clearPreview, collectPreview, previewMatches,
+  framesDigest, replaceOverlayInput, restoreOverlayInput,
 } from './jobFolder.js';
+import crypto from 'node:crypto';
+import { FPS } from '../../codebuilt/planner.js';
 import { acquireJobLock, readJobState, writeJobState } from './jobState.js';
 
 export const RUNNER_VERSION = 'codebuilt-runner-v1';
@@ -81,6 +84,27 @@ function checkFenceOptions(options) {
     clean[key] = value;
   }
   return clean;
+}
+
+/** What the fence proved, as the runner keeps it with the job (also carried into a post-only completion). */
+function fenceOf(value) {
+  return value.acceptance
+    ? { cb6Status: value.cb6Status ?? value.status, policy: value.acceptance.policy, accepted: value.acceptance.accepted, supplementary: value.acceptance.supplementary }
+    : { cb6Status: value.status, policy: 'strict', accepted: true, supplementary: null };
+}
+
+/**
+ * The state fields a post layout refusal adds: the bounded blocking list, the identity of the frames the refused run left, and the
+ * overlay and build hashes it used. The frames are hashed here, on the host, after the container is gone; the executor never writes
+ * this record. {} for any other error.
+ */
+function refusalRecord(paths, inputs, error, fence) {
+  if (error?.code !== 'OVERLAY_LAYOUT_BLOCKED') return {};
+  const frames = framesDigest(paths);
+  return { fence, refusal: {
+    blocking: Array.isArray(error.detail?.blocking) ? error.detail.blocking : [], blocking_total: error.detail?.blocking_total ?? null,
+    frames, overlay_sha256: inputs?.['overlay.json'] ?? null, build_sha256: inputs?.[BUILD_SCRIPT] ?? null,
+  } };
 }
 
 function wait(ms) {
@@ -153,7 +177,7 @@ export function createBuildJobRunner({
     writeJobState(paths.state, { ...base, status: 'running', startedAt });
 
     const controller = new AbortController();
-    let backstop; let onAbort; let fenceTiming = null;
+    let backstop; let onAbort; let fenceTiming = null; let fenceInfo = null;
     try {
       const config = { ...fenceConfig, jobDir: paths.dir, kind, timeoutMs, useGpuQueue: true };
       const fenceRun = Promise.resolve().then(() => runIsolatedJob(config, { withGpu, signal: controller.signal }));
@@ -190,6 +214,7 @@ export function createBuildJobRunner({
         fenceTiming = hostPhases && typeof hostPhases === 'object' ? JSON.parse(JSON.stringify({ hostPhases })) : null;
       } catch { fenceTiming = null; }
       classifyResult(first.value);
+      fenceInfo = fenceOf(first.value);
       verifyInputs(paths, inputs);
       if (kind === 'generated-code') verifyBuildScript(paths, inputs[BUILD_SCRIPT]);
       if (preview) verifyPreviewSpec(paths, inputs[PREVIEW_SPEC]);
@@ -228,6 +253,7 @@ export function createBuildJobRunner({
       try {
         writeJobState(paths.state, {
           ...base, status: orphaned ? 'orphaned' : 'failed', ...(cleanupUncertain ? { cleanupUncertain: true } : {}), failure: { code: error.code, message: error.message.slice(0, 300) }, finishedAt: new Date().toISOString(), fenceTiming,
+          ...refusalRecord(paths, base.inputs, error, fenceInfo),
         });
       } catch (persist) {
         throw new CodebuiltError('IO_FAILED', `${error.code}: ${error.message}; the job record could not be saved (${persist?.code ?? 'error'})`.slice(0, 300), { original: error.code, orphan: orphaned });
@@ -236,6 +262,84 @@ export function createBuildJobRunner({
     } finally {
       clearTimeout(backstop);
       if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  /**
+   * Post-only resume of a job whose post kit refused the overlay layout (OVERLAY_LAYOUT_BLOCKED). No fence, no render: the kept frames
+   * are checked against the identity recorded at the refusal, the corrected overlay replaces inputs/overlay.json, and only the host
+   * producer runs again. Refused unless the recorded state is exactly that refusal, the build script and every other input are the
+   * recorded ones, and the frames are byte-for-byte the frames the refused run left. A failed attempt that is not a new layout
+   * refusal puts the previous overlay back, so the job stays resumable.
+   */
+  async function runPostOnly(request) {
+    try {
+      if (request === null || typeof request !== 'object' || Array.isArray(request)) throw new CodebuiltError('BAD_JOB', 'the request must be an object');
+      const { jobId, buildScript, overlaySpec, signal } = request;
+      if (typeof jobId !== 'string' || PREVIEW_JOB_ID.test(jobId)) throw new CodebuiltError('BAD_JOB', 'a post-only resume needs a final job id');
+      if (typeof buildScript !== 'string' || !buildScript.trim()) throw new CodebuiltError('BAD_JOB', 'a post-only resume needs the accepted buildScript text');
+      if (!produceOutputs) throw new CodebuiltError('INTEGRATION_PENDING', 'a post-only resume needs the host output producer (produceOutputs); the runner fails closed');
+      if (signal?.aborted) throw new CodebuiltError('ABORTED', 'aborted before start');
+      const paths = jobPaths(root, jobId);
+      ensureJobFolder(paths);
+      const release = acquireJobLock(paths.lock, jobKey(paths));
+      try { return await postOnlyLocked({ jobId, buildScript, overlaySpec, signal }, paths); } finally { release(); }
+    } catch (error) {
+      throw toTyped(error);
+    }
+  }
+
+  async function postOnlyLocked({ jobId, buildScript, overlaySpec, signal }, paths) {
+    const prior = readJobState(paths.state);
+    const recorded = prior?.refusal;
+    if (!prior || prior.status !== 'failed' || prior.kind !== 'generated-code' || prior.mode === 'preview' || prior.cleanupUncertain === true
+      || prior.failure?.code !== 'OVERLAY_LAYOUT_BLOCKED' || !recorded?.frames?.sha256 || !Number.isInteger(recorded.frames.count)
+      || !prior.inputs?.['overlay.json'] || !prior.inputs?.[BUILD_SCRIPT]) {
+      throw new CodebuiltError('RESUME_MISMATCH', 'the recorded job is not a post layout refusal; a post-only resume is not possible');
+    }
+    if (crypto.createHash('sha256').update(buildScript).digest('hex') !== prior.inputs[BUILD_SCRIPT] || recorded.build_sha256 !== prior.inputs[BUILD_SCRIPT]) {
+      throw new CodebuiltError('RESUME_MISMATCH', 'the accepted build script is not the one the refused run used');
+    }
+    // Nothing the refused run read or kept may have changed: the build, every input including the refused overlay, and every frame.
+    verifyBuildScript(paths, prior.inputs[BUILD_SCRIPT]);
+    verifyInputs(paths, prior.inputs);
+    const frames = framesDigest(paths);
+    if (!frames || frames.count !== recorded.frames.count || frames.sha256 !== recorded.frames.sha256) {
+      throw new CodebuiltError('INPUT_CHANGED', 'the frames differ from the frames the refused run left', { name: 'frames' });
+    }
+    if (signal?.aborted) throw new CodebuiltError('ABORTED', 'aborted before start');
+
+    const { sha256: overlayHash, previous } = replaceOverlayInput(paths, overlaySpec, frames.count / FPS);
+    const inputs = { ...prior.inputs, 'overlay.json': overlayHash };
+    const attempt = (prior.attempt ?? 0) + 1;
+    const base = { jobId, runner: RUNNER_VERSION, inputs, attempt, kind: 'generated-code', postOnly: true, resumedFromAttempt: prior.attempt ?? null };
+    const startedAt = new Date().toISOString();
+    try {
+      writeJobState(paths.state, { ...base, status: 'running', startedAt });
+      let producer = null;
+      try { producer = (await produceOutputs({ jobDir: paths.dir, jobId, attempt, signal })) ?? null; } catch (error) {
+        if (error instanceof CodebuiltError) throw error;
+        throw new CodebuiltError('PRODUCER_FAILED', String(error?.message ?? error).slice(0, 300));
+      }
+      verifyInputs(paths, inputs);
+      verifyBuildScript(paths, inputs[BUILD_SCRIPT]);
+      const found = collectOutputs(paths);
+      assertReportOk(found.report);
+      writeJobState(paths.state, { ...base, status: 'complete', startedAt, finishedAt: new Date().toISOString(), outputs: found.hashes, fence: prior.fence ?? null, producer, fenceTiming: prior.fenceTiming ?? null });
+      return { resumed: false, postOnly: true, attempt, jobDir: paths.dir, fence: prior.fence ?? null, producer, ...found };
+    } catch (raw) {
+      const error = toTyped(raw);
+      const again = error.code === 'OVERLAY_LAYOUT_BLOCKED';
+      // A new layout refusal keeps the new overlay (it is the one to correct next). Any other failure restores the overlay the job had.
+      if (!again) { try { restoreOverlayInput(paths, previous); } catch { /* the hash check refuses a later attempt if this did not hold */ } }
+      try {
+        writeJobState(paths.state, again
+          ? { ...base, status: 'failed', failure: { code: error.code, message: error.message.slice(0, 300) }, finishedAt: new Date().toISOString(), fenceTiming: prior.fenceTiming ?? null, ...refusalRecord(paths, inputs, error, prior.fence ?? null) }
+          : { ...prior, postOnlyFailure: { code: error.code, message: error.message.slice(0, 300), at: new Date().toISOString(), attempt } });
+      } catch (persist) {
+        throw new CodebuiltError('IO_FAILED', `${error.code}: ${error.message}; the job record could not be saved (${persist?.code ?? 'error'})`.slice(0, 300), { original: error.code });
+      }
+      throw error;
     }
   }
 
@@ -274,5 +378,5 @@ export function createBuildJobRunner({
     }
   }
 
-  return Object.freeze({ run, version: RUNNER_VERSION });
+  return Object.freeze({ run, runPostOnly, version: RUNNER_VERSION });
 }
