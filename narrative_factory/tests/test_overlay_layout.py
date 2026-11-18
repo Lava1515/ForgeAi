@@ -179,10 +179,11 @@ def test_finding_label_hidden_too_long_is_not_blocking():
     assert hidden and hidden[0]["elements"] == ["labels[0]"] and 0.4 < hidden[0]["share"] < 0.6
 
 
-def test_label_hidden_under_30_percent_is_fine():
+def test_label_hidden_under_30_percent_is_advisory():
     frames = {str(f): {"p": {"a": [0.5, 0.45, 1 if f < 25 else 0]}} for f in range(30)}
     rep = overlay.Overlay(spec(labels=[{"anchor": "a", "title": "X", "from": 0, "to": 1}]), anchors(frames), W, H).layout_report(30)
-    assert rep["findings"] == []
+    assert rep["ok"]
+    assert [f["code"] for f in rep["findings"]] == ["label_pin_hidden"]
 
 
 def test_finding_counter_goes_down_and_up_again():
@@ -220,3 +221,44 @@ def test_draw_never_touches_pixels_without_a_spec():
     ov.draw(im, 0, 0.0)
     assert im.getpixel((W // 2, H // 2)) == (1, 2, 3)
     assert ov.layout_report(10) == {"version": 1, "frames_checked": 10, "ok": True, "blocking": [], "findings": []}
+
+# 2026-11-18 19:14 +02:00 · codex · gpt-6.1-sol: evening M4 camera-window regressions.
+@pytest.mark.parametrize("point", [[0.5, 0.45, 0], [1.2, 0.45, 1], [0.5, -0.2, 1], None])
+def test_camera_pin_hidden_for_whole_active_window_blocks(point):
+    frames = {"0": {"p": {"a": [0.5, 0.45, 1]}}}
+    for f in range(15, 45):
+        frames[str(f)] = {"p": {"a": point}} if point is not None else {}
+    ov = overlay.Overlay(spec(labels=[{"anchor": "a", "title": "X", "from": 0.5, "to": 1.5}]), anchors(frames), W, H)
+    rep = ov.layout_report(60)
+    assert not rep["ok"]
+    assert rep["blocking"] == [{"code": "label_pin_hidden", "elements": ["labels[0]"], "first_frame": 15,
+                                "last_frame": 44, "frames": 30, "share": 1.0}]
+
+
+@pytest.mark.parametrize("visible_count", [1, 15, 29])
+def test_partly_hidden_camera_pin_is_finding_even_below_old_threshold(visible_count):
+    frames = {str(f): {"p": {"a": [0.5, 0.45, int(f < visible_count)]}} for f in range(30)}
+    ov = overlay.Overlay(spec(labels=[{"anchor": "a", "title": "X", "from": 0, "to": 1}]), anchors(frames), W, H)
+    rep = ov.layout_report(30)
+    assert rep["ok"] and not rep["blocking"]
+    pin = [f for f in rep["findings"] if f["code"] == "label_pin_hidden"]
+    assert pin == [{"code": "label_pin_hidden", "elements": ["labels[0]"], "first_frame": visible_count,
+                    "last_frame": 29, "frames": 30 - visible_count, "share": round((30 - visible_count) / 30, 3)}]
+
+
+def test_visibility_outside_window_does_not_make_a_visible_window_hidden():
+    frames = {str(f): {"p": {"a": [0.5, 0.45, int(15 <= f < 45)]}} for f in range(60)}
+    ov = overlay.Overlay(spec(labels=[{"anchor": "a", "title": "X", "from": 0.5, "to": 1.5}]), anchors(frames), W, H)
+    assert ov.layout_report(60)["findings"] == []
+    # No active video frame: do not divide by zero or call it a wholly hidden window.
+    later = overlay.Overlay(spec(labels=[{"anchor": "a", "title": "X", "from": 3, "to": 4}]), anchors(frames), W, H)
+    assert later.layout_report(60)["ok"]
+
+
+def test_partly_hidden_pin_never_blocks_due_to_rounded_share():
+    # 2026-11-18 19:16 +02:00 · codex · gpt-6.1-sol: 2999/3000 rounds to 1, but is not whole-window hiding.
+    marks = anchors_file.Anchors(W, H, {f: {"a": (0.5, 0.45, f == 0)} for f in range(3000)}, {})
+    ov = overlay.Overlay(spec(labels=[{"anchor": "a", "title": "X", "from": 0, "to": 100}]), marks, W, H)
+    rep = ov.layout_report(3000)
+    assert rep["ok"] and not rep["blocking"]
+    assert any(f["code"] == "label_pin_hidden" and f["share"] == 1 for f in rep["findings"])

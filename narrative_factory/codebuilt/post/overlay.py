@@ -628,13 +628,14 @@ class Overlay:
     def layout_report(self, nframes=None):
         """Layout checks on every frame, without drawing.
 
-        Blocking: an element outside the safe zone, two elements overlapping, an element overlapping the caption box.
-        Findings only: a label hidden for more than 30% of its window, a counter that goes down and up again (or up and down).
+        Blocking: unsafe/overlapping text, or a camera pin hidden for its whole active window.
+        Findings only: a partly hidden camera pin, a label crowded out for more than 30% of its window,
+        or a counter reversal. Camera visibility uses the supplied projection/front flag, not a geometry ray test.
         """
         n = nframes if nframes is not None else self.nframes
         if n is None:
             raise ValueError("layout_report needs the frame count")
-        groups, label_frames, label_hidden = {}, {}, {}
+        groups, label_frames, label_hidden, pin_hidden = {}, {}, {}, {}
         counter = self.spec["counter"]
         values = []
         for f in range(n):
@@ -648,6 +649,12 @@ class Overlay:
             for i, lab in enumerate(self.spec["labels"]):
                 if _on(lab, t):
                     label_frames[i] = label_frames.get(i, 0) + 1
+                    # 2026-11-18 19:14 +02:00 · codex · gpt-6.1-sol: camera visibility is independent of box allocation.
+                    # Count every active frame (including missing points), never round a share to decide refusal.
+                    if self._visible_point(f, lab["anchor"]) is None:
+                        hit = pin_hidden.setdefault(i, {"code": "label_pin_hidden", "elements": [f"labels[{i}]"],
+                                                        "first_frame": f, "last_frame": f, "frames": 0})
+                        hit["last_frame"], hit["frames"] = f, hit["frames"] + 1
                     if f"labels[{i}]" not in ids:
                         label_hidden[i] = label_hidden.get(i, 0) + 1
             if counter and _on(counter, t):
@@ -657,6 +664,9 @@ class Overlay:
         blocking = [g for (code, _), g in groups.items() if code in BLOCKING]
         findings = []
         for i, total in sorted(label_frames.items()):
+            if i in pin_hidden:
+                hit = dict(pin_hidden[i], share=round(pin_hidden[i]["frames"] / total, 3))
+                (blocking if pin_hidden[i]["frames"] == total else findings).append(hit)
             share = label_hidden.get(i, 0) / total
             if share > HIDDEN_SHARE:
                 findings.append({"code": "label_hidden", "elements": [f"labels[{i}]"], "share": round(share, 3), "frames": total})
