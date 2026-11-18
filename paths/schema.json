@@ -97,6 +97,11 @@
                         "exclusiveMinimum": 0
                       }
                     },
+                    "maxFinalMinutes": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Optional authored final-render forecast ceiling in minutes. Uses the accepted preview timing; missing timing stops the job. Equality is allowed. codex - gpt-6.1-sol - 2026-11-18 11:57 +02:00"
+                    },
                     "RENDER_BUDGET_S_PER_FRAME": {
                       "type": "number",
                       "exclusiveMinimum": 0
