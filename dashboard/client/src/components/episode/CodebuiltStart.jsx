@@ -192,8 +192,7 @@ export function runLabel(run) {
 }
 
 // --- React Component ---
-// One author is shown only when the server reports author mode (FORGEAI_AUTHOR_MODE=1). No endpoint reports it yet,
-// so the option stays hidden until a report is passed in as authorModeAvailable.
+// One author is shown only when the jobs endpoint reports author mode (FORGEAI_AUTHOR_MODE=1).
 export default function CodebuiltStart({ authorModeAvailable = false } = {}) {
   const [topic, setTopic] = useState('');
   const [route, setRoute] = useState('classic');

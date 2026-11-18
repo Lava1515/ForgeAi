@@ -31,7 +31,12 @@ export const startCodebuiltHandler = handler(async (req, res) => {
   const input = body(req, ['topic', 'duration', 'voice', 'channelId', 'buildModel', 'route']);
   res.status(202).json(codebuiltStarter().start({ ...input, channelId: input.channelId ?? getActiveChannel(req)?.id }));
 });
-export const listCodebuiltHandler = handler(async (req, res) => { res.json({ jobs: codebuiltStarter().list() }); });
+export const listCodebuiltHandler = handler(async (req, res) => {
+  res.json({
+    jobs: codebuiltStarter().list(),
+    authorModeAvailable: process.env.FORGEAI_AUTHOR_MODE === '1',
+  });
+});
 export const getCodebuiltHandler = handler(async (req, res) => { res.json(codebuiltStarter().get(String(req.params.jobId))); });
 export const abortCodebuiltHandler = handler(async (req, res) => { body(req, []); res.json(codebuiltStarter().abort(String(req.params.jobId))); });
 export const resumeCodebuiltHandler = handler(async (req, res) => { body(req, []); res.status(202).json(codebuiltStarter().resume(String(req.params.jobId))); });
