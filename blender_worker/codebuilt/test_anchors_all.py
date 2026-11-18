@@ -1,4 +1,5 @@
-# claude-pro · claude-sonnet-5-5 · 2026-11-18 (C2-AUTH-1): all-frame anchor export of an overlay preview, without rendering.
+# codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
+# claude-pro Â· claude-sonnet-5-5 Â· 2026-11-18 (C2-AUTH-1): all-frame anchor export of an overlay preview, without rendering.
 import json
 import os
 import tempfile
@@ -29,6 +30,7 @@ class AllFrameAnchorTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         for patcher in (mock.patch.object(renderloop, '_anchor_dimensions', return_value=(1080, 1920)),
                         mock.patch.object(renderloop, 'set_preview_scale'),
+                        mock.patch.object(renderloop, '_occluded_by_geometry', return_value=False),
                         mock.patch.object(shotcheck, 'require_qa')):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -102,6 +104,17 @@ class AllFrameAnchorTests(unittest.TestCase):
         self.assertFalse(os.path.exists(self.paths['ALL_ANCHORS_PATH']))
         self.assertFalse(os.path.exists(self.paths['ALL_ANCHORS_DONE_PATH']))
 
+    def test_overlay_automatically_exports_geometry_but_classic_does_not(self):
+        self.write_spec([0]); self.write_overlay()
+        with mock.patch.object(renderloop, '_occluded_by_geometry', return_value=True) as ray:
+            self.run_loop(3, lambda f: anchors.mark('pin', (0, 0, 0)), lambda p: (.5, .5, 1))
+            self.assertEqual(ray.call_count, 4)  # preview plus all-frame poses
+        self.assertEqual(self.load('ALL_ANCHORS_PATH')['frames']['2']['o'], ['pin'])
+        os.unlink(self.paths['OVERLAY_SPEC_PATH'])
+        with mock.patch.object(renderloop, '_occluded_by_geometry', side_effect=AssertionError('classic ray')):
+            self.run_loop(3, lambda f: anchors.mark('pin', (0, 0, 0)), lambda p: (.5, .5, 1))
+        self.assertNotIn('o', self.load('PREVIEW_ANCHORS_PATH')['frames']['0'])
+
     def test_final_render_does_not_export(self):
         self.write_overlay()
         with mock.patch.object(renderloop, '_project_anchor', return_value=(0.5, 0.5, 1.0)):
@@ -143,3 +156,67 @@ class AllFrameAnchorTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OcclusionFieldTests(unittest.TestCase):
+    def test_capture_lists_occluded_points_only_for_visible_front_points_and_keeps_front(self):
+        anchors.reset(100, 200)
+        anchors.begin(3)
+        for i, name in enumerate(('seen', 'blocked', 'behind', 'off')):
+            anchors.mark(name, (i, 0, 0))
+        points = iter([(0.5, 0.5, 2.0), (0.4, 0.4, 2.0), (0.4, 0.4, -1.0), (1.5, 0.4, 2.0)])
+        asked = []
+        record = anchors.capture(3, lambda p: next(points), lambda p: (asked.append(p), p == anchors._points['blocked'])[1])
+        self.assertEqual(record['o'], ['blocked'])
+        self.assertEqual(record['p']['blocked'][2], 1, 'front keeps meaning "in front of the camera"')
+        self.assertEqual(record['p']['behind'][2], 0)
+        self.assertEqual(len(asked), 2, 'the ray is asked only for in-frame points in front of the camera')
+
+    def test_no_occluded_point_means_no_o_key_and_unchanged_document(self):
+        anchors.reset(10, 10)
+        anchors.begin(0); anchors.mark('a', (0, 0, 0))
+        record = anchors.capture(0, lambda p: (0.5, 0.5, 1.0), lambda p: False)
+        self.assertNotIn('o', record)
+
+    def test_reader_accepts_o_and_exposes_it_while_old_files_parse_unchanged(self):
+        from narrative_factory.codebuilt.post import anchors_file
+        raw = {"version": 1, "width": 10, "height": 10, "frames": {"0": {"p": {"a": [0.5, 0.5, 1], "b": [0.2, 0.2, 1]}, "v": {}, "o": ["a"]}, "1": {"p": {"a": [0.5, 0.5, 1]}, "v": {}}}}
+        parsed = anchors_file.parse(json.dumps(raw).encode(), 4)
+        self.assertTrue(parsed.occluded(0, 'a'))
+        self.assertFalse(parsed.occluded(0, 'b'))
+        self.assertFalse(parsed.occluded(1, 'a'))
+        self.assertEqual(parsed.point(0, 'a'), (0.5, 0.5, True), 'point() is unchanged')
+
+    def test_reader_refuses_a_malformed_o(self):
+        from narrative_factory.codebuilt.post import anchors_file
+        base = {"version": 1, "width": 10, "height": 10}
+        for bad in ("a", ["zz"], ["a", "a"], [1], [["a"]], {"a": 1}):
+            raw = dict(base, frames={"0": {"p": {"a": [0.5, 0.5, 1]}, "v": {}, "o": bad}})
+            with self.assertRaises(anchors_file.AnchorsError, msg=repr(bad)):
+                anchors_file.parse(json.dumps(raw).encode(), 4)
+
+    def test_export_probes_occlusion_per_frame_when_asked_and_records_it(self):
+        t = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__('shutil').rmtree(t, ignore_errors=True))
+        done = os.path.join(t, 'done.json'); out = os.path.join(t, 'all.json')
+        with mock.patch.object(renderloop, '_anchor_dimensions', return_value=(100, 200)):
+            record = renderloop.export_all_frame_anchors(range(6), lambda f: anchors.mark('pin', (f, 0, 0)), log=lambda _m: None, anchors_path=out,
+                                                         done_path=done, project=lambda p: (0.5, 0.5, 1.0), occluded=lambda p: p[0] in (2, 3))
+        self.assertTrue(record['occlusion'])
+        with open(out, encoding='utf-8') as fh:
+            frames = json.load(fh)['frames']
+        self.assertEqual(sorted(k for k, v in frames.items() if 'o' in v), ['2', '3'])
+
+
+
+# codex · gpt-6.1-sol · 2026-11-18: stale completion cannot survive a failed pose sweep.
+class CompletionTests(unittest.TestCase):
+    def test_failed_export_invalidates_previous_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = os.path.join(tmp, 'done.json')
+            with open(done, 'w') as fh:
+                fh.write('{}')
+            with self.assertRaisesRegex(RuntimeError, 'pose failed'):
+                renderloop.export_all_frame_anchors(range(3), lambda f: (_ for _ in ()).throw(RuntimeError('pose failed')),
+                    anchors_path=os.path.join(tmp, 'anchors.json'), done_path=done)
+            self.assertFalse(os.path.exists(done))

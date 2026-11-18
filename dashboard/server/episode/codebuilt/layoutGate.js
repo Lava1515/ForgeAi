@@ -1,4 +1,5 @@
-// claude-pro · claude-sonnet-5-5 · 2026-11-18 17:55 +02:00
+// codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
+// claude-pro Â· claude-sonnet-5-5 Â· 2026-11-18 17:55 +02:00
 // Host wrapper for the all-frame text layout check of the authored route (Fable check 2, fixes 1 and 6).
 // layout_gate.py runs the post step's own layout algorithm on every frame of the video, on the host CPU, with a fixed argv, no shell and a
 // scrubbed environment. The result is saved in the round's look.json and bound into the receipt, so an accepted pair that never passed
@@ -22,18 +23,13 @@ function safeEnv(env) {
 
 /**
  * The text a blocking result gives back to the author, or '' when the layout is fine. Pure.
- * Blocks on: any blocking overlap / outside_safe_zone / caption_overlap on any frame, and a label that is hidden on every previewed frame of its window, and any text window with no preview frame (`uncovered`).
+ * Blocks on: any blocking overlap / outside_safe_zone / caption_overlap on any frame, and canonical whole-window camera visibility, and any text window with no preview frame (`uncovered`).
  */
 export function layoutRefusal(layout) {
   if (!layout || layout.version !== 1 || typeof layout.ok !== 'boolean' || !Array.isArray(layout.blocking) || !Array.isArray(layout.labelHidden) || !Array.isArray(layout.uncovered)) return 'the host layout check is missing or malformed';
   const fps = Number.isFinite(layout.fps) && layout.fps > 0 ? layout.fps : 30;
   const lines = layout.blocking.slice(0, 12).map((b) => `${String(b.code).slice(0, 30)} ${(b.elements ?? []).slice(0, 4).join(' + ')}: frames ${b.first_frame}-${b.last_frame} (${secs(b.first_frame, fps)}-${secs(b.last_frame, fps)} s)`);
-  // previewFrames === framesChecked: the anchors of every frame were exported (C2-AUTH-1), so label_hidden is measured on the whole window.
-  // A share measured on sampled preview frames only is an advisory: a label can be visible between the samples (the canonical blocking list
-  // above decides whole-window pin visibility on every frame).
-  const everyFrame = Number.isInteger(layout.framesChecked) && layout.previewFrames === layout.framesChecked;
-  const pinHidden = new Set(layout.blocking.filter((b) => b.code === 'label_pin_hidden').flatMap((b) => b.elements ?? []));
-  if (everyFrame) for (const h of layout.labelHidden) if (h.share >= 1 && !pinHidden.has(h.element)) lines.push(`label_hidden ${h.element}: hidden on all ${h.frames} frame${h.frames === 1 ? '' : 's'} of its window (its anchor is behind the camera, off screen, or crowded out)`);
+  // codex · gpt-6.1-sol · 2026-11-18 19:36 +0200: only canonical blocking decides visibility refusal.
   const uncovered = layout.uncovered.slice(0, 40).map((id) => String(id).slice(0, 30));
   if (uncovered.length) lines.push(`preview_uncovered ${uncovered.join(', ')}: no preview frame inside ${uncovered.length === 1 ? 'its window' : 'their windows'} (24-frame cap), so the sheets never show ${uncovered.length === 1 ? 'it' : 'them'}`);
   if (layout.ok === false && !layout.blocking.length) lines.push('the layout check reports not ok');
@@ -78,7 +74,7 @@ export function createLayoutGate({ repoRoot = REPO_ROOT, python = 'python', exec
       version: 1, ok: body.ok, framesChecked: body.frames_checked, fps: body.fps, previewFrames: body.preview_frames, anchoredFrames: body.anchored_frames,
       blocking: body.blocking.slice(0, 40).map((b) => ({ code: String(b.code), elements: (b.elements ?? []).map(String).slice(0, 4), first_frame: b.first_frame, last_frame: b.last_frame, frames: b.frames })),
       // Canonical advisories (partly hidden pin, crowded-out label, counter reversal): kept in the receipt, never a refusal.
-      findings: (Array.isArray(body.findings) ? body.findings : []).slice(0, 40).map((f) => ({ code: String(f.code).slice(0, 30), elements: (f.elements ?? []).map(String).slice(0, 4), ...(Number.isFinite(f.share) ? { share: f.share } : {}), ...(Number.isFinite(f.frames) ? { frames: f.frames } : {}), ...(Number.isFinite(f.first_frame) ? { first_frame: f.first_frame } : {}) })),
+      findings: (Array.isArray(body.findings) ? body.findings : []).slice(0, 40).map((f) => ({ code: String(f.code).slice(0, 30), elements: (f.elements ?? []).map(String).slice(0, 4), ...(Number.isFinite(f.share) ? { share: f.share } : {}), ...(Number.isFinite(f.frames) ? { frames: f.frames } : {}), ...(Number.isFinite(f.first_frame) ? { first_frame: f.first_frame } : {}), ...(Number.isFinite(f.last_frame) ? { last_frame: f.last_frame } : {}) })),
       labelHidden: body.label_hidden.slice(0, 24).map((h) => ({ element: String(h.element), share: h.share, frames: h.frames })),
       inputs: { overlaySha256, anchorsSha256, wordsSha256 },
     };

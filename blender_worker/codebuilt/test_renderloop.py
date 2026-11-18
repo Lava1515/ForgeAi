@@ -1,4 +1,5 @@
-﻿import os
+# codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
+import os
 import tempfile
 import unittest
 from unittest import mock
@@ -66,7 +67,9 @@ class RenderFramesRamCopyTests(unittest.TestCase):
         with (mock.patch.object(renderloop, 'ANCHORS_PATH', anchor_file),
               mock.patch.object(renderloop, 'OVERLAY_SPEC_PATH', os.path.join(self.tmp.name, 'overlay.json')),
               mock.patch.object(renderloop, '_anchor_dimensions', return_value=(1080, 1920)),
-              mock.patch.object(renderloop, '_project_anchor', return_value=(0.5, 0.5, 1))):
+              mock.patch.object(renderloop, '_project_anchor', return_value=(0.5, 0.5, 1)),
+              # codex · gpt-6.1-sol · 2026-11-18: overlay capture now checks geometry in Blender.
+              mock.patch.object(renderloop, '_occluded_by_geometry', return_value=False)):
             with open(renderloop.OVERLAY_SPEC_PATH, 'w', encoding='utf-8') as spec:
                 spec.write('{}')
             def apply(frame):

@@ -1,4 +1,5 @@
-// claude-pro · claude-sonnet-5-5 · 2026-11-18 17:55 +02:00
+// codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
+// claude-pro Â· claude-sonnet-5-5 Â· 2026-11-18 17:55 +02:00
 // Fable check 2, fixes 1, 3, 5 and 6: all-frame layout gate, authored preview picks, budget feedback, receipt binding.
 // The replay tests read the saved evidence of two real jobs (read-only, CPU only, no render, no model).
 import test from 'node:test';
@@ -88,11 +89,11 @@ test('Danube accepted pair on its all-frame anchors: labels[9] (Black Sea) is hi
   assert.notEqual(why, '');
 });
 // The sampled preview anchors that the cycle-2 gate saw on this pair: they hold a few frames only, so they could not show this.
-test('Danube accepted pair on its sampled preview anchors (the old evidence) shows nothing wrong: sampled hiding is only an advisory', { skip: !have('mwm4a61f-438a7a') }, async () => {
+test('Danube sparse legacy anchors cannot establish whole-window visibility and are refused by canonical blocking', { skip: !have('mwm4a61f-438a7a') }, async () => {
   const layout = await replay('mwm4a61f-438a7a', 1518);
-  assert.equal(layout.ok, true, JSON.stringify(layout.blocking));
-  assert.deepEqual(layout.blocking, []);
-  assert.equal(layoutRefusal(layout), '');
+  assert.equal(layout.ok, false);
+  assert.ok(layout.blocking.some(b => b.code === 'label_pin_hidden'));
+  assert.notEqual(layoutRefusal(layout), '');
 });
 
 // ---- pure helpers
@@ -100,9 +101,9 @@ test('layoutRefusal: blocking, label hidden on every previewed frame, malformed;
   const base = { version: 1, ok: true, framesChecked: 900, fps: 30, blocking: [], labelHidden: [], uncovered: [] };
   assert.equal(layoutRefusal(base), '');
   assert.match(layoutRefusal({ ...base, ok: false, blocking: [{ code: 'caption_overlap', elements: ['labels[2]'], first_frame: 30, last_frame: 60 }] }), /caption_overlap labels\[2\]: frames 30-60 \(1\.0-2\.0 s\)/);
-  // C2-AUTH-1: only a share measured on every frame of the video refuses; a share on sampled preview frames is an advisory.
+  // C2: canonical blocking alone refuses; diagnostic shares, including rounded 1, remain advisory.
   assert.equal(layoutRefusal({ ...base, previewFrames: 12, labelHidden: [{ element: 'labels[3]', share: 1, frames: 2 }] }), '', 'sampled label_hidden never refuses');
-  assert.match(layoutRefusal({ ...base, previewFrames: 900, labelHidden: [{ element: 'labels[3]', share: 1, frames: 2 }] }), /label_hidden labels\[3\]: hidden on all 2 frames of its window/);
+  assert.equal(layoutRefusal({ ...base, previewFrames: 900, labelHidden: [{ element: 'labels[3]', share: 1, frames: 2 }] }), '', 'even rounded all-frame hiding is advisory; canonical blocking alone refuses');
   assert.equal(layoutRefusal({ ...base, previewFrames: 900, labelHidden: [{ element: 'labels[3]', share: 0.5, frames: 2 }] }), '');
   const pinned = layoutRefusal({ ...base, ok: false, previewFrames: 900, blocking: [{ code: 'label_pin_hidden', elements: ['labels[3]'], first_frame: 1200, last_frame: 1231 }], labelHidden: [{ element: 'labels[3]', share: 1, frames: 32 }] });
   assert.match(pinned, /label_pin_hidden labels\[3\]: frames 1200-1231/);
@@ -230,10 +231,10 @@ test('a pass that never gets its layout repaired ends author_reply and writes no
   assert.ok(!fs.existsSync(path.join(r.stage, 'author/accepted.build.py')));
 });
 test('a label hidden on every frame of its window blocks the pass', async () => {
-  const hidden = async (a) => ({ ...(await stubLayout(a)), labelHidden: [{ element: 'labels[0]', share: 1, frames: 30 }] });
+  const hidden = async (a) => ({ ...(await stubLayout(a)), ok: false, blocking: [{ code: 'label_pin_hidden', elements: ['labels[0]'], first_frame: 30, last_frame: 59, frames: 30 }], labelHidden: [{ element: 'labels[0]', share: 1, frames: 30 }] });
   const r = rig({ layoutCheck: hidden, writeSpec: { version: 1, big: [{ text: 'A', from: 1, to: 3 }], labels: [{ anchor: 'pin', title: 'X', from: 1, to: 2 }] } });
   await assert.rejects(runAuthorLoop(r.input, r.deps), { code: 'author_reply' });
-  assert.match(prompt(r.stage, 0, 2), /label_hidden labels\[0\]/);
+  assert.match(prompt(r.stage, 0, 2), /label_pin_hidden labels\[0\]/);
 });
 test('without a layout check the loop fails closed before any call; a failing check stops the job', async () => {
   const r = rig({ layoutCheck: undefined }); delete r.deps.layoutCheck;
@@ -336,4 +337,18 @@ test('real Hypersaline spec: the saved 22 preview frames miss the big[1] window,
   const { frames, uncovered } = pickAuthoredPreviewFrames({ nframes: 1469, shotStarts, fps: 30, overlaySpec: spec });
   assert.deepEqual(uncovered, []);
   for (const w of windows) assert.ok(window(frames, w.from, w.to), `no frame inside ${w.id}`);
+});
+
+// codex · gpt-6.1-sol · 2026-11-18: canonical partial findings survive receipt binding, even with rounded share 1.
+test('canonical partial visibility is advisory and bound into the accepted receipt', async () => {
+  const findings = [{ code: 'label_pin_hidden', elements: ['labels[0]'], share: 1, frames: 2999, first_frame: 0, last_frame: 2999 }];
+  const r = rig({ layoutCheck: async a => ({ ...(await stubLayout(a)), findings, labelHidden: [{ element: 'labels[0]', share: 1, frames: 3000 }] }) });
+  const result = await runAuthorLoop(r.input, r.deps);
+  assert.equal(result.accepted, true);
+  const look = JSON.parse(fs.readFileSync(path.join(r.stage, 'author/a0/r0/look.json'), 'utf8'));
+  assert.deepEqual(look.layout.findings, findings);
+  assert.equal(verifyAuthorReceipt(result, r.input), true);
+  look.layout.findings[0].frames = 3000;
+  fs.writeFileSync(path.join(r.stage, 'author/a0/r0/look.json'), JSON.stringify(look));
+  assert.throws(() => verifyAuthorReceipt(result, r.input), { code: 'author_hash' });
 });
