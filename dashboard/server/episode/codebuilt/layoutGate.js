@@ -1,4 +1,5 @@
-// claude-pro · claude-sonnet-5-5 · 2026-11-18 17:55 +02:00
+// codex · gpt-6.1-sol · 2026-11-18 19:41 +0200
+// claude-pro Â· claude-sonnet-5-5 Â· 2026-11-18 17:55 +02:00
 // Host wrapper for the all-frame text layout check of the authored route (Fable check 2, fixes 1 and 6).
 // layout_gate.py runs the post step's own layout algorithm on every frame of the video, on the host CPU, with a fixed argv, no shell and a
 // scrubbed environment. The result is saved in the round's look.json and bound into the receipt, so an accepted pair that never passed
@@ -22,13 +23,13 @@ function safeEnv(env) {
 
 /**
  * The text a blocking result gives back to the author, or '' when the layout is fine. Pure.
- * Blocks on: any blocking overlap / outside_safe_zone / caption_overlap on any frame, and a label that is hidden on every previewed frame of its window, and any text window with no preview frame (`uncovered`).
+ * Blocks on: any blocking overlap / outside_safe_zone / caption_overlap on any frame, and canonical whole-window camera visibility, and any text window with no preview frame (`uncovered`).
  */
 export function layoutRefusal(layout) {
   if (!layout || layout.version !== 1 || typeof layout.ok !== 'boolean' || !Array.isArray(layout.blocking) || !Array.isArray(layout.labelHidden) || !Array.isArray(layout.uncovered)) return 'the host layout check is missing or malformed';
   const fps = Number.isFinite(layout.fps) && layout.fps > 0 ? layout.fps : 30;
   const lines = layout.blocking.slice(0, 12).map((b) => `${String(b.code).slice(0, 30)} ${(b.elements ?? []).slice(0, 4).join(' + ')}: frames ${b.first_frame}-${b.last_frame} (${secs(b.first_frame, fps)}-${secs(b.last_frame, fps)} s)`);
-  for (const h of layout.labelHidden) if (h.share >= 1) lines.push(`label_hidden ${h.element}: hidden on ${h.frames === 1 ? 'its' : `all ${h.frames}`} previewed frame${h.frames === 1 ? '' : 's'} inside its window (its anchor is behind the camera, off screen, or crowded out)`);
+  // codex · gpt-6.1-sol · 2026-11-18 19:36 +0200: only canonical blocking decides visibility refusal.
   const uncovered = layout.uncovered.slice(0, 40).map((id) => String(id).slice(0, 30));
   if (uncovered.length) lines.push(`preview_uncovered ${uncovered.join(', ')}: no preview frame inside ${uncovered.length === 1 ? 'its window' : 'their windows'} (24-frame cap), so the sheets never show ${uncovered.length === 1 ? 'it' : 'them'}`);
   if (layout.ok === false && !layout.blocking.length) lines.push('the layout check reports not ok');
@@ -51,8 +52,9 @@ export function createLayoutGate({ repoRoot = REPO_ROOT, python = 'python', exec
   async function check({ overlaySpec, anchors, words, nframes, fps = 30, jobRoot, frames = [], lead = 0.35, signal } = {}) {
     if (!Number.isInteger(nframes) || nframes < 1) throw fail('nframes must be a positive whole number');
     if (!Number.isFinite(fps) || fps <= 0) throw fail('fps must be positive');
-    if (!Array.isArray(frames) || frames.some((f) => !Number.isInteger(f) || f < 0)) throw fail('frames must be whole numbers');
-    const args = ['-I', script, '--overlay', abs('overlaySpec', overlaySpec), '--nframes', String(nframes), '--fps', String(fps), '--job-root', abs('jobRoot', jobRoot), '--frames', frames.join(',')];
+    // `frames: 'all'` (C2-AUTH-1): every frame, for an anchors file that holds the positions of every frame.
+    if (frames !== 'all' && (!Array.isArray(frames) || frames.some((f) => !Number.isInteger(f) || f < 0))) throw fail('frames must be whole numbers or "all"');
+    const args = ['-I', script, '--overlay', abs('overlaySpec', overlaySpec), '--nframes', String(nframes), '--fps', String(fps), '--job-root', abs('jobRoot', jobRoot), '--frames', frames === 'all' ? 'all' : frames.join(',')];
     let wordsSha256 = null, anchorsSha256 = null;
     if (words !== undefined) { args.push('--words', abs('words', words), '--lead', String(lead)); wordsSha256 = sha(fs.readFileSync(words)); }
     if (anchors !== undefined) { args.push('--anchors', abs('anchors', anchors)); anchorsSha256 = sha(fs.readFileSync(anchors)); }
@@ -71,6 +73,8 @@ export function createLayoutGate({ repoRoot = REPO_ROOT, python = 'python', exec
     return {
       version: 1, ok: body.ok, framesChecked: body.frames_checked, fps: body.fps, previewFrames: body.preview_frames, anchoredFrames: body.anchored_frames,
       blocking: body.blocking.slice(0, 40).map((b) => ({ code: String(b.code), elements: (b.elements ?? []).map(String).slice(0, 4), first_frame: b.first_frame, last_frame: b.last_frame, frames: b.frames })),
+      // Canonical advisories (partly hidden pin, crowded-out label, counter reversal): kept in the receipt, never a refusal.
+      findings: (Array.isArray(body.findings) ? body.findings : []).slice(0, 40).map((f) => ({ code: String(f.code).slice(0, 30), elements: (f.elements ?? []).map(String).slice(0, 4), ...(Number.isFinite(f.share) ? { share: f.share } : {}), ...(Number.isFinite(f.frames) ? { frames: f.frames } : {}), ...(Number.isFinite(f.first_frame) ? { first_frame: f.first_frame } : {}), ...(Number.isFinite(f.last_frame) ? { last_frame: f.last_frame } : {}) })),
       labelHidden: body.label_hidden.slice(0, 24).map((h) => ({ element: String(h.element), share: h.share, frames: h.frames })),
       inputs: { overlaySha256, anchorsSha256, wordsSha256 },
     };

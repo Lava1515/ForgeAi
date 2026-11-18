@@ -434,7 +434,7 @@ class Overlay:
     def _visible_point(self, frame, name):
         # Contract 2.2 supplies camera-front status, not surface occlusion. A projected point may still be behind geometry.
         pt = self.anchors.point(frame, name)
-        if pt is None or not pt[2] or not (0.0 <= pt[0] <= 1.0 and 0.0 <= pt[1] <= 1.0):
+        if pt is None or not pt[2] or self.anchors.occluded(frame, name) or not (0.0 <= pt[0] <= 1.0 and 0.0 <= pt[1] <= 1.0):
             return None
         return pt[0] * self.width, pt[1] * self.height
 
