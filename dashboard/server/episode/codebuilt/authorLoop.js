@@ -5,7 +5,8 @@ import { authorArgv, hash, authorError, normalizeAuthorUsage, AUTHOR_REPO } from
 import { overlayPair, validateOverlayPair } from './overlaySpec.js';
 import { AUTHOR_HEADER, writePair, parseAuthorLook, authorState } from './authorPrompts.js';
 import { buildLookPrompt, sanitizeKitReport } from './visualLoopPrompts.js';
-import { pickPreviewFrames } from './previewFrames.js';
+import { pickAuthoredPreviewFrames, overlayWindows } from './previewFrames.js';
+import { createLayoutGate, layoutRefusal, layoutBound } from './layoutGate.js';
 import { newSheetCode, readKitReport } from './visualLoop.js';
 function regular(file) {
  const st=fs.lstatSync(file);if(!st.isFile()||st.isSymbolicLink()||st.nlink!==1||st.size>20*1024*1024)throw authorError('author_state_outside_code');
@@ -57,6 +58,13 @@ export function verifyAuthorReceipt(out,input) {
  const schemas=[...prompt.matchAll(/\{"sheet_codes": (\[[^\n]*?\]), "verdict": "pass" \| "fix"/g)];
  if(schemas.length!==1 || JSON.stringify(JSON.parse(schemas[0][1]))!==JSON.stringify(look.sheetCodes))throw Error();
  if(look.sheets.length!==delivery.imageCount || look.sheets.some((_,i)=>!look.sheetCodes.some(c=>prompt.includes(`Sheet ${i+1} (code in its header: ${c}):`))))throw Error();
+// claude-pro · claude-sonnet-5-5 · 2026-11-18 17:55 +02:00: the all-frame layout check is part of the receipt; an older accepted pair has no record and is refused.
+ const layoutRecord=look.layout,specBytes=readBytes(path.join(roundDir,'overlay-spec.json'));
+ if(JSON.stringify(JSON.parse(specBytes.toString('utf8')))!==JSON.stringify(spec) || !layoutBound(layoutRecord,{overlaySha256:hash(specBytes),wordsSha256:input.wordsPath?hash(readBytes(input.wordsPath)):null,nframes:input.nframes}) || receipt.layoutSha256!==hash(JSON.stringify(layoutRecord)))throw Error();
+ // Cycle 2 (C1): coverage is recomputed from the spec and the previewed frames, so an edited look.json cannot hide an uncovered window.
+ if(!Array.isArray(preview.frames)||preview.frames.length>24||overlayWindows(spec).some(w=>!preview.frames.some(f=>Number.isInteger(f)&&f/30>=w.from&&f/30<w.to)))throw Error();
+ const anchorsFile=path.join(roundDir,'anchors-preview.json');
+ if((layoutRecord.inputs.anchorsSha256??null)!==(fs.existsSync(anchorsFile)?hash(readBytes(anchorsFile)):null))throw Error();
  if(preview.sha256!==out.sha256 || preview.overlaySha256!==receipt.overlaySha256 || look.sha256!==out.sha256 || look.overlaySha256!==receipt.overlaySha256 || look.verdict!=='pass' || !look.sheets.length) throw Error();
  for(const sheet of look.sheets){if(!/^sheet-[0-9]+\.jpg$/.test(sheet.file) || hash(readBytes(path.join(roundDir,'sheets',sheet.file)))!==sheet.sha256) throw Error();}
  return true;
@@ -68,6 +76,7 @@ export async function runAuthorLoop(input,deps={}) {
  const measured=authorCaps(input), root=ensureAuthorRoot(input.stageDir);
  // Reuse only a completely evidenced accepted pair. Never replay part of an attempt.
  try {const code=readBytes(path.join(root,'accepted.build.py'),'utf8'),pair=read(path.join(root,'accepted.overlay.json')),receipt=read(path.join(root,'receipt.json'));const out={accepted:true,buildScript:code,overlaySpec:pair.spec,sha256:hash(code),receipt,calls:[]};verifyAuthorReceipt(out,input);return out;}catch{ /* new turn W */ }
+  if(typeof deps.layoutCheck!=='function')throw authorError('author_layout_unavailable');
  const attempts=fs.readdirSync(root).filter(n=>/^a\d+$/.test(n)).map(n=>Number(n.slice(1)));
  const attempt=Math.max(attempts.length?Math.max(...attempts)+1:0,input.previewAttempt??0),stage=path.join(root,`a${attempt}`);fs.mkdirSync(stage);
  const now=deps.now??Date.now,started=now(),argvSha256=hash(JSON.stringify(authorArgv())),calls=[],history=[];
@@ -98,16 +107,17 @@ export async function runAuthorLoop(input,deps={}) {
   if(input.probe?.passed!==true)throw authorError('author_transport_unavailable');
   const writeDir=path.join(stage,'write');fs.mkdirSync(writeDir);
   while(!code){const text=await ask(`${AUTHOR_HEADER}\n${input.writePrompt}\n${feedback}`,[],'write',writeDir);try{const pair=writePair(text,input.nframes/30);pairCheck(pair.buildScript,pair.overlaySpec,input);code=pair.buildScript;spec=pair.overlaySpec;feedback='';}catch(error){refused(error);}}
-  const frames=pickPreviewFrames({nframes:input.nframes,shotStarts:input.shotStarts,fps:30});
   const shots=input.shots.map((s,i)=>({...s,id:`shot-${i}`}));
   for(round=0;round<5;round++){
    guard();const pair=pairCheck(code,spec,input);spec=pair.spec;
+   // Fix 3: the frames follow the CURRENT overlay spec, so every big, tag, bars and counter window holds a frame the author sees.
+   const {frames,uncovered}=(deps.pickFrames??pickAuthoredPreviewFrames)({nframes:input.nframes,shotStarts:input.shotStarts,fps:30,overlaySpec:spec});
    const dir=path.join(stage,`r${round}`);fs.mkdirSync(dir);write(path.join(dir,'build.py'),code);json(path.join(dir,'overlay.json'),pair);
    const sha256=hash(code),overlaySha256=hash(JSON.stringify(spec)),previewId=`${input.jobId}-a${attempt}-pv${round+1}`;
    previews++;deps.onPhase?.('previewing');let preview=null,crash=null;
    try{preview=await timed('preview',()=>deps.runPreview({jobId:previewId,buildScript:code,overlaySpec:spec,spec:{frames,scale:50},signal:input.signal}));}
    catch(error){if(!['FENCE_FAILED','AGENT_EARLY_STOP','MISSING_OUTPUT','TIMEOUT'].includes(error.code)||error.detail?.backstop)throw error;crash=String(error.diagnostic??error.code).slice(0,2000);}
-   guard();let sheets=[],kit=null,timing=null;
+   guard();let sheets=[],kit=null,timing=null,layout=null;
    if(preview){
     kit=sanitizeKitReport((deps.readKitReport??readKitReport)(preview.dir),shots.length);
     const work=path.join(path.dirname(preview.dir),'work'),anchors=path.join(work,'anchors-preview.json');
@@ -116,6 +126,10 @@ export async function runAuthorLoop(input,deps={}) {
     const words=path.join(dir,'words.json');if(input.wordsPath){regular(input.wordsPath);fs.copyFileSync(input.wordsPath,words);}
     deps.onPhase?.('looking');
     sheets=await timed('sheet',()=>deps.makeSheets({framesDir:preview.dir,outDir:path.join(dir,'sheets'),code:(deps.newCode??newSheetCode)(),signal:input.signal,overlaySpec:raw,nframes:input.nframes,fps:30,jobRoot:dir,...(input.wordsPath?{words,lead:0.35}:{}),...(fs.existsSync(path.join(dir,'anchors-preview.json'))?{anchors:path.join(dir,'anchors-preview.json')}:{})}));
+    // Fix 1: the post step's own layout algorithm on EVERY frame, on the exact spec just previewed. Fail closed when it cannot run.
+    const anchorsCopy=path.join(dir,'anchors-preview.json'),shown=sheets.flatMap(s=>s.tiles.map(t=>t.frame)).filter(Number.isInteger);
+    layout={...await timed('layout',()=>deps.layoutCheck({overlaySpec:raw,nframes:input.nframes,fps:30,jobRoot:dir,frames:shown,lead:0.35,signal:input.signal,...(input.wordsPath?{words}:{}),...(fs.existsSync(anchorsCopy)?{anchors:anchorsCopy}:{})})),uncovered};
+    guard();journal({kind:'layout',round,ok:layout.ok,blocking:layout.blocking.length,labelHidden:layout.labelHidden.length,uncovered});
     try{const t=read(path.join(work,'render-timing.json'));if(!Number.isFinite(t.render_s)||!(t.rendered>0))throw Error();timing=t.render_s/t.rendered*4;journal({kind:'render_timing',round,secondsPerFrame:timing});}catch{journal({kind:'render_timing_unavailable',round});}
    }
    const sheetRecords=sheets.map((s,i)=>{const file=`sheet-${i}.jpg`,bytes=readBytes(s.path);write(path.join(dir,'sheets',file),bytes);return {file,sha256:hash(bytes)};});
@@ -124,20 +138,29 @@ export async function runAuthorLoop(input,deps={}) {
    let reply;
    for(;;){
     let replay=history.slice();
-    const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,60-(now()-started)/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}\n${feedback}`;
+    const flatNums=sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat'||t.flag==='plain').map(t=>`T${t.n} (${t.flag})`));
+    // Fix 5: the budget is told in both directions. Under half of it with flat or plain surfaces measured is a finding.
+    const unused=Number.isFinite(timing)&&Number.isFinite(input.renderBudget)&&input.renderBudget>0&&timing<input.renderBudget/2&&flatNums.length>0;
+    if(unused)journal({kind:'budget_unused',round,secondsPerFrame:timing,budget:input.renderBudget});
+    const budgetText=unused?`budget_unused: ${timing.toFixed(2)} s/frame is under half of the ${input.renderBudget} s/frame budget while ${flatNums.join(', ')} measure as flat or plain. The budget is meant to be spent: enrich the single largest hero surface (bands, bump, a colour ramp, more geometry, light) until a preview costs near the budget. The ceiling is unchanged.`:'';
+    const layoutText=layout?layoutRefusal(layout):'';
+    const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,60-(now()-started)/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}${budgetText?`\n${budgetText}`:''}${layoutText?`\n${layoutText}`:''}\n${feedback}`;
     let prompt=makePrompt();while(prompt.length>200000&&replay.length){replay.shift();prompt=makePrompt();}
     const text=await ask(prompt,images,editRefusals>=2&&!resynced?'resync':'look',dir);if(editRefusals>=2)resynced=true;
-    try{reply=parseAuthorLook(text,{buildScript:code,overlaySpec:spec,validate:(c,s)=>{pairCheck(c,s,input);return [];},videoSeconds:input.nframes/30,shots,sheetCodes:[...new Set(sheets.map(s=>s.code))],finalRound:round===4,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),kitFailures:kit?.findings.map(f=>f.check)??[]});break;}
+    try{reply=parseAuthorLook(text,{buildScript:code,overlaySpec:spec,validate:(c,s)=>{pairCheck(c,s,input);return [];},videoSeconds:input.nframes/30,shots,sheetCodes:[...new Set(sheets.map(s=>s.code))],finalRound:round===4,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),kitFailures:kit?.findings.map(f=>f.check)??[]});
+     // Fix 6: a pass is not accepted while the host's all-frame layout says otherwise (blocking overlap, safe zone, caption, a label hidden on every previewed frame of its window).
+     if(reply.look.verdict==='pass'&&layout){const why=layoutRefusal(layout);if(why)throw Error(why);}
+     break;}
     catch(error){editRefusals++;refused(error);}
    }
    feedback='';editRefusals=0;
    journal({kind:'validation',round,sha256,overlaySha256,verdict:reply.look.verdict});
    history.push({round,notes:reply.notes,findings:reply.look.findings,targets:reply.look.targets,verdict:reply.look.verdict,kitChecks:kit?.findings.map(f=>f.check)??[]});
-   json(path.join(dir,'look.json'),{sha256,overlaySha256,verdict:reply.look.verdict,sheets:sheetRecords,sheetCodes:[...new Set(sheets.map(s=>s.code))],kitFailures:kit?.findings.map(f=>f.check)??[],flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),call:calls.at(-1),reply:reply.look});write(path.join(dir,'notes.txt'),reply.notes);
+   json(path.join(dir,'look.json'),{sha256,overlaySha256,verdict:reply.look.verdict,sheets:sheetRecords,sheetCodes:[...new Set(sheets.map(s=>s.code))],kitFailures:kit?.findings.map(f=>f.check)??[],flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),layout,call:calls.at(-1),reply:reply.look});write(path.join(dir,'notes.txt'),reply.notes);
    if(reply.look.verdict==='pass'){
     guard();if(readBytes(path.join(dir,'build.py'),'utf8')!==code || JSON.stringify(read(path.join(dir,'overlay.json')))!==JSON.stringify(pair))throw authorError('author_hash');
     write(path.join(root,'accepted.build.py'),code);json(path.join(root,'accepted.overlay.json'),pair);
-    const receipt={version:1,identity:authorIdentity(input),accepted:true,sha256,overlaySha256,argvSha256,attempt,round,rounds:history,calls:calls.length};json(path.join(root,'receipt.json'),receipt);
+    const receipt={version:1,identity:authorIdentity(input),accepted:true,sha256,overlaySha256,argvSha256,attempt,round,rounds:history,calls:calls.length,layoutSha256:hash(JSON.stringify(layout))};json(path.join(root,'receipt.json'),receipt);
     const out={accepted:true,buildScript:readBytes(path.join(root,'accepted.build.py'),'utf8'),overlaySpec:spec,sha256,receipt,calls};verifyAuthorReceipt(out,input);state('accepted');return out;
    }
    code=reply.buildScript;spec=reply.overlaySpec;
@@ -177,7 +200,8 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  if(!probe)probe=injected.probe ? await injected.probe({rec,stage,signal}) : await probeAuthorSupport({stageDir:path.join(stage,'author'),nonce:cryptoNonce(),makeCanary:sheetMaker.makeCanary,askFn:ask,signal});
  input.probe=probe;
  const base=injected.runPreview??(request=>createPreviewRunFn({runner:{run:args=>runtime.runner.run({...args,route:'authored',overlaySpec:request.overlaySpec})},inputs:{script:scripted.script,voWav:voice.voPath,words:voice.wordsPath,pathPack,brief:scripted.brief},jobRoot:jobsDir})(request));
- const outcome=await runAuthorLoop(input,{...injected,askAuthor:ask,runPreview:request=>base({...request,route:'authored'}),makeSheets:args=>sheetMaker.makeSheets(args),onCall:addCall,onPhase});
+ const layoutCheck=injected.layoutCheck??createLayoutGate({execFileFn:hostExecFile}).check;
+ const outcome=await runAuthorLoop(input,{...injected,layoutCheck,askAuthor:ask,runPreview:request=>base({...request,route:'authored'}),makeSheets:args=>sheetMaker.makeSheets(args),onCall:addCall,onPhase});
  // codex - gpt-6.1-sol - 2026-11-18 11:57 +02:00: D2 is a forecast gate, including accepted final retries.
  const verifyReceipt=()=>{
   verifyAuthorReceipt(outcome,input);
