@@ -19,6 +19,11 @@ def main(argv):
         return 2
     try:
         report = cb5.produce(argv[1])
+    except cb5.OverlayLayoutBlocked as error:
+        # The named refusal: one JSON line the host producer turns into OVERLAY_LAYOUT_BLOCKED with the bounded blocking list.
+        print(json.dumps({"status": "error", "code": "overlay_layout_blocked", "error": "overlay_layout_blocked",
+                          "blocking": error.blocking, "blocking_total": error.total}))
+        return 1
     except (media.MediaError, OSError, ValueError) as error:
         print(json.dumps({"status": "error", "error": str(error)[:500]}))
         return 1

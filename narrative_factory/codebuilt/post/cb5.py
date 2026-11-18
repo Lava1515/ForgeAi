@@ -11,7 +11,7 @@ import numpy as np
 
 from blender_worker.codebuilt import audio as audio_kit
 
-from . import anchors_file, media, overlay, run
+from . import anchors_file, captions, media, overlay, run
 
 
 # Seconds the executor adds before every cue and before the voice (blender_worker/codebuilt/timeline.py LEAD; a test keeps them equal).
@@ -81,6 +81,47 @@ def overlay_cues(spec, anchors, duration, fps, lead):
     return sorted(cues, key=lambda event: event[1])
 
 
+MAX_BLOCKING_REPORTED = 20
+
+
+class OverlayLayoutBlocked(media.MediaError):
+    """The validated overlay has blocking full-frame layout findings; nothing was encoded.
+
+    `blocking` is a bounded copy of the findings (code, element ids, frame range) and `total` their real count.
+    """
+
+    def __init__(self, blocking):
+        self.blocking = [
+            {"code": str(item.get("code", ""))[:40], "elements": [str(e)[:40] for e in item.get("elements", [])][:4],
+             "first_frame": item.get("first_frame"), "last_frame": item.get("last_frame"), "frames": item.get("frames")}
+            for item in list(blocking)[:MAX_BLOCKING_REPORTED] if isinstance(item, dict)]
+        self.total = len(blocking)
+        super().__init__("overlay_layout_blocked")
+
+
+def check_layout(frames, words, spec, marks, job, *, fps, lead):
+    """Run the overlay layout check on every frame, without drawing, before any audio premix or encode (about 0.2 s for 1,469 frames).
+
+    It builds the same Overlay run.finish builds (same captions track, same frame count) and raises OverlayLayoutBlocked on a blocking
+    finding. run.finish is not changed: it keeps its own check and its ok-false report for every other caller.
+    """
+    files = run._frames(frames)
+    with run.open_frame(files[0]) as first:
+        width, height = first.width, first.height
+    _, word_list = captions.load_words(media.input_file(words))
+    track = captions.Track(word_list, width, height, lead=lead)
+    parsed = overlay.load_spec(spec, video_seconds=len(files) / fps, job_root=job)
+    if marks is not None:
+        anchors = anchors_file.load(marks, len(files), job_root=job)
+    elif any(overlay.names_used(parsed).values()):
+        raise media.MediaError("overlay.json names anchors or running numbers but anchors.json is missing")
+    else:
+        anchors = anchors_file.Anchors.empty(width, height)
+    report = overlay.Overlay(parsed, anchors, width, height, captions_track=track, fps=fps, nframes=len(files)).layout_report()
+    if not report["ok"]:
+        raise OverlayLayoutBlocked(report.get("blocking", []))
+
+
 def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     """Finalize <job>/frames, words.json and mix.wav into the four CB5 out artifacts.
 
@@ -106,6 +147,17 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     paths["report.json"].unlink(missing_ok=True)
     for src in (words, audio):
         media.input_file(src)
+    if spec.exists():
+        # Before the audio premix and the encode: a blocking layout is refused here, by name, in a fraction of a second.
+        try:
+            check_layout(frames, words, spec, overlay_args["anchors"], job, fps=fps, lead=lead)
+        except OverlayLayoutBlocked as error:
+            # A named refusal, not a bare failure: the report says why, and the frames stay for a post-only retry with a corrected overlay.
+            failed = {"version": "codebuilt-cb5-v1", "status": "failed", "error": {
+                "code": "overlay_layout_blocked", "message": "overlay layout has blocking findings",
+                "blocking": error.blocking, "blocking_total": error.total}}
+            paths["report.json"].write_text(json.dumps(failed, indent=2), encoding="utf-8")
+            raise
     # CB5 owns the final audio input: read the staged trusted WAV, build a reproducible local bed,
     # measure against active voice samples, and keep the staged trusted voice unchanged.
     voice, sr = sf.read(str(audio), dtype="float32", always_2d=False)

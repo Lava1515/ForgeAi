@@ -36,6 +36,20 @@ function stage(src, dst, label) {
   fs.copyFileSync(src, dst, fs.constants.COPYFILE_EXCL);
 }
 
+/** The post kit's own refusal line ({code: 'overlay_layout_blocked', blocking: [...]}), reduced to fixed fields, else null. */
+export function layoutRefusal(out) {
+  let line = null;
+  try { line = JSON.parse(String(out ?? '').trim().split(/\r?\n/).pop()); } catch { return null; }
+  if (line?.code !== 'overlay_layout_blocked' || !Array.isArray(line.blocking)) return null;
+  const int = (v) => (Number.isInteger(v) && v >= 0 && v <= 10_000_000 ? v : null);
+  const blocking = line.blocking.slice(0, 20).map((b) => ({
+    code: typeof b?.code === 'string' ? b.code.replace(/[^a-z0-9_]/g, '').slice(0, 40) : '',
+    elements: Array.isArray(b?.elements) ? b.elements.slice(0, 4).map((e) => String(e).replace(/[^A-Za-z0-9_\[\]]/g, '').slice(0, 40)) : [],
+    first_frame: int(b?.first_frame), last_frame: int(b?.last_frame), frames: int(b?.frames),
+  }));
+  return { blocking, blocking_total: int(line.blocking_total) ?? blocking.length };
+}
+
 export function createHostOutputProducer({
   repoRoot = REPO_ROOT, python = 'python', execFileFn, timeoutMs = 30 * 60 * 1000, env = process.env, linkScan = scanReparsePoints,
 } = {}) {
@@ -62,8 +76,12 @@ export function createHostOutputProducer({
 
     const stdout = await new Promise((resolve, reject) => {
       const child = execFileFn(python, ['-I', script, job], { timeout: timeoutMs, windowsHide: true, shell: false, env: safeEnv(env), maxBuffer: 1024 * 1024, signal }, (error, out, err) => {
-        if (error) reject(new CodebuiltError('PRODUCER_FAILED', `the post kit failed: ${String(err || out || error.message).trim().slice(-300)}`));
-        else resolve(String(out));
+        if (error) {
+          // A named layout refusal is not a crash: it carries the bounded blocking list so the job can end with its own code.
+          const refusal = layoutRefusal(out);
+          if (refusal) reject(new CodebuiltError('OVERLAY_LAYOUT_BLOCKED', 'the overlay layout has blocking findings', refusal));
+          else reject(new CodebuiltError('PRODUCER_FAILED', `the post kit failed: ${String(err || out || error.message).trim().slice(-300)}`));
+        } else resolve(String(out));
       });
       child?.on?.('error', () => {});
     });
