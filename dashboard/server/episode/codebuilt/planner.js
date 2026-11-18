@@ -466,7 +466,8 @@ export async function planCodebuiltScript(input = {}, deps = {}) {
     const value = checkScript(selected, voice, input.pace)(text);
     // Picture routes: a rewrite that still speaks a refused statement word for word is asked again with the reason (job mwm45xrd-20ed1a).
     const repeated = isPictureRoute(input.route) ? repeatedCorrection(value.script, input.corrections) : null;
-    if (repeated) throw new PlannerError('BAD_SCRIPT', `the script repeats a statement the fact check refused: "${repeated}". Say it in new words, or leave it out.`);
+    // codex · gpt-6.1-sol · 2026-11-18 17:55 +02:00: a paraphrase does not correct a false claim.
+    if (repeated) throw new PlannerError('BAD_SCRIPT', `the script repeats a statement the fact check refused: "${repeated}". Correct the claim from the supplied source evidence, or omit it. Do not merely paraphrase the refused claim.`);
     duration = selected;
     return value;
   };

@@ -63,6 +63,9 @@ test('a picture-route rewrite that repeats a refused statement is asked again an
   });
   assert.equal(prompts.length, 2);
   assert.match(prompts[1], /repeats a statement the fact check refused/);
+  assert.match(prompts[1], /Correct the claim from the supplied source evidence, or omit it/);
+  assert.match(prompts[1], /Do not merely paraphrase the refused claim/);
+  assert.doesNotMatch(prompts[1], /Say it in new words/);
   assert.ok(!result.script.includes(STATEMENT));
   assert.ok(result.script.includes('The pilot waits for the turn.'));
 });
