@@ -60,3 +60,40 @@ export function pickPreviewFrames(input) {
   }
   return [...picked].sort((a, b) => a - b);
 }
+
+// claude-pro · claude-sonnet-5-5 · 2026-11-18 17:55 +02:00 (Fable check 2, fix 3). Route `authored` only; the classic pickPreviewFrames above is untouched.
+// The author must see each big, tag, bars and counter text once: every such window (seconds, from the current overlay spec) holds at least one
+// preview frame. Shot frames come first; a window that already holds a picked frame needs no new one; the rest get their middle (an even frame).
+// When the 24-frame cap leaves windows without a frame they are returned in `uncovered` and the caller says so to the author; nothing throws.
+export const COVERED_KINDS = ['big', 'tag', 'bars', 'counter'];
+export function overlayWindows(spec) {
+  const out = [];
+  if (!spec || typeof spec !== 'object') return out;
+  for (const kind of COVERED_KINDS) {
+    const items = kind === 'tag' || kind === 'counter' ? (spec[kind] ? [spec[kind]] : []) : (Array.isArray(spec[kind]) ? spec[kind] : []);
+    items.forEach((el, i) => {
+      if (el && Number.isFinite(el.from) && Number.isFinite(el.to) && el.to > el.from) out.push({ id: kind === 'tag' || kind === 'counter' ? kind : `${kind}[${i}]`, from: el.from, to: el.to });
+    });
+  }
+  return out.sort((a, b) => a.from - b.from || a.to - b.to);
+}
+const frameInside = (frame, w, fps) => frame / fps >= w.from && frame / fps < w.to;
+export function pickAuthoredPreviewFrames(input) {
+  const { overlaySpec, nframes, fps = 30 } = input;
+  const base = pickPreviewFrames(input);
+  const windows = overlayWindows(overlaySpec);
+  const picked = new Set(base);
+  const uncovered = [];
+  const lastEven = even(nframes - 1);
+  for (const w of windows) {
+    if ([...picked].some((f) => frameInside(f, w, fps))) continue;
+    // Smallest even frame inside the window nearest to its middle: the text has faded in and has not started to fade out.
+    const first = Math.ceil(w.from * fps), last = Math.min(Math.ceil(w.to * fps) - 1, lastEven);
+    let frame = even(Math.round(((w.from + w.to) / 2) * fps));
+    if (frame < first) frame += 2;
+    if (frame > last) frame -= 2;
+    if (frame < first || frame > last || frame < 0 || picked.size >= PREVIEW_MAX_FRAMES) { uncovered.push(w.id); continue; }
+    picked.add(frame);
+  }
+  return { frames: [...picked].sort((a, b) => a - b), uncovered };
+}
