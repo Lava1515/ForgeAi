@@ -80,6 +80,43 @@ def test_label_is_hidden_off_screen_or_behind_the_camera():
     assert [kinds(ov, f, f / 30) for f in range(5)] == [["label"], [], [], [], []]
 
 
+# 2026-11-18 · codex · gpt-6.1-sol: W2-C8 regression, including a pin allocated after the covering box.
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("edge", [False, True])
+def test_label_box_avoids_other_active_pin_in_either_order(reverse, edge):
+    first = {"anchor": "a", "title": "A", "from": 0, "to": 2, "side": "right"}
+    alone = overlay.Overlay(spec(labels=[first]), still(), W, H)
+    x, y, w, h = alone.pieces(30, 1)[0]["box"]
+    # Also protect the painted dot when its centre is just outside the box.
+    bx, by = (x - 3 if edge else x + w / 2), y + h / 2
+    second = {"anchor": "b", "title": "B", "from": 0, "to": 2, "side": "left"}
+    labs = [second, first] if reverse else [first, second]
+    a = anchors({"30": {"p": {"a": [0.5, 0.45, 1], "b": [bx / W, by / H, 1]}}})
+    ov = overlay.Overlay(spec(labels=labs), a, W, H)
+    pieces = ov.pieces(30, 1)
+    assert len(pieces) == 2
+    radius = 14 * ov.s
+    for piece in pieces:
+        other = (0.5 * W, 0.45 * H) if piece["text"] == "B" else (bx, by)
+        assert not overlay._intersects(piece["box"], (other[0] - radius, other[1] - radius, 2 * radius, 2 * radius))
+
+
+def test_inactive_or_unprojectable_label_does_not_reserve_a_pin():
+    first = {"anchor": "a", "title": "A", "from": 0, "to": 2, "side": "right"}
+    alone = overlay.Overlay(spec(labels=[first]), still(), W, H)
+    original = alone.pieces(30, 1)[0]["box"]
+    x, y, w, h = original
+    for point, start in [([((x + w / 2) / W), ((y + h / 2) / H), 1], 1.5),
+                         ([((x + w / 2) / W), ((y + h / 2) / H), 0], 0),
+                         ([1.4, 0.5, 1], 0), (None, 0)]:
+        frames = {"0": {"p": {"b": [0.5, 0.5, 1]}}, "30": {"p": {"a": [0.5, 0.45, 1]}}}
+        if point is not None:
+            frames["30"]["p"]["b"] = point
+        ov = overlay.Overlay(spec(labels=[first, {"anchor": "b", "title": "B", "from": start, "to": 2}]),
+                             anchors(frames), W, H)
+        assert ov.pieces(30, 1)[0]["box"] == original
+
+
 def test_text_shrinks_to_the_safe_zone():
     ov = overlay.Overlay(spec(tag={"text": "WWWWWWWWWWWWWWWWWWWWWWWWWWWW", "from": 0, "to": 1},
                               big=[{"text": "88,888,888,888,888,888,888", "sub": "s" * 40, "from": 0, "to": 1}]), still(), W, H)

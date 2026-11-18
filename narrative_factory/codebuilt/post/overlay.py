@@ -432,6 +432,7 @@ class Overlay:
         return self._caption_boxes[(ci, act)]
 
     def _visible_point(self, frame, name):
+        # Contract 2.2 supplies camera-front status, not surface occlusion. A projected point may still be behind geometry.
         pt = self.anchors.point(frame, name)
         if pt is None or not pt[2] or not (0.0 <= pt[0] <= 1.0 and 0.0 <= pt[1] <= 1.0):
             return None
@@ -478,6 +479,15 @@ class Overlay:
                 if piece:
                     out.append(piece)
                     obstacles.append(piece["box"])
+        # 2026-11-18 · codex · gpt-6.1-sol: reserve every active projected label pin before placing any box (W2-C8).
+        # Include the painted dot's radius plus a pixel for raster rounding; a later label's pin must be protected too.
+        radius = math.ceil(14 * self.s) + 1
+        for lab in spec["labels"]:
+            if _on(lab, t):
+                at = self._visible_point(frame, lab["anchor"])
+                if at is not None:
+                    ax, ay = at
+                    obstacles.append((ax - radius, ay - radius, 2 * radius, 2 * radius))
         for i, lab in enumerate(spec["labels"]):
             if _on(lab, t):
                 piece = self._label_piece(i, lab, frame, t, obstacles)
