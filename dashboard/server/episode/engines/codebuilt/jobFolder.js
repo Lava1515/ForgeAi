@@ -313,6 +313,18 @@ export function clearOutputs(paths) {
   }
 }
 
+/** codex · gpt-6.1-sol · 2026-11-18: discard stale post deliverables, retaining the post kit's audio scratch directory. */
+export function clearPostOutputs(paths) {
+  confinedOut(paths);
+  for (const name of Object.values(OUTPUT_FILES)) {
+    const target = path.join(paths.out, name);
+    const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+    if (!stat) continue;
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new CodebuiltError('CONTAINED_VIOLATION', `invalid post output ${name}`);
+    fs.unlinkSync(target);
+  }
+}
+
 /** Absolute, confined, non-empty, unlinked output files: {files, hashes, report}. Throws otherwise. */
 export function collectOutputs(paths) {
   const realOut = confinedOut(paths);

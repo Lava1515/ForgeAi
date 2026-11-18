@@ -47,7 +47,7 @@ function wavFixture() {
 }
 
 /** A failed overlay job whose accepted pair, voice and receipts are saved; the fence is a counting stub. */
-function makeJob({ route = 'overlay', afterPost = () => {} } = {}) {
+function makeJob({ route = 'overlay', afterPost = () => {}, beforeDraft = () => {} } = {}) {
   const root = path.join(REPO, 'output/agent-jobs/check2-post', `test-${route}-${crypto.randomBytes(4).toString('hex')}`);
   const state = path.join(root, '.start', ID);
   const dir = path.join(state, route === 'authored' ? 'author' : 'loop');
@@ -92,7 +92,7 @@ function makeJob({ route = 'overlay', afterPost = () => {} } = {}) {
   const starter = () => createCodebuiltStarter({
     jobsDir: root, episodesRoot: path.join(root, 'episodes'), planner: { KIT_CONTRACT: 'kit', validateBuildScript: () => [] }, validateReusableBuild: () => [],
     composeRunner: async () => ({ runner }), visualLoop: false, lightMetadataStage: async () => ({}),
-    toDraft: (args) => { drafts.push(args); return { id: `draft-${args.jobId}`, metadata: { social: { duration_seconds: 1 } } }; },
+    toDraft: (args) => { beforeDraft(); drafts.push(args); return { id: `draft-${args.jobId}`, metadata: { social: { duration_seconds: 1 } } }; },
   });
   const paths = jobPaths(root, ID);
   const job = path.join(root, ID);
@@ -182,9 +182,42 @@ test('abort after post output but before completion restores the refusal and wri
     assert.equal(status.resumeNeeds, 'corrected_overlay');
     abortPost = () => {};
     starter.resume(ID, { correctedOverlay: CORRECTED }); await starter.idle();
-    assert.equal(starter.get(ID).status, 'done');
+    assert.equal(starter.get(ID).status, 'done', JSON.stringify({ status: starter.get(ID), runner: j.runnerState() }));
     assert.equal(j.counts.renders, 1);
   } finally { j.cleanup(); }
+});
+
+// codex · gpt-6.1-sol · 2026-11-18: Opus review found that drafting failure stranded a completed post run.
+test('draft failure after post completion resumes only drafting and refuses changed completed outputs', needsKit, async () => {
+  let fail = true;
+  const j = makeJob({ beforeDraft: () => { if (fail) { fail = false; throw Error('draft failed'); } } });
+  try {
+    await j.refuse();
+    const first = j.starter(); first.resume(ID, { correctedOverlay: CORRECTED }); await first.idle();
+    assert.equal(first.get(ID).status, 'failed');
+    assert.equal(first.get(ID).resumeFrom, 'drafting');
+    assert.equal(first.get(ID).resumeNeeds, undefined);
+    const next = j.starter(); next.resume(ID); await next.idle();
+    assert.equal(next.get(ID).status, 'done'); assert.equal(j.counts.renders, 1);
+    fs.appendFileSync(path.join(j.job, 'out', 'video.mp4'), 'changed');
+    j.setRecord({ status: 'failed' });
+    const tampered = j.starter(); tampered.resume(ID); await tampered.idle();
+    assert.equal(tampered.get(ID).status, 'failed'); assert.equal(j.counts.renders, 1);
+  } finally { j.cleanup(); }
+});
+
+test('post correction refuses a host-stage junction before writing outside or posting', needsKit, async () => {
+  const j = makeJob();
+  const outside = path.join(j.root, 'outside'); const link = path.join(j.state, 'post-resume');
+  try {
+    await j.refuse(); fs.mkdirSync(outside); fs.symlinkSync(outside, link, 'junction');
+    const s = j.starter(); s.resume(ID, { correctedOverlay: CORRECTED }); await s.idle();
+    assert.equal(s.get(ID).error.code, 'overlay_correction_invalid');
+    assert.deepEqual(fs.readdirSync(outside), []); assert.equal(j.counts.renders, 1);
+  } finally {
+    if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(link);
+    j.cleanup();
+  }
 });
 
 test('post-only resume works for an authored job (pair and receipt read from author/)', needsKit, async () => {

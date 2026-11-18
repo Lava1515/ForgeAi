@@ -27,7 +27,7 @@ import {
   ensureJobFolder, jobPaths, writeInputs, verifyInputs, clearOutputs, collectOutputs, outputsMatch, assertReportOk,
   writeBuildScript, verifyBuildScript, BUILD_SCRIPT,
   PREVIEW_SPEC, checkPreviewRequest, writePreviewSpec, verifyPreviewSpec, clearPreview, collectPreview, previewMatches,
-  framesDigest, replaceOverlayInput, restoreOverlayInput,
+  framesDigest, replaceOverlayInput, restoreOverlayInput, clearPostOutputs,
 } from './jobFolder.js';
 import crypto from 'node:crypto';
 import { FPS } from '../../codebuilt/planner.js';
@@ -275,7 +275,7 @@ export function createBuildJobRunner({
   async function runPostOnly(request) {
     try {
       if (request === null || typeof request !== 'object' || Array.isArray(request)) throw new CodebuiltError('BAD_JOB', 'the request must be an object');
-      const { jobId, buildScript, overlaySpec, signal } = request;
+      const { jobId, buildScript, overlaySpec, signal, completed = false } = request;
       if (typeof jobId !== 'string' || PREVIEW_JOB_ID.test(jobId)) throw new CodebuiltError('BAD_JOB', 'a post-only resume needs a final job id');
       if (typeof buildScript !== 'string' || !buildScript.trim()) throw new CodebuiltError('BAD_JOB', 'a post-only resume needs the accepted buildScript text');
       if (!produceOutputs) throw new CodebuiltError('INTEGRATION_PENDING', 'a post-only resume needs the host output producer (produceOutputs); the runner fails closed');
@@ -283,7 +283,23 @@ export function createBuildJobRunner({
       const paths = jobPaths(root, jobId);
       ensureJobFolder(paths);
       const release = acquireJobLock(paths.lock, jobKey(paths));
-      try { return await postOnlyLocked({ jobId, buildScript, overlaySpec, signal }, paths); } finally { release(); }
+      try {
+        // codex · gpt-6.1-sol · 2026-11-18: drafting recovery must never fall back to rendering.
+        if (completed === true) {
+          const prior = readJobState(paths.state);
+          if (prior?.status !== 'complete' || prior.postOnly !== true || prior.kind !== 'generated-code' || prior.cleanupUncertain === true
+            || crypto.createHash('sha256').update(buildScript).digest('hex') !== prior.inputs?.[BUILD_SCRIPT]) {
+            throw new CodebuiltError('RESUME_MISMATCH', 'no completed post-only output is recorded');
+          }
+          verifyBuildScript(paths, prior.inputs[BUILD_SCRIPT]);
+          verifyInputs(paths, prior.inputs);
+          const found = outputsMatch(paths, prior.outputs);
+          if (!found) throw new CodebuiltError('INPUT_CHANGED', 'completed post-only outputs changed');
+          assertReportOk(found.report);
+          return { resumed: true, postOnly: true, attempt: prior.attempt, jobDir: paths.dir, ...found };
+        }
+        return await postOnlyLocked({ jobId, buildScript, overlaySpec, signal }, paths);
+      } finally { release(); }
     } catch (error) {
       throw toTyped(error);
     }
@@ -315,6 +331,7 @@ export function createBuildJobRunner({
     const base = { jobId, runner: RUNNER_VERSION, inputs, attempt, kind: 'generated-code', postOnly: true, resumedFromAttempt: prior.attempt ?? null };
     const startedAt = new Date().toISOString();
     try {
+        clearPostOutputs(paths);
       writeJobState(paths.state, { ...base, status: 'running', startedAt });
       let producer = null;
       try { producer = (await produceOutputs({ jobDir: paths.dir, jobId, attempt, signal })) ?? null; } catch (error) {

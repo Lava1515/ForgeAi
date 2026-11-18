@@ -372,9 +372,9 @@ export function createCodebuiltStarter({
     if (scriptOk) reused.push('script');
     if (voiceOk) reused.push('voice');
     if (build) reused.push('buildScript');
-    const postOnly = postOnlyArtifacts(id, rec, stage, scriptOk && voiceOk);
+    const postOnly = postOnlyArtifacts(id, rec, stage, scriptOk && voiceOk, words ? frameCountFor(words) : 0);
     if (postOnly?.ok) reused.push('frames');
-    const resumeFrom = postOnly?.ok ? 'post' : !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : !build ? 'planning' : 'visual_loop';
+    const resumeFrom = postOnly?.ok ? (postOnly.completed ? 'drafting' : 'post') : !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : !build ? 'planning' : 'visual_loop';
     let scriptMeta = {}; try { scriptMeta = JSON.parse(readSafe(path.join(stage, 'script-meta.json')) || '{}'); } catch {}
     return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [], ...(scriptMeta.endingCheck ? { endingCheck: scriptMeta.endingCheck } : {}) } : null, voice, words, reused, resumeFrom, postOnly };
   }
@@ -385,15 +385,16 @@ export function createCodebuiltStarter({
   // Light checks only (no frame hashing): jobStatus calls this for every failed job. The runner re-checks the frames before it posts.
   const overlayBytesSha = (spec) => sha(`${JSON.stringify(spec, null, 2)}\n`);
   const postResumeFile = (stage) => path.join(stage, 'post-resume', 'overlay.json');
-  function postOnlyArtifacts(id, rec, stage, ready) {
+  function postOnlyArtifacts(id, rec, stage, ready, savedFrames) {
     if (!rec || !['overlay', 'authored'].includes(rec.route)) return null; // classic jobs never have a post layout refusal
     const no = (reason) => ({ ok: false, reason });
     // The runner's own record decides, not the job record: a post-only attempt that failed for another reason leaves it as the refusal it was.
     let state; try { state = readJobState(path.join(jobsDir, STATE_DIR_NAME, `${id}.json`)); } catch { return null; }
-    if (state?.failure?.code !== 'OVERLAY_LAYOUT_BLOCKED') return null;
-    const refusal = state?.refusal;
+    const completed = state?.status === 'complete' && state.postOnly === true && state.kind === 'generated-code' && state.cleanupUncertain !== true;
+    if (!completed && state?.failure?.code !== 'OVERLAY_LAYOUT_BLOCKED') return null;
+    const refusal = completed ? { frames: { count: savedFrames }, build_sha256: state.inputs?.['build/build.py'] } : state?.refusal;
     if (!ready) return no('The saved script or voice cannot be reused');
-    if (state.status !== 'failed' || !refusal?.frames?.sha256 || !Number.isInteger(refusal.frames.count) || refusal.frames.count < 1) return no('No post layout refusal with kept frames is recorded');
+    if ((!completed && (state.status !== 'failed' || !refusal?.frames?.sha256)) || !Number.isInteger(refusal?.frames?.count) || refusal.frames.count < 1) return no('No post layout refusal with kept frames is recorded');
     const dir = path.join(stage, rec.route === 'authored' ? 'author' : 'loop');
     try {
       const code = readSafe(path.join(dir, 'accepted.build.py'));
@@ -412,7 +413,7 @@ export function createCodebuiltStarter({
       if (rec.route === 'authored') receipt = JSON.parse(readSafe(path.join(dir, 'receipt.json')) || 'null');
       else { const saved = JSON.parse(readSafe(path.join(dir, 'accepted-receipt.json')) || 'null'); receipt = saved?.sha256 === sha(code) ? saved.receipt : null; }
       if (!receipt || typeof receipt !== 'object') return no('The accepted look receipt is missing');
-      return { ok: true, buildScript: code, nframes: refusal.frames.count, currentSpec, originalOverlaySha256: refusal.overlay_sha256 ?? state.inputs['overlay.json'], receipt, blocking: Array.isArray(refusal.blocking) ? refusal.blocking : [] };
+      return { ok: true, completed, buildScript: code, nframes: refusal.frames.count, currentSpec, originalOverlaySha256: refusal.overlay_sha256 ?? state.inputs['overlay.json'], receipt, blocking: Array.isArray(refusal.blocking) ? refusal.blocking : [] };
     } catch { return no('The accepted build and overlay are not a valid pair'); }
   }
   const load = (id) => {
@@ -659,10 +660,20 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const post = resume.postOnly;
       step(rec, 'building');
       const correctedPair = overlayPair(post.buildScript, resume.postOnlyRun.overlaySpec, { videoSeconds: post.nframes / 30 });
-      const saveCorrected = () => { try { fs.mkdirSync(path.dirname(postResumeFile(stage)), { recursive: true }); fs.writeFileSync(postResumeFile(stage), `${JSON.stringify(correctedPair, null, 1)}\n`); } catch { /* the pair is re-checked before any later post-only resume */ } };
+      const correctionDir = path.dirname(postResumeFile(stage));
+      // codex · gpt-6.1-sol · 2026-11-18: reject host-stage links before the producer or any corrected-pair write.
+      if (!safeDirectory(stage)) throw new StartError('overlay_correction_invalid', 409);
+      try { if (!fs.existsSync(correctionDir)) fs.mkdirSync(correctionDir); } catch { throw new StartError('overlay_correction_invalid', 409); }
+      if (!safeDirectory(correctionDir) || (fs.existsSync(postResumeFile(stage)) && !safeRegular(postResumeFile(stage)))) throw new StartError('overlay_correction_invalid', 409);
+      const saveCorrected = () => {
+        if (!safeDirectory(correctionDir)) throw new StartError('overlay_correction_invalid', 409);
+        atomicWrite(correctionDir, 'overlay.json', `${JSON.stringify(correctedPair, null, 1)}\n`);
+      };
       try {
         if (typeof runtime.runner.runPostOnly !== 'function') throw new StartError('runner_unavailable', 501);
-        await runtime.runner.runPostOnly({ jobId: rec.id, buildScript: post.buildScript, overlaySpec: resume.postOnlyRun.overlaySpec, signal });
+        await runtime.runner.runPostOnly({ jobId: rec.id, buildScript: post.buildScript, overlaySpec: resume.postOnlyRun.overlaySpec, signal, completed: post.completed === true });
+        // Persist the pair even if cancellation arrived just after the runner committed; later recovery only drafts.
+        saveCorrected();
       } catch (error) {
         writeCalls(rec.id, allCalls);
         if (error instanceof StartError) throw error;
@@ -1045,7 +1056,10 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       const post = artifacts.postOnly?.ok === true ? artifacts.postOnly : null;
       let postOnlyRun = null;
       if (corrected !== undefined && !post) throw new StartError('overlay_correction_invalid', 409);
-      if (post) {
+      if (post?.completed) {
+        if (corrected !== undefined) throw new StartError('overlay_correction_invalid', 409);
+        postOnlyRun = { overlaySpec: post.currentSpec };
+      } else if (post) {
         if (corrected === undefined) throw new StartError('overlay_correction_required', 409);
         let spec; try { spec = validateOverlaySpec(corrected, { videoSeconds: post.nframes / 30 }); } catch { throw new StartError('overlay_correction_invalid', 400); }
         if (overlayBytesSha(spec) === overlayBytesSha(post.currentSpec)) throw new StartError('overlay_correction_invalid', 400);
@@ -1080,7 +1094,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     const artifacts = resumable ? reusable(rec.id) : null;
     const blockedReason = artifacts?.blockedReason ?? (resumable && otherActive ? 'Another code-built job is active' : null);
     const priorResume = rec.resumes?.at(-1);
-    return { ...publicJob(rec), resumable: resumable && !blockedReason, ...(resumable && artifacts.postOnly?.ok ? { resumeNeeds: 'corrected_overlay' } : {}), resumeFrom: resumable ? artifacts.resumeFrom : priorResume?.fromStep ?? null, reuses: resumable ? artifacts.reused : priorResume?.reused ?? [], ...(blockedReason ? { resumeBlockedReason: blockedReason } : {}) };
+    return { ...publicJob(rec), resumable: resumable && !blockedReason, ...(resumable && artifacts.postOnly?.ok && !artifacts.postOnly.completed ? { resumeNeeds: 'corrected_overlay' } : {}), resumeFrom: resumable ? artifacts.resumeFrom : priorResume?.fromStep ?? null, reuses: resumable ? artifacts.reused : priorResume?.reused ?? [], ...(blockedReason ? { resumeBlockedReason: blockedReason } : {}) };
   }
 }
 
