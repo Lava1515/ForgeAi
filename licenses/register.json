@@ -130,12 +130,12 @@
     {
       "id": "windows-fonts",
       "kind": "font",
-      "use": "caption text (Impact, Arial Bold), drawn into the frames as pixels",
+      "use": "caption text (Impact, Arial Bold, installed Windows Arial Black ariblk.ttf), drawn into frames as pixels only; no font embedding or redistribution",
       "licence": "Windows licence: text rendered into video as images may be sold; the font files may not be shipped",
       "allowed": true,
       "source": "https://learn.microsoft.com/en-us/typography/fonts/font-faq",
-      "checked": "2026-11-13",
-      "checked_how": "page read"
+      "checked": "2026-11-18",
+      "checked_how": "codex · gpt-6.1-sol, 2026-11-18 20:06 +02:00: read Microsoft font FAQ commercial print/graphic output and video bitmap-caption permission; read https://learn.microsoft.com/en-us/typography/font-list/arial-black confirming Ariblk.ttf regular ships with Windows; verified C:/Windows/Fonts/ariblk.ttf exists. Installed font used locally, no download, copy, embedding or redistribution."
     },
     {
       "id": "music:synthesized",

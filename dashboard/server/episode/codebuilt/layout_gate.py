@@ -33,7 +33,7 @@ def run(opts):
     track = None
     if opts.words:
         _, words = captions.load_words(Path(opts.words))
-        track = captions.Track(words, opts.width, opts.height, lead=opts.lead)
+        track = captions.Track(words, opts.width, opts.height, lead=opts.lead, style="overlay")
     ov = overlay.Overlay(spec, marks, opts.width, opts.height, captions_track=track, fps=opts.fps, nframes=opts.nframes)
     rep = ov.layout_report()
     if opts.frames == "all":

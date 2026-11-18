@@ -427,8 +427,7 @@ class Overlay:
             return None
         ci, act, _ = hit
         if (ci, act) not in self._caption_boxes:
-            self._caption_boxes[(ci, act)] = captions.place(self.track.chunks[ci], act, self.track.font, self.width, self.height,
-                                                            captions.POP)
+            self._caption_boxes[(ci, act)] = self.track.box(ci, act)
         return self._caption_boxes[(ci, act)]
 
     def _visible_point(self, frame, name):

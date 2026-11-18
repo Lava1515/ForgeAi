@@ -85,7 +85,7 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
     _, words = captions.load_words(words_json)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    track = captions.Track(words, width, height, lead=lead)
+    track = captions.Track(words, width, height, lead=lead, style="overlay" if overlay_spec is not None else "classic")
     ov = None
     if overlay_spec is not None:
         if isinstance(fps, bool) or not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0:
