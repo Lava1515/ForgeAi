@@ -135,6 +135,8 @@ function rig(root, hooks = {}) {
   const events = [];
   const starter = createCodebuiltStarter({
     jobsDir: root, episodesRoot: path.join(root, 'episodes'), newId: () => `q1-${++seq}`,
+    // Explicit absent caps under this test's own root: the shipped paths/author-caps.json must not decide this case.
+    authorLoop: { capsFile: path.join(root, 'absent-author-caps.json') },
     planner: { planCodebuiltBuild: async (input) => {
       events.push(['plan', input.topic, input.duration]);
       await hooks.plan?.(input);
