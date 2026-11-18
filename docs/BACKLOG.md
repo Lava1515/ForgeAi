@@ -329,7 +329,7 @@ Scope: ForgeBrain/plans/2026-11-18-finish-kola-main-way-day-plan.md. These ids b
 | M3 | ACCEPTED | Haiku page, Luna review; supervisor corrected H1 to skipped/normal Auto. Local owner-review-1118/owner-review.html. |
 | M4 | BLOCKED 2026-11-18 11:50 +02:00 codex · gpt-6.1-sol | Sonnet independently confirms79846d0 pin patch correct/S0/L0/full gates; whole lane blocked by absent occlusion contract. Branch preserved unmerged; no narrowed scope. G10/G11 subject coverage unchanged. |
 | M5 | BLOCKED | Luna fallback made no changes; installed Arial Black bitmap use checked at Microsoft source, but register inclusion is outside assigned files. Checkout t3-c55b4038 clean at a51a19a. |
-| M6 | BUILDING authorized Fable fix 7 | Existing GET /jobs now in scope; original Luna task preserved, no new app.js mount required. |
+| M6 | INDEPENDENT REVIEW | Luna234672d in original t3-12c5d582, existing GET /jobs boolean + client; Haiku review1 active. |
 | M7 | MERGED 39309a2 | Haiku 641b084, Luna PASS; classic prompt unchanged, integrated full gates pass. |
 | M8 | ACCEPTED | Haiku runbook/request/record templates inspected and corrected by supervisor. P2 request remains unsent. |
 | A3 | MERGED 44c4c6c / PASS | Three accepted Sonnet sessions, 5/5/4 previews; Luna review2 PASS. Exact caps 2b0852d plus Haiku fixture 3fd5f3b independently Luna PASS; caps 940000 / 90000, reserves 11097 / 105079. Integrated 524 server pass. No final/draft. |
@@ -351,16 +351,18 @@ F1/F6 preserve their original checkouts, M6 active, caps fixture under independe
 
 | Fix | State | Evidence / next step |
 |---|---|---|
-| F1 | FINISHING existing checkout | t3-fa784d8c, original Luna completing CPU F04 and gates |
+| F1 | MERGED 362edb5 | Lunaa2a8ed4, independent Sonnet PASS with own real CPU Blender background-chain/hidden/cycle probes; classic unchanged |
 | F2 | MERGED c1449a1 | Sonnet7da41f4, Luna PASS f2-f3-review1/REPORT.md; plan 2.5 limits documented |
 | F3 | MERGED e4c3ecc | Haiku4ac5a2d, Luna PASS; gate includes all 44 overlay tests |
 | F4 | MERGED 1955184 | N2 5faad9a after whitespace cleanup; Sonnet PASS n2-review2/REPORT.md |
 | F5 | CLOSED NOT PRODUCED | H1 closed, no extra router call; live Auto picture=true for P2 |
 | F6 | MERGED 83cadea | Luna264d7e4, independent Haiku PASS: picture-off 48/48, journey26/26; integrated526server/430Python pass |
-| F7 | BUILDING | M6 original Luna, existing GET scope authorized |
+| F7 | INDEPENDENT REVIEW | M6 Luna234672d, Haiku review1 active; dist built in worker checkout, root build waits merge |
 | F8 | DOCS CORRECTED | Python gate: python -m pytest blender_worker narrative_factory tools |
 | F9 | DOCS CORRECTED | Wave 2 rows above and FABLE-CHECK step 4 baseline tool |
 
 Window update 2026-11-18 14:03 +02:00 · codex · gpt-6.1-sol: caps44c4c6c, N21955184, F2c1449a1 and F3e4c3ecc merged locally at zero jobs; integrated524server/430Python/licence/secrets pass. F1/M6/F6 review still pending; no WAVE3DONE or P2 activation.
 
 F6 update 2026-11-18 14:07 +02:00 · codex · gpt-6.1-sol: independent Haiku review1 PASS S0L0C0, merged83cadea at zero jobs. Integrated526server/430Python/licence/secrets gates pass; F1/M6 preserved pending completion and reviews. No runtime activation or P2 yet.
+
+F1 update 2026-11-18 14:17 +02:00 · codex · gpt-6.1-sol: Sonnet review1 PASS exacta2a8ed4; merged362edb5 at zero jobs and restarted forgeai-narrative as required. Integrated526server/431Python/licence/secrets gates pass. M6 independent review pending; no P2 or dashboard activation.
