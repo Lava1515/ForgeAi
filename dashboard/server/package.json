@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=../../.env index.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js episode/codebuilt/overlayResume.test.js episode/codebuilt/overlaySpec.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
