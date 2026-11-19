@@ -2,16 +2,6 @@
   "rule": "Owner rule, 2026-11-13: nothing is used in this project unless its licence allows monetized (commercial) videos. Credit-required licences are fine when the credit is written into the video description. Non-commercial, research-only and unclear licences are out. Every model, asset, font, library and base image is listed here with its source and the date it was checked. tools/license_check.py fails when something in the project is missing here or is marked not allowed.",
   "entries": [
     {
-      "id": "hyperframes-cli-c1",
-      "kind": "tool",
-      "use": "opt-in host text pass, pinned to installed 0.9.70; browser animation only, original blocks",
-      "licence": "Apache-2.0",
-      "allowed": true,
-      "source": "https://github.com/heygen-com/hyperframes/blob/main/LICENSE",
-      "checked": "2026-11-19",
-      "checked_how": "codex · gpt-6.1-sol · 2026-11-19 14:29 +02:00: read upstream Apache-2.0 LICENSE and installed package version 0.9.70; owner/Fable approval in tools-tests-1119/REPORT.md. No install, catalog blocks or external animation scripts."
-    },
-    {
       "id": "inter-bold-c1",
       "kind": "font",
       "use": "local HyperFrames text, Inter-700.woff2 copied from the already installed approved HyperFrames 0.9.70 bundle, with OFL notice",
@@ -446,7 +436,7 @@
     {
       "id": "hyperframes",
       "kind": "tool",
-      "use": "HTML-to-video rendering and text overlay generation; CLI pinned to version 0.9.70; browser animation only",
+      "use": "HTML-to-video rendering and text overlay generation; CLI pinned to version 0.9.70; browser animation only; pinned to installed 0.9.70 for the opt-in host text pass (lane C1)",
       "licence": "Apache-2.0",
       "allowed": true,
       "source": "https://github.com/heygen-com/hyperframes/blob/main/LICENSE",
