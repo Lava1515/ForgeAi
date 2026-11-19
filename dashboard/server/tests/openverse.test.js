@@ -1,185 +1,149 @@
+// Licence gate regressions: codex · gpt-6.1-sol · 2026-11-19 14:50 +02:00.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import {
-  getOpenverseAsset,
-  verifyOpenverseItem,
-  evaluatePageLicense,
-} from '../episode/codebuilt/openverse.js';
-
-test('Openverse licence gate: non-CC0/PD and page-unconfirmed items are strictly rejected', async (t) => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeai-openverse-test-'));
-
-  t.after(() => {
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // Best effort cleanup in tmp
+import { getOpenverseAsset, evaluatePageLicense, verifyOpenverseItem } from '../episode/codebuilt/openverse.js';
+import { JOB_ROOT } from '../episode/codebuilt/jobPaths.js';
+const own = 'https://freesound.org/people/artist/sounds/12345/';
+const cc0 = 'https://creativecommons.org/publicdomain/zero/1.0/';
+const pdm = 'https://creativecommons.org/publicdomain/mark/1.0/';
+const by = 'https://creativecommons.org/licenses/by/4.0/';
+const link = url => `<a href="${url}">Licence</a>`;
+const scope = html => `<div id="sound_license">${html}</div>`;
+const valid = scope(link(cc0));
+const item = (id = 'safe', extra = {}) => ({ id, license: 'cc0', foreign_landing_url: own, url: `https://cdn.freesound.org/${id}.mp3`, creator: 'Artist', title: 'Ocean', ...extra });
+const lookupFn = async () => [{ address: '93.184.216.34', family: 4 }];
+function job(t) {
+  const dir = fs.mkdtempSync(path.join(JOB_ROOT, 'c2-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  return dir;
+}
+function network(items, pages = {}, assets = {}) {
+  const calls = [];
+  return { lookupFn, calls, fetchFn: async (url, opts) => {
+    assert.equal(opts.redirect, 'manual'); assert.ok(opts.signal); calls.push(url);
+    if (url.startsWith('https://api.openverse.org/')) return Response.json({ results: items });
+    const response = pages[url] ?? assets[url];
+    if (response instanceof Error) throw response;
+    if (typeof response === 'function') return response();
+    if (response !== undefined) return new Response(response);
+    throw new Error(`Unexpected fetch ${url}`);
+  } };
+}
+test('scoped parser rejects sidebar, negation, substring, text-only and conflicting evidence', () => {
+  const bad = [scope(link(by)) + `<aside>${link(cc0)}</aside>`, scope('Not dedicated to the public domain'),
+    scope(`Not dedicated to the public domain ${link(cc0)}`), scope(`N&#111;t dedicated ${link(cc0)}`), scope(link('https://notcreativecommons.org/publicdomain/zero/1.0/')),
+    scope(link('https://creativecommons.org.evil.test/publicdomain/zero/1.0/')), scope('CC0'),
+    scope(link('https://creativecommons.org/publicdomain/zero/1.0/extra')), scope(link(cc0) + link(by)), scope(link(cc0) + link(pdm)),
+    scope(`<!-- ${link(cc0)} -->CC0`), scope(`<script>${link(cc0)}</script>`), `<aside>${link(cc0)}</aside>`,
+    `<!-- ${valid}`, `<div id="comments" id="sound_license">${link(cc0)}</div>`];
+  for (const html of bad) assert.equal(evaluatePageLicense(html, { url: own }).confirmed, false, html);
+  assert.equal(evaluatePageLicense(valid, { url: own }).licenseTag, 'cc0');
+  assert.equal(evaluatePageLicense(scope(link(pdm)), { url: own }).licenseTag, 'pdm');
+  assert.equal(evaluatePageLicense(valid, { url: 'https://unknown.test/item' }).confirmed, false);
+});
+test('Commons requires file page and checks every media licence template', () => {
+  const url = 'https://commons.wikimedia.org/wiki/File:Ocean.jpg';
+  const table = html => `<table class="licensetpl"><tr><td>${html}</td></tr></table>`;
+  assert.equal(evaluatePageLicense(table(link(cc0)) + link(by), { url }).confirmed, true);
+  assert.equal(evaluatePageLicense(table(link(cc0)) + table(link(by)), { url }).confirmed, false);
+  assert.equal(evaluatePageLicense(table(link(cc0)), { url: own }).confirmed, false);
+  assert.equal(evaluatePageLicense(link(cc0), { url }).confirmed, false);
+});
+test('API tag and own-page provenance must match exactly', async () => {
+  const net = network([], { [own]: valid });
+  for (const candidate of [item('by', { license: 'by' }), item('mismatch', { license: 'pdm' }), item('detail', { foreign_landing_url: null, detail_url: own })]) {
+    assert.equal((await verifyOpenverseItem(candidate, net)).ok, false);
+  }
+});
+test('rejected items never download; accepted asset records confirmed licence and provenance', async t => {
+  const bad = item('bad', { foreign_landing_url: own.replace('12345', '12346') }), good = item();
+  const net = network([item('by', { license: 'by' }), bad, good], { [own]: valid, [bad.foreign_landing_url]: scope(link(by)) + link(cc0) }, { [good.url]: 'audio' });
+  const result = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net });
+  assert.equal(result.accepted, true, result.reason); assert.equal(result.rejections.length, 2);
+  assert.equal(net.calls.includes(bad.url), false); assert.equal(fs.readFileSync(result.assetPath, 'utf8'), 'audio');
+  const record = JSON.parse(fs.readFileSync(result.recordPath, 'utf8'));
+  assert.equal(record.own_page_link, own); assert.equal(record.licence, 'CC0 1.0'); assert.equal(record.licence_url, cc0);
+  assert.equal(record.creator, 'Artist'); assert.equal(record.title, 'Ocean'); assert.match(record.date, /^\d{4}-\d{2}-\d{2}$/);
+});
+test('private landing, private DNS answer, and redirect to localhost fail before unsafe fetch', async t => {
+  const candidates = [item('private', { foreign_landing_url: 'http://127.0.0.1/file' }), item('redirect'), item('dns', { foreign_landing_url: own.replace('12345', '12346') })];
+  const net = network(candidates, { [own]: () => new Response(null, { status: 302, headers: { location: 'http://localhost/private' } }) });
+  let n = 0;
+  net.lookupFn = async host => host === 'freesound.org' && ++n > 1 ? [{ address: '169.254.169.254', family: 4 }] : lookupFn();
+  const result = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net });
+  assert.equal(result.accepted, false); assert.equal(result.rejections.length, 3);
+  assert.deepEqual(net.calls.filter(u => !u.includes('api.openverse.org')), [own]);
+});
+test('asset URLs and redirect hops reject private and non-http targets', async t => {
+  for (const target of ['http://127.0.0.1/a.mp3', 'http://[::1]/a.mp3', 'http://169.254.169.254/a.mp3', 'file:///a.mp3', 'http://2130706433/a.mp3']) {
+    const candidate = item('safe', { url: target }), net = network([candidate], { [own]: valid });
+    assert.equal((await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net })).accepted, false, target);
+    assert.equal(net.calls.includes(target), false);
+  }
+  const candidate = item(), net = network([candidate], { [own]: valid }, { [candidate.url]: () => new Response(null, { status: 302, headers: { location: 'http://localhost/a.mp3' } }) });
+  assert.equal((await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net })).accepted, false);
+  assert.equal(net.calls.some(u => u.includes('localhost')), false);
+});
+test('reserved Windows filenames, separators, colons and unsupported extensions never download', async t => {
+  for (const id of ['CON', 'con.jpg', 'PRN', 'AUX', 'NUL', 'COM1', 'LPT9', '../evil', 'a:b', 'a\\b']) {
+    const candidate = item(id), net = network([candidate], { [own]: valid });
+    assert.equal((await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net })).accepted, false, id);
+    assert.equal(net.calls.includes(candidate.url), false);
+  }
+  const net = network([item('unsafe', { filetype: '../../exe' })], { [own]: valid });
+  assert.equal((await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net })).accepted, false);
+});
+test('redirect chains recheck DNS at every hop and enforce a hop limit', async t => {
+  const candidate = item(), next = 'https://cdn.freesound.org/second.mp3';
+  const redirect = url => () => new Response(null, { status: 302, headers: { location: url } });
+  const net = network([candidate], { [own]: valid }, { [candidate.url]: redirect(next) });
+  let n = 0;
+  net.lookupFn = async host => host === 'cdn.freesound.org' && ++n > 1 ? [{ address: '10.0.0.1', family: 4 }] : lookupFn();
+  const result = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net });
+  assert.equal(result.accepted, false); assert.equal(net.calls.includes(next), false);
+  const loop = network([candidate], { [own]: valid }, { [candidate.url]: redirect(candidate.url) });
+  const rejected = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...loop });
+  assert.equal(rejected.accepted, false); assert.match(rejected.rejections[0].reason, /redirect limit/);
+  assert.equal(loop.calls.filter(u => u === candidate.url).length, 4);
+});
+test('PDM provenance uses the page-confirmed licence rather than API licence_url', async t => {
+  const candidate = item('pdm', { license: 'pdm', license_url: by });
+  const net = network([candidate], { [own]: scope(link(pdm)) }, { [candidate.url]: 'audio' });
+  const result = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net });
+  assert.equal(result.accepted, true); assert.equal(result.record.licence, 'Public Domain Mark 1.0');
+  assert.equal(result.record.licence_url, pdm);
+});
+test('job directory must exist inside job root and contain no junctions', async t => {
+  const dir = job(t), target = job(t), junction = path.join(dir, 'linked');
+  fs.symlinkSync(target, junction, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    for (const jobDir of [dir, junction, path.join(JOB_ROOT, 'missing-c2-test'), path.dirname(JOB_ROOT)]) {
+      const net = network([]), result = await getOpenverseAsset({ query: 'ocean', jobDir, ...net });
+      assert.equal(result.accepted, false); assert.equal(net.calls.length, 0);
     }
-  });
-
-  // Mock responses for testing
-  const mockOpenverseApiResponse = {
-    results: [
-      {
-        id: 'item-cc-by',
-        title: 'Attribution Only Photo',
-        license: 'by',
-        license_version: '4.0',
-        foreign_landing_url: 'https://example.com/photos/item-cc-by',
-        url: 'https://example.com/files/item-cc-by.jpg',
-        creator: 'Artist A',
-      },
-      {
-        id: 'item-fake-cc0',
-        title: 'Tagged CC0 but Page specifies CC-BY',
-        license: 'cc0',
-        license_version: '1.0',
-        foreign_landing_url: 'https://example.com/photos/item-fake-cc0',
-        url: 'https://example.com/files/item-fake-cc0.jpg',
-        creator: 'Artist B',
-      },
-      {
-        id: 'item-unconfirmed',
-        title: 'Tagged CC0 but Page has no license statement',
-        license: 'cc0',
-        license_version: '1.0',
-        foreign_landing_url: 'https://example.com/photos/item-unconfirmed',
-        url: 'https://example.com/files/item-unconfirmed.jpg',
-        creator: 'Artist C',
-      },
-      {
-        id: 'item-valid-cc0',
-        title: 'Genuine CC0 Ocean Sound',
-        license: 'cc0',
-        license_version: '1.0',
-        foreign_landing_url: 'https://freesound.org/people/valid/sounds/12345',
-        url: 'https://cdn.freesound.org/previews/valid.mp3',
-        creator: 'Sound Designer',
-      },
-    ],
-  };
-
-  const mockLandingPages = {
-    'https://example.com/photos/item-cc-by': `
-      <html>
-        <body>
-          <h1>Attribution Only Photo</h1>
-          <p>License: <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution (CC BY 4.0)</a></p>
-        </body>
-      </html>
-    `,
-    'https://example.com/photos/item-fake-cc0': `
-      <html>
-        <body>
-          <h1>Tagged CC0 but Page specifies CC-BY</h1>
-          <p>This work is licensed under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC-BY-SA 4.0</a>. All rights reserved.</p>
-        </body>
-      </html>
-    `,
-    'https://example.com/photos/item-unconfirmed': `
-      <html>
-        <body>
-          <h1>Tagged CC0 but Page has no license statement</h1>
-          <p>Some random blog post with no license details or links.</p>
-        </body>
-      </html>
-    `,
-    'https://freesound.org/people/valid/sounds/12345': `
-      <html>
-        <body>
-          <h1>Genuine CC0 Ocean Sound</h1>
-          <div id="sound_license">
-            <a href="https://creativecommons.org/publicdomain/zero/1.0/">Creative Commons 0</a>
-          </div>
-        </body>
-      </html>
-    `,
-  };
-
-  const mockFetch = async (url) => {
-    if (url.includes('api.openverse.org')) {
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        json: async () => mockOpenverseApiResponse,
-      };
+  } finally { fs.unlinkSync(junction); }
+});
+test('network errors give reasons and continue to next candidate; search errors return rejection', async t => {
+  const bad = item('bad', { foreign_landing_url: own.replace('12345', '12346') }), failDownload = item('download-fails'), good = item();
+  const net = network([bad, failDownload, good], { [bad.foreign_landing_url]: new Error('page offline'), [own]: valid }, { [failDownload.url]: new Error('asset offline'), [good.url]: 'audio' });
+  const result = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net });
+  assert.equal(result.accepted, true); assert.equal(result.rejections.length, 2); assert.match(result.rejections[0].reason, /offline/);
+  assert.equal(net.calls.includes(bad.url), false);
+  const fail = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), lookupFn, fetchFn: async () => { throw new Error('search offline'); } });
+  assert.equal(fail.accepted, false); assert.match(fail.reason, /search offline/);
+});
+test('search, page and asset body streams have deadlines and size caps', async t => {
+  const stalled = () => new Response(new ReadableStream({ start() {} }));
+  const huge = size => () => new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array(size)); c.close(); } }));
+  for (const stage of ['search', 'page', 'asset']) {
+    for (const body of [stalled, huge(stage === 'asset' ? 25 * 1024 * 1024 + 1 : 2 * 1024 * 1024 + 1)]) {
+      const candidate = item(), net = network([candidate], { [own]: stage === 'page' ? body : valid }, { [candidate.url]: stage === 'asset' ? body : 'audio' });
+      if (stage === 'search') net.fetchFn = async () => body();
+      const result = await getOpenverseAsset({ query: 'ocean', jobDir: job(t), ...net, timeoutMs: 150 });
+      assert.equal(result.accepted, false, stage);
+      assert.match(stage === 'search' ? result.reason : result.rejections[0].reason, /deadline|size limit/i);
     }
-
-    if (mockLandingPages[url]) {
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        text: async () => mockLandingPages[url],
-      };
-    }
-
-    if (url.endsWith('.mp3') || url.endsWith('.jpg')) {
-      return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        arrayBuffer: async () => new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer,
-      };
-    }
-
-    return {
-      ok: false,
-      status: 404,
-      statusText: 'Not Found',
-      text: async () => '404 Not Found',
-    };
-  };
-
-  // 1. Direct unit verification on non-CC0/PD item:
-  const checkCcBy = await verifyOpenverseItem(mockOpenverseApiResponse.results[0], { fetchFn: mockFetch });
-  assert.equal(checkCcBy.ok, false, 'Item with API tag "by" must be rejected');
-  assert.match(checkCcBy.reason, /not CC0 or PDM/);
-
-  // 2. Direct unit verification on item with CC0 API tag but non-CC0 page:
-  const checkFakeCc0 = await verifyOpenverseItem(mockOpenverseApiResponse.results[1], { fetchFn: mockFetch });
-  assert.equal(checkFakeCc0.ok, false, 'Item with conflicting page license must be rejected');
-  assert.match(checkFakeCc0.reason, /conflicting/i);
-
-  // 3. Direct unit verification on item with CC0 API tag but unconfirmed page:
-  const checkUnconfirmed = await verifyOpenverseItem(mockOpenverseApiResponse.results[2], { fetchFn: mockFetch });
-  assert.equal(checkUnconfirmed.ok, false, 'Item with unconfirmed page license must be rejected');
-  assert.match(checkUnconfirmed.reason, /does not confirm CC0/i);
-
-  // 4. Direct unit verification on genuine CC0 item:
-  const checkValid = await verifyOpenverseItem(mockOpenverseApiResponse.results[3], { fetchFn: mockFetch });
-  assert.equal(checkValid.ok, true, 'Genuine CC0 item must be accepted');
-  assert.equal(checkValid.license, 'CC0 1.0');
-
-  // 5. End-to-end getOpenverseAsset: proves candidates 0, 1, 2 are rejected and candidate 3 is accepted and saved
-  const result = await getOpenverseAsset({
-    query: 'ocean waves',
-    mediaType: 'audio',
-    jobDir: tmpDir,
-    destSubdir: 'assets',
-    fetchFn: mockFetch,
-  });
-
-  assert.equal(result.ok, true, 'getOpenverseAsset should succeed on valid candidate');
-  assert.equal(result.accepted, true);
-  assert.equal(result.item.id, 'item-valid-cc0');
-  assert.equal(result.rejections.length, 3, 'First three candidates should be recorded as rejections');
-  assert.equal(result.rejections[0].id, 'item-cc-by');
-  assert.equal(result.rejections[1].id, 'item-fake-cc0');
-  assert.equal(result.rejections[2].id, 'item-unconfirmed');
-
-  // Verify downloaded asset and license record file exist inside job folder
-  assert.equal(fs.existsSync(result.assetPath), true, 'Asset file must exist on disk');
-  assert.equal(fs.existsSync(result.recordPath), true, 'License record file must exist on disk');
-
-  const recordContent = JSON.parse(fs.readFileSync(result.recordPath, 'utf-8'));
-  assert.equal(recordContent.id, 'openverse-item-valid-cc0');
-  assert.equal(recordContent.licence, 'CC0 1.0');
-  assert.equal(recordContent.creator, 'Sound Designer');
-  assert.equal(recordContent.own_page_link, 'https://freesound.org/people/valid/sounds/12345');
-  assert.equal(typeof recordContent.date, 'string');
+  }
 });
