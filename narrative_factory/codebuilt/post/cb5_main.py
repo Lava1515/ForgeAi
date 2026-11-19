@@ -3,6 +3,7 @@
 The dashboard runs this after the offline executor container is confirmed gone. It turns <job>/frames, <job>/words.json
 and <job>/mix.wav into the four CB5 output files (see cb5.produce). Prints one JSON line; exit 0 only on success.
 """
+# codex · gpt-6.1-sol · 2026-11-19 14:40 +02:00: optional host-only text pass.
 import json
 import sys
 from pathlib import Path
@@ -14,11 +15,11 @@ from narrative_factory.codebuilt.post import cb5, media  # noqa: E402
 
 
 def main(argv):
-    if len(argv) != 2:
-        print(json.dumps({"status": "error", "error": "usage: cb5_main.py <absolute job dir>"}))
+    if len(argv) not in (2, 3) or (len(argv) == 3 and argv[2] != '--hyperframes'):
+        print(json.dumps({"status": "error", "error": "usage: cb5_main.py <absolute job dir> [--hyperframes]"}))
         return 2
     try:
-        report = cb5.produce(argv[1])
+        report = cb5.produce(argv[1], hyperframes=len(argv) == 3)
     except cb5.OverlayLayoutBlocked as error:
         # The named refusal: one JSON line the host producer turns into OVERLAY_LAYOUT_BLOCKED with the bounded blocking list.
         print(json.dumps({"status": "error", "code": "overlay_layout_blocked", "error": "overlay_layout_blocked",

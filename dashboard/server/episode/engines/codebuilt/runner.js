@@ -172,7 +172,8 @@ export function createBuildJobRunner({
 
     if (preview) clearPreview(paths); else clearOutputs(paths);
     const attempt = (prior?.attempt ?? 0) + 1;
-    const base = { jobId, runner: RUNNER_VERSION, inputs, attempt, kind, ...(preview ? { mode: 'preview' } : {}) };
+    // codex · gpt-6.1-sol · 2026-11-19 14:39 +02:00: retain the host route for post-only completion.
+    const base = { jobId, runner: RUNNER_VERSION, inputs, attempt, kind, ...(request.route === 'authored' ? { route: 'authored' } : {}), ...(preview ? { mode: 'preview' } : {}) };
     const startedAt = new Date().toISOString();
     writeJobState(paths.state, { ...base, status: 'running', startedAt });
 
@@ -231,7 +232,7 @@ export function createBuildJobRunner({
       // The host producer turns what the executor left (frames, audio) into the four output files.
       let producer = null;
       if (produceOutputs) {
-        try { producer = (await produceOutputs({ jobDir: paths.dir, jobId, attempt, signal })) ?? null; } catch (error) {
+        try { producer = (await produceOutputs({ jobDir: paths.dir, jobId, attempt, signal, route: request.route })) ?? null; } catch (error) {
           if (error instanceof CodebuiltError) throw error;
           throw new CodebuiltError('PRODUCER_FAILED', String(error?.message ?? error).slice(0, 300));
         }
@@ -328,13 +329,13 @@ export function createBuildJobRunner({
     const { sha256: overlayHash, previous } = replaceOverlayInput(paths, overlaySpec, frames.count / FPS);
     const inputs = { ...prior.inputs, 'overlay.json': overlayHash };
     const attempt = (prior.attempt ?? 0) + 1;
-    const base = { jobId, runner: RUNNER_VERSION, inputs, attempt, kind: 'generated-code', postOnly: true, resumedFromAttempt: prior.attempt ?? null };
+    const base = { jobId, runner: RUNNER_VERSION, inputs, attempt, kind: 'generated-code', ...(prior.route === 'authored' ? { route: 'authored' } : {}), postOnly: true, resumedFromAttempt: prior.attempt ?? null };
     const startedAt = new Date().toISOString();
     try {
         clearPostOutputs(paths);
       writeJobState(paths.state, { ...base, status: 'running', startedAt });
       let producer = null;
-      try { producer = (await produceOutputs({ jobDir: paths.dir, jobId, attempt, signal })) ?? null; } catch (error) {
+      try { producer = (await produceOutputs({ jobDir: paths.dir, jobId, attempt, signal, route: prior.route })) ?? null; } catch (error) {
         if (error instanceof CodebuiltError) throw error;
         throw new CodebuiltError('PRODUCER_FAILED', String(error?.message ?? error).slice(0, 300));
       }

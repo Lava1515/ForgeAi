@@ -1,5 +1,6 @@
 """Adapt the CB4 post kit to the fixed CB5 job-folder output contract."""
 import json
+import logging
 import math
 import shutil
 import tempfile
@@ -122,7 +123,7 @@ def check_layout(frames, words, spec, marks, job, *, fps, lead):
         raise OverlayLayoutBlocked(report.get("blocking", []))
 
 
-def produce(job_dir, *, fps=run.FPS, lead=LEAD):
+def produce(job_dir, *, fps=run.FPS, lead=LEAD, hyperframes=False):
     """Finalize <job>/frames, words.json and mix.wav into the four CB5 out artifacts.
 
     All paths are resolved beneath the explicit absolute job directory. The success report is
@@ -147,7 +148,7 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     paths["report.json"].unlink(missing_ok=True)
     for src in (words, audio):
         media.input_file(src)
-    if spec.exists():
+    if spec.exists() and not hyperframes:
         # Before the audio premix and the encode: a blocking layout is refused here, by name, in a fraction of a second.
         try:
             check_layout(frames, words, spec, overlay_args["anchors"], job, fps=fps, lead=lead)
@@ -212,7 +213,23 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     # A fresh directory cannot alias an existing frames/out junction. Keep intermediates
     # with the job for diagnosis; never recursively delete agent-controlled job contents.
     work = Path(tempfile.mkdtemp(prefix=".cb5-post-", dir=job))
-    result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead, **overlay_args)
+    # codex · gpt-6.1-sol · 2026-11-19 14:29 +02:00: no Pillow text on the opt-in authored path.
+    if hyperframes:
+        audio_lead = overlay_args.get("audio_lead")
+        result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead,
+                            audio_lead=audio_lead, draw_text=False)
+        try:
+            from . import hyperframes_text
+            result = hyperframes_text.finish(job, result, words, spec if spec.exists() else None,
+                                             marks if marks.exists() else None, fps=fps, lead=lead)
+        except Exception as error:
+            # codex · gpt-6.1-sol · 2026-11-19 14:52 +02:00: optional text failures must not lose the job.
+            reason = f"{type(error).__name__}: {' '.join(str(error).split())}"[:1000]
+            logging.getLogger(__name__).warning("HyperFrames text failed; using legacy overlay text: %s", reason)
+            result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead, **overlay_args)
+            result["hyperframes"] = {"status": "fallback", "reason": reason}
+    else:
+        result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead, **overlay_args)
     if result.get("ok") is not True:
         raise media.MediaError("CB4 finalizer checks failed")
     shutil.copyfile(result["video"], paths["video.mp4"])
