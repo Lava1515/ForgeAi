@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { createCodebuiltStarter } from '../episode/codebuilt/start.js';
 import { createCodebuiltRunCoordinator } from '../episode/codebuilt/runCoordinator.js';
+import { AutoTopicError } from '../episode/codebuilt/autoTopic.js';
 
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 const tick = () => new Promise((r) => setImmediate(r));
@@ -208,6 +209,26 @@ function coordinatorRig(root) {
   });
   return { coordinator, jobs, starts, aborts };
 }
+
+// codex · gpt-6.1-sol · 2026-11-19 14:24 +02:00: proof-day empty picks and fact blocks must terminate.
+test('empty picks retry once, use the channel pool, and stop after two blocked topics', async (t) => {
+  const starts = []; let picks = 0;
+  const channel = { id: 'channel', video_types: ['factual'] };
+  const coordinator = createCodebuiltRunCoordinator({
+    runsDir: scratch(t), pollMs: 1, getChannel: () => channel, getChannels: () => [channel],
+    autoInputs: () => ({ growth: { ideas: [{ topic: 'First bridge', rank: 1 }, { topic: 'Second bridge', rank: 2 }, { topic: 'Third bridge', rank: 3 }] } }),
+    pickTopic: async () => { picks += 1; throw new AutoTopicError('theme_no_candidates'); },
+    starter: {
+      start: (input) => { starts.push(input.topic); return { id: `job-${starts.length}`, status: 'queued' }; },
+      get: () => ({ status: 'failed', step: 'factchecking', error: { code: 'fact_check_blocked' } }),
+    },
+  });
+  const run = coordinator.startRun({ type: 'factual', voice: 'aiden', duration: 30 });
+  await coordinator.idle();
+  assert.equal(picks, 2);
+  assert.deepEqual(starts, ['First bridge', 'Second bridge']);
+  assert.equal(coordinator.getRun(run.id).videos[0].error.code, 'fact_check_blocked');
+});
 test('batch lookahead is bounded; abort drains both jobs and leaves the third unstarted', async (t) => {
   const { coordinator, starts, aborts } = coordinatorRig(scratch(t));
   const run = coordinator.startRun({ count: 3, theme: 'Bridge engineering', type: 'factual', duration: 30, voice: 'aiden' });
