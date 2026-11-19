@@ -229,6 +229,33 @@ test('empty picks retry once, use the channel pool, and stop after two blocked t
   assert.deepEqual(starts, ['First bridge', 'Second bridge']);
   assert.equal(coordinator.getRun(run.id).videos[0].error.code, 'fact_check_blocked');
 });
+// codex · gpt-6.1-sol · 2026-11-19 14:38 +02:00: review regressions for topic ownership and abort at a blocked-job handoff.
+for (const scenario of ['owner', 'abort']) test(`fact-block retry respects ${scenario}`, async (t) => {
+  let terminal = false; let starts = 0; let run;
+  const channel = { id: 'channel', video_types: ['factual'] };
+  const coordinator = createCodebuiltRunCoordinator({
+    runsDir: scratch(t), pollMs: 1, getChannel: () => channel, getChannels: () => [channel],
+    autoInputs: () => ({ growth: { ideas: [{ topic: 'Next bridge' }] } }),
+    pickTopic: async () => ({ topic: 'Auto bridge', ranked: 1 }),
+    starter: {
+      start: () => ({ id: `job-${++starts}`, status: 'queued' }),
+      get: () => {
+        if (!terminal) return { status: 'building' };
+        if (scenario === 'abort') coordinator.abortRun(run.id);
+        return { status: 'failed', step: 'factchecking', error: { code: 'fact_check_blocked' } };
+      },
+      abort: () => {}, // The job has already failed when the abort reaches the starter.
+    },
+  });
+  run = coordinator.startRun({ type: 'factual', voice: 'aiden', duration: 30, ...(scenario === 'owner' ? { topic: 'Owner bridge' } : {}) });
+  terminal = true;
+  await coordinator.idle();
+  const done = coordinator.getRun(run.id);
+  assert.equal(starts, 1);
+  assert.equal(done.videos[0].status, scenario === 'owner' ? 'failed' : 'aborted');
+  assert.equal(done.summary.running, 0);
+});
+
 test('batch lookahead is bounded; abort drains both jobs and leaves the third unstarted', async (t) => {
   const { coordinator, starts, aborts } = coordinatorRig(scratch(t));
   const run = coordinator.startRun({ count: 3, theme: 'Bridge engineering', type: 'factual', duration: 30, voice: 'aiden' });

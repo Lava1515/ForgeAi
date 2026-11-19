@@ -326,7 +326,8 @@ export function createCodebuiltRunCoordinator({
       // codex · gpt-6.1-sol · 2026-11-19 14:24 +02:00: each requested video owns at most two topic jobs.
       async function startVideo(i, topicAttempt = 0) {
         const video = rec.videos[i];
-        if (ctl.aborted) { stopRest(i); return null; }
+        // codex · gpt-6.1-sol · 2026-11-19 14:38 +02:00: a retry may re-enter with this video still running.
+        if (ctl.aborted) { if (topicAttempt > 0) stopInFlight(video, video.step); stopRest(i); return null; }
         video.status = 'resolving'; video.step = 'resolving';
         // Nothing costly (no topic pick) starts unless the run's state can be written.
         if (!persist(rec, ctl)) { stopInFlight(video, 'resolving'); stopRest(i + 1); return null; }
@@ -361,7 +362,8 @@ export function createCodebuiltRunCoordinator({
         const settled = (async () => {
           const job = await waitForJob(ctl, queued.id, video, rec);
           ctl.jobs.delete(queued.id);
-          if (job?.status === 'failed' && job.error?.code === 'fact_check_blocked' && topicAttempt === 0 && !ctl.aborted) {
+          // codex · gpt-6.1-sol · 2026-11-19 14:38 +02:00: only Auto topics advance; re-entry also handles an abort at handoff.
+          if (job?.status === 'failed' && job.error?.code === 'fact_check_blocked' && topicAttempt === 0 && !rec.request.topic && resolved.resolved.topic.source === 'auto') {
             const retry = await startVideo(i, topicAttempt + 1);
             if (retry) await retry.settled;
             return;
