@@ -91,7 +91,7 @@
       "allowed": true,
       "source": "https://ffmpeg.org/legal.html",
       "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; verified at https://ffmpeg.org/legal.html: 'FFmpeg is licensed under the GNU Lesser General Public License (LGPL) version 2.1 or later... GPL version 2 or later'; applies to the program, not to the videos it writes"
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; verified at https://ffmpeg.org/legal.html: 'FFmpeg is licensed under the GNU Lesser General Public License (LGPL) version 2.1 or later. However, FFmpeg incorporates several optional parts and optimizations that are covered by the GNU General Public License (GPL) version 2 or later. If those parts get used the GPL applies to all of FFmpeg. Read the license texts to learn how this affects programs built on top of FFmpeg or reusing FFmpeg.'; allowed as a standalone tool on host and in container; output videos are not covered by GPL/LGPL"
     },
     {
       "id": "debian",
@@ -424,16 +424,6 @@
       "checked_how": "Fable approval 2026-11-19 (claude-pro · claude-fable-5-2), owner rule of 2026-11-19. 1 necessary: MPFB ships no clothes, skin or hair. 2 not malware: the zip was listed before unpacking: 517 entries, only png, thumb, mhmat, obj, mhclo, proxy, mhw and one json; no executables or scripts. 3 monetization: pack page read today: every listed asset is marked CC0."
     },
     {
-      "id": "host-ffmpeg",
-      "kind": "tool",
-      "use": "host video joins, audio extraction and measurements (winget Gyan.FFmpeg 9.0.2)",
-      "licence": "LGPL-2.1-or-later / GPL-2.0-or-later; applies to the executable, not to output video files",
-      "allowed": true,
-      "source": "https://ffmpeg.org/legal.html",
-      "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; verified at https://ffmpeg.org/legal.html: 'FFmpeg is licensed under the GNU Lesser General Public License (LGPL) version 2.1 or later... GPL version 2 or later'; applies to the program, not to the videos it writes"
-    },
-    {
       "id": "hyperframes",
       "kind": "tool",
       "use": "HTML-to-video rendering and text overlay generation; CLI pinned to version 0.9.70; browser animation only",
@@ -441,7 +431,7 @@
       "allowed": true,
       "source": "https://github.com/heygen-com/hyperframes/blob/main/LICENSE",
       "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; read upstream Apache-2.0 LICENSE: 'Licensed under the Apache License, Version 2.0'; free for commercial work; browser animation only, no GSAP or external catalog blocks"
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; read upstream Apache-2.0 Section 2 grant: 'Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.'; free for commercial work; browser animation only, no GSAP or external catalog blocks"
     },
     {
       "id": "openverse",
@@ -451,7 +441,7 @@
       "allowed": true,
       "source": "https://github.com/WordPress/openverse/blob/main/documentation/terms_of_service.md",
       "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; read Openverse terms of service: 'Openverse aggregates metadata about openly licensed content... You are responsible for independently verifying whether you have the right to use the content and data'; only CC0 and public-domain items verified at their source page are used"
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; allowed only as a search index; read Openverse terms of service: 'Openverse aggregates metadata about openly licensed content hosted on websites managed by third parties. Openverse does not own or control the content or data made available through the API or shared on the website... You are responsible for independently verifying whether you have the right to use the content and data'; each item must be CC0/public domain confirmed on its own page (lane C2)"
     },
     {
       "id": "ACE-Step/ACE-Step-1.5",
@@ -461,17 +451,7 @@
       "allowed": true,
       "source": "https://github.com/ACE-Step/ACE-Step-1.5",
       "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; repository LICENSE read: 'MIT License Copyright (c) 2026 ACEStep'; model card README confirmed: 'This project is licensed under MIT', 'use the generated music for commercial purposes'; pinned commit ca1e85fe9430179831e6bc6be790c332190a3866"
-    },
-    {
-      "id": "ACE-Step/Ace-Step1.5",
-      "kind": "model",
-      "use": "HuggingFace model checkpoints for ACE-Step 1.5 music generation",
-      "licence": "MIT",
-      "allowed": true,
-      "source": "https://huggingface.co/ACE-Step/Ace-Step1.5",
-      "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; model card README confirmed: 'This project is licensed under MIT', 'use the generated music for commercial purposes'"
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; repository LICENSE read: 'Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions'; model card README confirmed: 'use the generated music for commercial purposes'; pinned commit ca1e85fe9430179831e6bc6be790c332190a3866"
     },
     {
       "id": "TripoSG",
@@ -481,17 +461,7 @@
       "allowed": true,
       "source": "https://github.com/VAST-AI-Research/TripoSG",
       "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; repository LICENSE read: 'MIT License Copyright (c) 2025 VAST-AI-Research and contributors'; model card tagged MIT for weights; Bria RMBG-1.4 is excluded as non-commercial; part D not wired in yet"
-    },
-    {
-      "id": "VAST-AI/TripoSG",
-      "kind": "model",
-      "use": "HuggingFace model weights for TripoSG photo-to-3D shape synthesis (part D, not wired in yet)",
-      "licence": "MIT",
-      "allowed": true,
-      "source": "https://huggingface.co/VAST-AI/TripoSG",
-      "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; model card tagged MIT for weights; Bria RMBG-1.4 is excluded as non-commercial; part D not wired in yet"
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; repository LICENSE read: 'Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions'; model card weights tagged MIT; Bria RMBG-1.4 background remover is excluded as non-commercial; part D not wired in yet"
     },
     {
       "id": "earshot",
@@ -501,17 +471,7 @@
       "allowed": true,
       "source": "https://github.com/Leonxlnx/earshot",
       "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; LICENSE read: 'MIT License Copyright (c) 2026 Leon Lin'; pinned commit 4ac3d2ac2b151e1c23376f9ce7f3047a17050013; measuring tool only (nothing ends up in video); sound-bank audio is excluded"
-    },
-    {
-      "id": "pip:earshot",
-      "kind": "library",
-      "use": "audio level and mix measurement Python package; measuring tool only, sound-bank audio is OUT; pinned commit 4ac3d2a",
-      "licence": "MIT (code)",
-      "allowed": true,
-      "source": "https://github.com/Leonxlnx/earshot",
-      "checked": "2026-11-19",
-      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; LICENSE read: 'MIT License Copyright (c) 2026 Leon Lin'; measuring tool only"
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; LICENSE read: 'Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions'; pinned commit 4ac3d2ac2b151e1c23376f9ce7f3047a17050013; measuring tool only (nothing ends up in video); sound-bank audio is excluded"
     },
     {
       "id": "earshot:sound-bank",
@@ -542,19 +502,6 @@
         "import gsap",
         "from 'gsap'",
         "from \"gsap\""
-      ]
-    },
-    {
-      "id": "npm:gsap",
-      "kind": "library",
-      "use": "animation library for HyperFrames; not allowed for video",
-      "licence": "GSAP Standard License (website/web application only; video not permitted)",
-      "allowed": false,
-      "source": "https://gsap.com/licensing/",
-      "checked": "2026-11-19",
-      "checked_how": "verified at https://gsap.com/licensing/: Permitted Uses restricted to website/web app; video not mentioned; not allowed",
-      "patterns": [
-        "\"gsap\":"
       ]
     },
     {
