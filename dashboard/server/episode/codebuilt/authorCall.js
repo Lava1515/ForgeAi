@@ -6,6 +6,9 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { askClaudeLook, lookArgv, PROBE_PROMPT, readCliVersion } from './lookCall.js';
+import { killTree } from './lookCall.js';
+import { binPath, claudeEnv, usageFrom } from '../../routes/claudeCli.js';
+import { sessionArgv, SESSION_TOOLS, sessionPath } from './authorSession.js';
 export const AUTHOR_REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 export const authorError = code => Object.assign(new Error(code), {code});
@@ -76,6 +79,70 @@ export async function askAuthor(prompt,images,options={}) {
  return {...answer,rawUsage:result?.usage??null};
 }
 const probes=new Map();
+// codex · gpt-6.1-sol · 2026-11-19 15:11 +02:00: restrict the CLI before its first model turn, then resume this exact session.
+export async function askAuthorSession(prompt,images,{session,model='sonnet',timeoutMs=600000,maxBillableTokens=Infinity,maxContextTokens=Infinity,signal,spawnFn=spawn,platform=process.platform,...options}={}) {
+ const config=checkAuthorConfig(options), argv=sessionArgv(model,session.id,session.started);
+ sessionPath(session,'build.py');
+ if(process.env.NODE_TEST_CONTEXT && spawnFn===spawn)throw authorError('author_transport_unavailable');
+ if(signal?.aborted)throw authorError('aborted');
+ if(typeof prompt!=='string'||prompt.length>200000||images.length>4)throw authorError('author_context_full');
+ const message=JSON.stringify({type:'user',message:{role:'user',content:[...images.map(i=>({type:'image',source:{type:'base64',media_type:i.mediaType,data:i.bytes.toString('base64')}})),{type:'text',text:prompt}]}});
+ return new Promise((resolve,reject)=>{
+  let child,buffer='',size=0,result=null,init=null,done=false,timer,contextPeak=0;
+  const messageUsage=new Map();
+  const finish=(error,value)=>{if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);error?reject(error):resolve(value);};
+  const stop=code=>{killTree(child);finish(authorError(code));};
+  const abort=()=>stop('aborted');
+  const scan=line=>{
+   let e;try{e=JSON.parse(line);}catch{return;}
+   if(e.type==='system'&&e.subtype==='init'){
+    init=e;
+    if(e.session_id!==session.id || JSON.stringify([...(e.tools??[])].sort())!==JSON.stringify([...SESSION_TOOLS].sort()) || !['mcp_servers','skills'].every(k=>Array.isArray(e[k])&&e[k].length===0))stop('tools_offered');
+   }
+   // A session call can take multiple tool turns. Enforce the existing run caps between those turns too.
+   if(e.type==='assistant'&&e.message?.usage){
+    const usage=normalizeAuthorUsage(e.message.usage,{promptChars:0,images:0,IMAGE_RESERVE:0,OUTPUT_RESERVE:0});
+    contextPeak=Math.max(contextPeak,usage.context);
+    if(usage.context>maxContextTokens)return stop('author_context_full');
+    messageUsage.set(e.message.id??messageUsage.size,usage.billable);
+    if([...messageUsage.values()].reduce((a,b)=>a+b,0)>maxBillableTokens)return stop('author_tokens');
+   }
+   // Defense in depth. --restricted and dontAsk enforce the file policy before a tool runs.
+   for(const block of e.message?.content??[])if(block.type==='tool_use'){
+    try{if(!init||!SESSION_TOOLS.includes(block.name))throw Error();
+     const name=path.relative(session.cwd,path.resolve(session.cwd,block.input?.file_path??''));
+     sessionPath(session,name);
+     if(block.name!=='Read'&&!['build.py','overlay.json','render.request.json'].includes(name))throw Error();
+    }catch{stop('author_tool_event');}
+   }
+   if(e.type==='result')result=e;
+  };
+  try{
+   // Fixed/validated argv only through the Windows .cmd shim: prompts and author paths never enter a shell.
+   const args=platform==='win32'?argv.map(a=>{if(!/^[A-Za-z0-9._:=/\\,()-]+$/.test(a))throw authorError('author_receipt');return /[,()]/.test(a)?`"${a}"`:a;}):argv;
+   const bin=binPath();
+   child=spawnFn(platform==='win32'&&/\s/.test(bin)?`"${bin}"`:bin,args,{env:{...claudeEnv(),CLAUDE_CONFIG_DIR:config},cwd:session.cwd,shell:platform==='win32',windowsHide:true,detached:platform!=='win32'});
+  }catch{finish(authorError('author_transport_unavailable'));return;}
+  timer=setTimeout(()=>stop('author_time'),timeoutMs);signal?.addEventListener('abort',abort,{once:true});
+  child.stdout?.setEncoding?.('utf8');
+  child.stdout?.on('data',data=>{size+=data.length;if(size>20*1024*1024)return stop('author_context_full');buffer+=data;let end;while((end=buffer.indexOf('\n'))>=0){scan(buffer.slice(0,end));buffer=buffer.slice(end+1);if(done)break;}});
+  child.stderr?.on('data',()=>{});
+  child.on('error',()=>finish(authorError('author_transport_unavailable')));
+  child.on('close',code=>{
+   if(done)return;if(buffer)scan(buffer);if(done)return;
+   if(!init) return finish(authorError('tools_offered'));
+   if(code!==0||!result||result.is_error||result.session_id!==session.id){
+    const error=authorError('author_transport_unavailable');
+    if(/usage limit|rate limit|quota|hit your limit|out of .*usage/i.test(String(result?.result)))error.quota=true;
+    return finish(error);
+   }
+   session.started=true;
+   finish(null,{text:String(result.result??''),rawUsage:result.usage??usageFrom(result),contextPeak:contextPeak||undefined,model,
+    receipt:{argvSha256:hash(JSON.stringify(argv)),promptSha256:hash(prompt),imageCount:images.length,imageSha256:images.map(i=>hash(i.bytes)),toolsOffered:3,noSessionPersistence:false,transport:'author-session',sessionId:session.id}});
+  });
+  child.stdin?.end(message+'\n');
+ });
+}
 export async function probeAuthorSupport(options={}) {
  const model=options.model??'sonnet'; authorArgv(model);
  const version=await (options.cliVersion??readCliVersion)();
