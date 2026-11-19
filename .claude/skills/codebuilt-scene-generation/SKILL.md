@@ -157,3 +157,9 @@ Use this section only when the job route is `overlay` or `authored`. A `classic`
 - People at real scale: `library.model(c, person_id, loc=...)` then `library.pose_person(root, arms=..., legs=..., head_yaw=...)` every frame. Give bystanders different ids and small differences in timing. Never show a library person closer than a medium shot (knees up): they are background and mid-ground people, not close-up actors.
 - The story's own subject, and anything that is cut open, taken apart or deformed, is still built from code: a library model is one rigid piece per mesh.
 - One look per video: real models and real light go with the surface helpers (`materials.wood`, `brushed_metal`, ...), not with flat clay figures in the same shot.
+
+### Authored surface requirement · 2026-11-19 20:02 +02:00 · codex · gpt-6.1-sol
+
+For route `authored`, the main subject AND ground must carry a surface helper or an available library texture. This requirement overrides flat/clay exceptions above. Use `subject_material` and `ground_material`, or `subject_<part>_material` and `ground_<place>_material`, for the main materials and apply them to the actual visible meshes. Use the kit's existing wood, metal, rock, soil, grass, fabric, water, noise or geographic image surface helpers. Do not invent a texture API. Only small eyes, markers and glows may remain plain `materials.pbr`.
+
+Light the scene with `library.hdri(scene, id)` from a listed sky or room image; the library is required for this lighting. Supplement it with lamps for shape. If no catalog is listed, report the missing prerequisite rather than inventing ids. The host reports static plain-colour counts for subject and ground in one look round: return `fix` and repair those surfaces and missing library lighting then. This adds no surface-only retry loop. Inspect the preview to confirm the patterns read on a phone.

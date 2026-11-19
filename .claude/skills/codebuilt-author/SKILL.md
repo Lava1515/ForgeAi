@@ -143,3 +143,9 @@ The preview sheets come back with the overlay text drawn on, a short code for th
 <!-- N1 corrections (2026-11-18): turn W has no notes field (authorPrompts writePair: one python block and one json block); caption band 67-79% with caption_overlap blocking (post/overlay.py BLOCKING, captions.py CAPTION_CY 1400 of 1920); hidden parts: anchors `front` is camera-depth sign only, W2-C6 stays OPEN/blocked (m4-label-layout REPORT); cost list from rl1-render-look REPORT. -->
 
 <!-- check2 fixes 3,5,6 (budget both directions, all-frame layout note): claude-pro · claude-sonnet-5-5 · 2026-11-18 17:56 +02:00 -->
+
+### Authored surface requirement · 2026-11-19 20:02 +02:00 · codex · gpt-6.1-sol
+
+For route `authored`, the main subject AND ground must carry a surface helper or an available library texture. This requirement overrides flat/clay exceptions above. Use `subject_material` and `ground_material`, or `subject_<part>_material` and `ground_<place>_material`, for the main materials and apply them to the actual visible meshes. Use the kit's existing wood, metal, rock, soil, grass, fabric, water, noise or geographic image surface helpers. Do not invent a texture API. Only small eyes, markers and glows may remain plain `materials.pbr`.
+
+Light the scene with `library.hdri(scene, id)` from a listed sky or room image; the library is required for this lighting. Supplement it with lamps for shape. If no catalog is listed, report the missing prerequisite rather than inventing ids. The host reports static plain-colour counts for subject and ground in one look round: return `fix` and repair those surfaces and missing library lighting then. This adds no surface-only retry loop. Inspect the preview to confirm the patterns read on a phone.

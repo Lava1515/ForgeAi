@@ -6,6 +6,7 @@ import { overlayPair, validateOverlayPair } from './overlaySpec.js';
 import { AUTHOR_HEADER, SESSION_HEADER, sessionLookPrompt, writePair, parseAuthorLook, authorState } from './authorPrompts.js';
 import { createAuthorSession, sessionArgv, sessionPath, readSessionPair, consumePreviewRequest, smallSessionFrames } from './authorSession.js';
 import { exposureAdvice } from './exposureCheck.js';
+import { checkSurfaces, surfaceAdvice } from './surfaceCheck.js';
 import { buildLookPrompt, sanitizeKitReport } from './visualLoopPrompts.js';
 import { pickAuthoredPreviewFrames, overlayWindows } from './previewFrames.js';
 import { createLayoutGate, layoutRefusal, layoutBound } from './layoutGate.js';
@@ -175,9 +176,13 @@ export async function runAuthorLoop(input,deps={}) {
    }
    const sheetRecords=sheets.map((s,i)=>{const file=`sheet-${i}.jpg`,bytes=readBytes(s.path);write(path.join(dir,'sheets',file),bytes);return {file,sha256:hash(bytes)};});
    const images=sheetRecords.map(s=>({bytes:readBytes(path.join(dir,'sheets',s.file)),mediaType:'image/jpeg'}));
+   // codex · gpt-6.1-sol · 2026-11-19 20:02 +02:00: one surface report, within the existing rounds and caps.
+   const surfaces=round===0&&!input.finalExposureReturn&&input.kitContract?.includes('AUTHOR SURFACE REQUIREMENTS')?checkSurfaces(code):null;
+   const surfaceText=surfaces?surfaceAdvice(surfaces):'';
+   if(surfaces)json(path.join(dir,'surfaces.json'),surfaces);
    if(session){
     for(const [i,s] of sheetRecords.entries())write(sessionPath(session,`sheet-${i}.jpg`),readBytes(path.join(dir,'sheets',s.file)));
-    json(sessionPath(session,'findings.json'),{round,crash,layout,kit,exposure:sheets.map(s=>s.tiles),exposureAdvice:exposureAdvice(sheets,input.exposureFindings)});
+    json(sessionPath(session,'findings.json'),{round,crash,layout,kit,surfaces,exposure:sheets.map(s=>s.tiles),exposureAdvice:exposureAdvice(sheets,input.exposureFindings)});
    }
    json(path.join(dir,'preview.json'),{sha256,overlaySha256,jobId:previewId,frames,rendered:preview?.frames??[],sheets:sheetRecords});
    let reply;
@@ -189,8 +194,8 @@ export async function runAuthorLoop(input,deps={}) {
     if(unused)journal({kind:'budget_unused',round,secondsPerFrame:timing,budget:input.renderBudget});
     const budgetText=unused?`budget_unused: ${timing.toFixed(2)} s/frame is under half of the ${input.renderBudget} s/frame budget while ${flatNums.join(', ')} measure as flat or plain. The budget is meant to be spent: enrich the single largest hero surface (bands, bump, a colour ramp, more geometry, light) until a preview costs near the budget. The ceiling is unchanged.`:'';
     const layoutText=layout?layoutRefusal(layout):'';
-    const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,60-(now()-started)/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}${budgetText?`\n${budgetText}`:''}${layoutText?`\n${layoutText}`:''}\n${feedback}`;
-    const sessionPrompt=()=>sessionLookPrompt({shots,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+`\n${budgetText}\n${layoutText}\n${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}\n${feedback}`;
+    const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,60-(now()-started)/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+surfaceText+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}${budgetText?`\n${budgetText}`:''}${layoutText?`\n${layoutText}`:''}\n${feedback}`;
+    const sessionPrompt=()=>sessionLookPrompt({shots,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+surfaceText+`\n${budgetText}\n${layoutText}\n${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}\n${feedback}`;
     let prompt=session?sessionPrompt():makePrompt();while(prompt.length>200000&&replay.length){replay.shift();prompt=session?sessionPrompt():makePrompt();}
     const text=await ask(prompt,images,editRefusals>=2&&!resynced?'resync':'look',dir);if(editRefusals>=2)resynced=true;
     try{reply=parseAuthorLook(text,{buildScript:code,overlaySpec:spec,validate:(c,s)=>{pairCheck(c,s,input);return [];},videoSeconds:input.nframes/30,shots,sheetCodes:[...new Set(sheets.map(s=>s.code))],finalRound:!!session||round===4,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),kitFailures:kit?.findings.map(f=>f.check)??[]});
@@ -200,6 +205,7 @@ export async function runAuthorLoop(input,deps={}) {
        if(next.buildScript!==code||JSON.stringify(next.overlaySpec)!==JSON.stringify(spec)||fs.existsSync(sessionPath(session,'render.request.json')))throw authorError('author_hash');
       }else{reply.buildScript=next.buildScript;reply.overlaySpec=next.overlaySpec;}
      }
+     if(reply.look.verdict==='pass'&&surfaces?.findings.length)throw Error('Surface check requires fix this round: repair the subject/ground and library lighting.');
      // Fix 6: a pass is not accepted while the host's all-frame layout says otherwise (blocking overlap, safe zone, caption, a label hidden on every previewed frame of its window).
      if(reply.look.verdict==='pass'&&layout){const why=layoutRefusal(layout);if(why)throw Error(why);}
      break;}

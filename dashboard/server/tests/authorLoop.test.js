@@ -124,3 +124,22 @@ test('final exposure repair shares token caps and the original start time',async
   assert.equal(r.counts().calls,before);
  }
 });
+
+// codex · gpt-6.1-sol · 2026-11-19 20:02 +02:00: send flat surfaces back once within existing preview rounds.
+test('surface report requires first-round fix, is recorded once and adds no surface-only loop', async () => {
+ const prompts=[];
+ const r=rig({kitContract:'AUTHOR SURFACE REQUIREMENTS'}, {reply:n=>{
+  if(n===2)return look(); // A premature pass must be refused.
+  if(n===3){const b=JSON.parse(look('fix'));b.look.targets=['shot_0'];b.look.edits=[{op:'replace_def',name:'shot_0',source:'def shot_0(t):\n    pass'}];return JSON.stringify(b);}
+  return look();
+ }});
+ const ask=r.deps.askAuthor;r.deps.askAuthor=async(p,...args)=>{prompts.push(p);return ask(p,...args);};
+ const out=await runAuthorLoop(r.input,r.deps);
+ assert.equal(out.receipt.round,1);
+ assert.equal(r.counts().previews,2);
+ assert.match(prompts[1],/SURFACE CHECK/);
+ assert.match(prompts[2],/SURFACE CHECK/);
+ assert.doesNotMatch(prompts[3],/SURFACE CHECK/);
+ assert.ok(fs.existsSync(path.join(r.stage,'author/a0/r0/surfaces.json')));
+ assert.ok(!fs.existsSync(path.join(r.stage,'author/a0/r1/surfaces.json')));
+});

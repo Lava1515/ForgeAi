@@ -79,11 +79,14 @@ test('author session uses only restricted job file tools, resumes, and refuses e
  const code='# original scene\ndef shot_0(t):\n    pass\n';
  const fixed=code.replace('original','fixed');
  const input={jobId:'b2-test',stageDir:loopStage,model:'opus',sessionEnabled:true,measurementMode:true,probe:{passed:true},
-  writePrompt:'KIT_SENT_ONCE',kitContract:'KIT_SENT_ONCE',script:'narration',brief:'brief',nframes:900,shotStarts:[0],shots:[{subject:'hero',narration:'narration'}],validate:()=>[]};
+  writePrompt:'KIT_SENT_ONCE',kitContract:'KIT_SENT_ONCE AUTHOR SURFACE REQUIREMENTS',script:'narration',brief:'brief',nframes:900,shotStarts:[0],shots:[{subject:'hero',narration:'narration'}],validate:()=>[]};
  const deps={
   askAuthor:async(prompt,images,{session:s})=>{
    const argv=sessionArgv('opus',s.id,s.started);sessionId??=s.id;assert.equal(s.id,sessionId);
    calls++;assert.equal(prompt.includes('KIT_SENT_ONCE'),calls===1);
+   // codex · gpt-6.1-sol · 2026-11-19 20:02 +02:00: session sees exactly one surface report round.
+   if(calls===2){assert.match(prompt,/SURFACE CHECK/);assert.ok(JSON.parse(fs.readFileSync(sessionPath(s,'findings.json'),'utf8')).surfaces.findings.length);}
+   if(calls===3){assert.doesNotMatch(prompt,/SURFACE CHECK/);assert.equal(JSON.parse(fs.readFileSync(sessionPath(s,'findings.json'),'utf8')).surfaces,null);}
    assert.ok(!prompt.includes(code));assert.ok(!prompt.includes(fixed));
    if(calls===1){fs.writeFileSync(sessionPath(s,'build.py'),code);fs.writeFileSync(sessionPath(s,'overlay.json'),'{"version":1}');}
    if(calls===2)fs.writeFileSync(sessionPath(s,'build.py'),fixed);
