@@ -4,6 +4,17 @@
 
 - 2026-11-19 15:54 +02:00 · codex · gpt-6.1-sol (C4): retained shared kit no-overlay modes, overlay schema fixtures, base buildPrompt/KIT_CONTRACT, and the channel engine enum where authored/direct callers still use them or removal is uncertain; the HyperFrames legacy overlay TEXT fallback is deliberately kept.
 
+### Fix lanes F6 to F9 (owner 2026-11-19 19:30, tonight; ids repeat the older F6 to F9 of 2026-11-18, these are the new ones) · 2026-11-19 19:45 +02:00 · claude-pro · claude-sonnet-5-5
+
+Scope-fence additions (ORDERS "Owner order 2026-11-19 19:33"); source: `output/agent-jobs/fable-check-3/REPORT.md` "Not covered by any lane". Build on branches while the three B3 videos run; merge only after they are terminal, at zero jobs, with one cross-family review, the full suite and the licence check. None may change the job fence, the fact check's strictness or publishing.
+
+| Id | Lane | State | Files and done when |
+|---|---|---|---|
+| F6 | A final with large black areas goes back to the author once | READY, one branch with F8 and F9 (worker A) | `exposureCheck.js`, `authorLoop.js`, `start.js`, tests; the A2 exposure check on the final stops being advice only: a large pure-black area sends the video back to the author once, then ships as is. |
+| F7 | What-if gives no topic | READY (worker B) | `autoTopic.js`, `theme.js`, tests; the raw topic answer is saved when rejected, the cause is found and fixed. |
+| F8 | Opus's first write call can pass the 20 minute limit | READY, same branch as F6 (worker A) | `authorLoop.js` (write timeout and its guard only), tests; a limit that fits Opus so "Opus on retry" works; Sonnet's limit unchanged. |
+| F9 | Opening frame shows the whole subject | READY, same branch as F6 (worker A) | `previewSheet.js`, `visualLoopPrompts.js`, `exposureCheck.js`, tests; one check on frame 0 (subject whole and readable), reported to the author in its rounds. |
+
 One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude-pro Â· claude-sonnet-5-5.
 `READY` = nothing outside the code blocks it; the fleet can take it. `OWNER` = waits on the owner. `PARKED` = the
 owner put it later. Each lane lists the files it mostly touches so two workers do not collide. Workers work in
