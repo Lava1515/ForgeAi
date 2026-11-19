@@ -15,6 +15,7 @@ import { assertNoLinksInTree } from '../../codebuilt/jobPaths.js';
 import { scanReparsePoints } from '../../codebuilt/reparse.js';
 import { CodebuiltError } from './errors.js';
 import { REPO_ROOT } from './launch.js';
+import { prepareAceMusic } from '../../codebuilt/acestepMusic.js';
 
 const SAFE_ENV_KEYS = ['PATH', 'Path', 'SystemRoot', 'TEMP', 'TMP', 'FFMPEG_PATH', 'LANG'];
 const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -74,8 +75,10 @@ export function createHostOutputProducer({
     const audio = 'voice-only';
     stage(path.join(job, 'inputs', 'vo.wav'), path.join(job, 'mix.wav'), 'mix.wav');
 
+    // codex · gpt-6.1-sol · 2026-11-19: generate on the host after render, before the measured mix.
+    const musicEnv = await prepareAceMusic({ job, repoRoot: path.resolve(repoRoot), env, execFileFn, signal });
     const stdout = await new Promise((resolve, reject) => {
-      const child = execFileFn(python, ['-I', script, job], { timeout: timeoutMs, windowsHide: true, shell: false, env: safeEnv(env), maxBuffer: 1024 * 1024, signal }, (error, out, err) => {
+      const child = execFileFn(python, ['-I', script, job], { timeout: timeoutMs, windowsHide: true, shell: false, env: { ...safeEnv(env), ...musicEnv }, maxBuffer: 1024 * 1024, signal }, (error, out, err) => {
         if (error) {
           // A named layout refusal is not a crash: it carries the bounded blocking list so the job can end with its own code.
           const refusal = layoutRefusal(out);

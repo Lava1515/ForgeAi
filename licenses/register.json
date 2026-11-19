@@ -2,6 +2,17 @@
   "rule": "Owner rule, 2026-11-13: nothing is used in this project unless its licence allows monetized (commercial) videos. Credit-required licences are fine when the credit is written into the video description. Non-commercial, research-only and unclear licences are out. Every model, asset, font, library and base image is listed here with its source and the date it was checked. tools/license_check.py fails when something in the project is missing here or is marked not allowed.",
   "entries": [
     {
+      "id": "ACE-Step/ACE-Step-v1.5",
+      "kind": "model and code",
+      "use": "optional host-generated instrumental music bed, pinned code ca1e85fe9430179831e6bc6be790c332190a3866",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://huggingface.co/ACE-Step/ACE-Step-v1.5",
+      "checked": "2026-11-19",
+      "checked_how": "codex · gpt-6.1-sol · 2026-11-19 14:35 +02:00: read installed model README (MIT, explicitly permits commercial generated music) and official ACE-Step-1.5 LICENSE (MIT); Fable approval in output/agent-jobs/tools-tests-1119/REPORT.md",
+      "note": "Code source https://github.com/ace-step/ACE-Step-1.5 ; existing approved install only, no new downloads."
+    },
+    {
       "id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
       "kind": "model",
       "use": "narration voice (nine built-in speakers)",

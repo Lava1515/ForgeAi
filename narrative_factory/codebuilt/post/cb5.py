@@ -1,6 +1,7 @@
 """Adapt the CB4 post kit to the fixed CB5 job-folder output contract."""
 import json
 import math
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -169,6 +170,18 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     choice = audio_kit.music_choice(" ".join(str(w.get("w", "")) for w in word_data.get("words", []) if isinstance(w, dict)))
     music = audio_kit.synth_music(duration, sr=MIX_SR, seed=choice["seed"], bpm=choice["bpm"],
                                   progression=audio_kit.PROGRESSIONS[choice["progression"]], fade_out_s=min(1.2, duration / 2))
+    # codex · gpt-6.1-sol · 2026-11-19: host-made ACE bed uses the same measured mixer as synth.
+    music_source = {"source": "synth", "reason": os.environ.get("FORGEAI_MUSIC_FALLBACK", "disabled")}
+    if os.environ.get("FORGEAI_ACE_BED"):
+        try:
+            from .acestep_music import fit_bed
+            bed = media.inside(job, Path(os.environ["FORGEAI_ACE_BED"]))
+            info = media.inside(job, Path(os.environ["FORGEAI_ACE_REPORT"]))
+            candidate, rate = sf.read(media.input_file(bed), dtype="float32")
+            music_source = json.loads(media.input_file(info).read_text(encoding="utf-8"))
+            music = fit_bed(candidate, rate, duration, MIX_SR)
+        except (OSError, RuntimeError, ValueError, KeyError, media.MediaError):
+            music_source = {"source": "synth", "reason": "invalid_acestep_bed"}
     word_events = _word_cues(word_data, duration)
     mix_args = {}
     if spec.exists():
@@ -199,6 +212,7 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD):
     mixed = audio_kit.mix_stems((voice, sr), (music, MIX_SR), (effects, MIX_SR),
                                 sr=MIX_SR, voice_peak=None, **mix_args)
     mixed.report["music_choice"] = choice
+    mixed.report["music_source"] = music_source
     audio_raw = out / "audio"
     if audio_raw.is_symlink() or audio_raw.is_junction():
         raise media.MediaError("audio output must not be a link")
