@@ -25,7 +25,7 @@ No fence file or mount allowlist is patched and no alternate render route is use
 
 Route: composePreviewRunner (approved `cb6-generated-blender-v1`, CPU) -> normal
 runner -> runIsolatedJob -> fixed executor -> shotcheck -> renderloop preview spec.
-Frames 63/192 show the opening globe; 831/966 show the Australia map. Scale 50
+Frames 62/192 (even: the fence needs even frames) show the opening globe; 832/966 show the Australia map. Scale 50
 of the saved build's 1080x1920 yields 540x960. QA remains enabled.
 Sheets use the existing createPreviewSheetMaker / preview_sheet.py host helper.
 

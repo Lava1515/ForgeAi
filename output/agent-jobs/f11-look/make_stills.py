@@ -46,7 +46,7 @@ def main():
         target.write_bytes(data)
     shutil.copyfile(args.reference, proof / 'sonnet-final_sheet.jpg')
     manifest = {'author': 'codex / gpt-6.1-sol', 'savedBuildSha256': hashlib.sha256(source).hexdigest(),
-                'frames': [63, 192, 831, 966], 'size': [540, 960], 'versions': {}}
+                'frames': [62, 192, 832, 966], 'size': [540, 960], 'versions': {}}
     for label, ref in (('before', args.before_ref), ('after', args.after_ref)):
         sha = git(repo, 'rev-parse', ref).decode().strip()
         # Execute only the four look modules from each pinned revision inside the
@@ -87,7 +87,7 @@ const maker = createPreviewSheetMaker({repoRoot:REPO, execFileFn:execFile});
 for (const label of ['before','after']) {
  const result = await runPreview({jobId:`f11-look-${label}-pv1`,
   buildScript:fs.readFileSync(path.join(proof,`${label}-build.py`),'utf8'),
-  spec:{frames:[63,192,831,966],scale:50}});
+  spec:{frames:[62,192,832,966],scale:50}});
  const sheets = await maker.makeSheets({framesDir:result.dir, outDir:path.join(proof,`${label}-sheets`),
   code:label==='before'?'F11BE':'F11AF'});
  fs.writeFileSync(path.join(proof,`${label}-result.json`),JSON.stringify({result,sheets},null,2));
@@ -104,7 +104,7 @@ for (const label of ['before','after']) {
     canvas = Image.new('RGB', (2160, 2560), '#070c17')
     draw = ImageDraw.Draw(canvas)
     for row, label in enumerate(('before', 'after')):
-        draw.text((12, row * 1000 + 8), label + ' | globe f63/f192 | flat map f831/f966', fill='white')
+        draw.text((12, row * 1000 + 8), label + ' | globe f62/f192 | flat map f832/f966', fill='white')
         for col, frame in enumerate(manifest['frames']):
             file = jobroot / f'f11-look-{label}-pv1' / 'preview' / f'{frame:04d}.png'
             with Image.open(file) as im:
