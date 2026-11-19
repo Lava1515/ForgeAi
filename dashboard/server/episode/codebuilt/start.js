@@ -28,6 +28,7 @@ import { channelJobFormats } from './autoTopic.js';
 import { askRole } from '../../routes/askRole.js';
 import { postFactory } from '../../routes/factoryClient.js';
 import { askClaude } from '../../routes/claudeCli.js';
+import { checkFinalExposure } from './exposureCheck.js';
 import { runAuthorFor, authorCaps } from './authorLoop.js';
 import { checkAuthorConfig } from './authorCall.js';
 import { runVisualBuildLoop } from './visualLoop.js';
@@ -948,6 +949,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         if (error?.code === 'OVERLAY_LAYOUT_BLOCKED') throw layoutBlockedError(error);
         throw new StartError('build_failed', 502);
       }
+      // codex · gpt-6.1-sol · 2026-11-19 14:31 +02:00: final-sheet advice never gates a run.
+      if (rec.route === 'authored') rec.exposure_check = await checkFinalExposure({jobDir:path.join(jobsDir,rec.id),execFileFn:hostExecFile,signal});
       writeCalls(rec.id, allCalls, true);
       writeLoopReceipt(rec.id, loopReceipt);
       if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
