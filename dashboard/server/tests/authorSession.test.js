@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { createAuthorSession, sessionArgv, sessionPath, consumePreviewRequest } from '../episode/codebuilt/authorSession.js';
+import { createAuthorSession, sessionArgv, sessionPath, consumePreviewRequest, smallSessionFrames } from '../episode/codebuilt/authorSession.js';
+import { pickAuthoredPreviewFrames } from '../episode/codebuilt/previewFrames.js';
 import { askAuthorSession, hash } from '../episode/codebuilt/authorCall.js';
 import { runAuthorLoop, verifyAuthorReceipt } from '../episode/codebuilt/authorLoop.js';
 // B3 bug 2026-11-19: the session asked for scale 25 and the real fence refused it (BAD_JOB); the stub now runs the fence's own check.
@@ -108,4 +109,14 @@ test('author session uses only restricted job file tools, resumes, and refuses e
  assert.equal(out.buildScript,fixed);assert.equal(previews,2);assert.equal(calls,3);
  assert.equal(verifyAuthorReceipt(out,input),true);
  await runAuthorLoop(input,deps);assert.equal(calls,3); // accepted retries do not start another session
+});
+// B3 bug 2026-11-19: the last test video (12 shots) died author_reply because the 24 base frames left the window 2.73-5.2 s without a frame.
+test('session preview frames cover a 12-shot video whose first overlay window the base pick missed',()=>{
+ const shotStarts=[0,6.7,9.666,14.7,17.4,20.5,24.333,30.933,33.7,37.9,40.566,44.166],nframes=1456;
+ const overlaySpec={version:1,big:[{text:'NO CARS',from:2.73,to:5.2},{text:'1898',from:13.08,to:14.6},{text:'ENGINES OK',from:37.91,to:39.2}],tag:{text:'Sark',from:17.75,to:20.4}};
+ const {frames}=pickAuthoredPreviewFrames({nframes,shotStarts,fps:30,overlaySpec});
+ const kept=smallSessionFrames({nframes,shotStarts,overlaySpec},frames);
+ assert.ok(kept.length<=24 && kept.every(f=>f%2===0));
+ assert.ok(kept.some(f=>f/30>=2.73 && f/30<5.2));
+ for(const [i,from] of shotStarts.entries())assert.ok(kept.some(f=>f/30>=from && f/30<(shotStarts[i+1]??nframes/30)));
 });

@@ -42,7 +42,16 @@ export function smallSessionFrames(input, frames) {
  const windows=[...input.shotStarts.map((from,i)=>({from,to:input.shotStarts[i+1]??input.nframes/30})),...overlayWindows(input.overlaySpec)];
  const covers=items=>windows.every(w=>items.some(f=>f/30>=w.from && f/30<w.to));
  const kept=[...frames];
+ // B3 bug 2026-11-19 (last test video, 12 shots, 24 base frames): the base pick already filled its 24 and left an overlay window without a frame, so the cover could never be reached. Give every uncovered window its middle even frame first, then prune.
+ for(const w of windows) {
+  if(kept.some(f=>f/30>=w.from && f/30<w.to))continue;
+  const first=Math.ceil(w.from*30),last=Math.ceil(w.to*30)-1;let f=Math.round(((w.from+w.to)/2)*30);f-=f%2;
+  if(f<first)f+=2;if(f>last)f-=2;
+  if(f>=first && f<=last && f>=0 && f<input.nframes)kept.push(f);
+ }
+ kept.sort((a,b)=>a-b);
  for(let i=kept.length-2;i>0;i--) {const next=kept.filter((_,n)=>n!==i);if(covers(next))kept.splice(i,1);}
- if(kept.length>12||!covers(kept))throw authorError('author_reply');
+ // The cap follows the windows (an irreducible cover has at most one frame per window plus the two ends) and never exceeds 24.
+ if(kept.length>Math.min(24,Math.max(12,windows.length+2))||!covers(kept))throw authorError('author_reply');
  return kept;
 }
