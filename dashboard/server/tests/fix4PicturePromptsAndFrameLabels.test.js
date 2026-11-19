@@ -11,6 +11,7 @@ import { planCodebuiltScript, PICTURE_NARRATION_RULE } from '../episode/codebuil
 import { loadCodebuiltGuides } from '../episode/codebuilt/skills.js';
 import { buildLookPrompt } from '../episode/codebuilt/visualLoopPrompts.js';
 
+// codex / gpt-6.1-sol / 2026-11-19 14:30 +02:00: authored regression uses the author transport and sourced reply.
 const root = new URL('../../../', import.meta.url);
 const pack = JSON.parse(fs.readFileSync(new URL('paths/codebuilt.json', root), 'utf8'));
 const STATEMENT = 'Deep below the keel, purple water flows north.';
@@ -32,7 +33,7 @@ const reply = (text) => {
   const shots = shotsFor(text);
   shots[0].feel = 'intrigued';
   shots.at(-1).feel = 'amazed';
-  return JSON.stringify({ script: text, shots, brief: 'A tanker threads a narrow strait between two currents. The visuals follow the pilot and the hull.' });
+  return JSON.stringify({ script: text, shots, brief: 'A tanker threads a narrow strait between two currents. The visuals follow the pilot and the hull.', factTable: [{ claim: 'Two opposite currents push the hull at once.', sources: ['https://oceanservice.noaa.gov/facts/currents.html'] }] });
 };
 const corrections = [{ text: STATEMENT, problem: 'contradicted', evidence: 'The water itself is not purple.' }];
 
@@ -41,6 +42,7 @@ test('picture routes add the narration rule; classic and implicit prompts do not
   for (const route of ['authored', 'overlay', 'classic', undefined]) {
     await planCodebuiltScript({ topic: 'the strait', duration: 30, route, corrections, pack }, {
       askFn: async (prompt) => { prompts[String(route)] = prompt; return reply(scriptWith('The pilot waits for the turn.')); },
+      askAuthor: async (prompt) => { prompts[String(route)] = prompt; return { text: reply(scriptWith('The pilot waits for the turn.')) }; },
       askRoleFn: async () => { throw new Error('ending check off for this test'); },
     });
   }
@@ -58,7 +60,7 @@ test('a picture-route rewrite that repeats a refused statement is asked again an
   const prompts = [];
   const replies = [reply(scriptWith(STATEMENT)), reply(scriptWith('The pilot waits for the turn.'))];
   const result = await planCodebuiltScript({ topic: 'the strait', duration: 30, route: 'authored', corrections, pack }, {
-    askFn: async (prompt) => { prompts.push(prompt); return replies[Math.min(prompts.length - 1, 1)]; },
+    askAuthor: async (prompt) => { prompts.push(prompt); return { text: replies[Math.min(prompts.length - 1, 1)] }; },
     askRoleFn: async () => { throw new Error('ending check off for this test'); },
   });
   assert.equal(prompts.length, 2);

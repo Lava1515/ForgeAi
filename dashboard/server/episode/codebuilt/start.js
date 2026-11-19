@@ -376,7 +376,7 @@ export function createCodebuiltStarter({
     if (postOnly?.ok) reused.push('frames');
     const resumeFrom = postOnly?.ok ? (postOnly.completed ? 'drafting' : 'post') : !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : !build ? 'planning' : 'visual_loop';
     let scriptMeta = {}; try { scriptMeta = JSON.parse(readSafe(path.join(stage, 'script-meta.json')) || '{}'); } catch {}
-    return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [], ...(scriptMeta.endingCheck ? { endingCheck: scriptMeta.endingCheck } : {}) } : null, voice, words, reused, resumeFrom, postOnly };
+    return { scriptOk, voiceOk, build, scripted: scriptOk ? { script, brief, pathPack, shots: Array.isArray(scriptMeta.shots) ? scriptMeta.shots : [], ...(Array.isArray(scriptMeta.factTable) ? { factTable: scriptMeta.factTable } : {}), ...(scriptMeta.endingCheck ? { endingCheck: scriptMeta.endingCheck } : {}) } : null, voice, words, reused, resumeFrom, postOnly };
   }
 
   // Fix 2: a job that ended on overlay_layout_blocked keeps its rendered frames. It can finish from the post step alone when the host's own
@@ -707,6 +707,11 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     // gives a video that is too long or too short; instead of stopping there (job mwg83rd6-959255: serena read 112 words in 54.6 s,
     // 11.4 s over), the script is written once more for the pace that was just measured, and voiced again. A second miss stops the job.
     let scripted; let voice; let words; let measured;
+    // codex / gpt-6.1-sol / 2026-11-19 14:30 +02:00: script and correction use the same job-confined author transport.
+    const scriptDeps = () => ({ onCall: addCall, ...(rec.route === 'authored' ? {
+      askAuthor: authorLoop.askAuthor,
+      authorOptions: { ...authorLoop, workRoot: path.join(stage, 'author', 'calls') },
+    } : {}) });
     let measuredPace = null;
     for (let lengthAttempt = 0; ; lengthAttempt += 1) {
     const fresh = lengthAttempt > 0; // the retry reuses nothing from a resume: its script and voice are the ones being replaced
@@ -717,7 +722,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     try {
       const fn = scriptStage ?? pl.planCodebuiltScript;
       if (typeof fn !== 'function') throw new StartError('script_unavailable', 501);
-      scripted = await fn({ route: rec.route ?? 'classic', topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(rec.autoDuration && !rec.durationSelected ? { autoDuration: true } : {}), ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
+      scripted = await fn({ route: rec.route ?? 'classic', buildModel: rec.buildModel, topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, ...(rec.autoDuration && !rec.durationSelected ? { autoDuration: true } : {}), ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, scriptDeps());
     } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
     }
     if (!scripted || typeof scripted.script !== 'string' || !scripted.script.trim() || typeof scripted.brief !== 'string') throw new StartError('script_failed', 502);
@@ -736,7 +741,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
     try { fs.mkdirSync(stage, { recursive: true }); } catch { /* audit artifacts are best effort */ }
     const saveScriptArtifacts = () => {
       // codex · gpt-6.1-sol, 2026-11-15 16:32 +02:00: retain ending verdict for proof and resume.
-      for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [], ...(scripted.endingCheck ? { endingCheck: scripted.endingCheck } : {}) })}\n`]]) {
+      for (const [name, value] of [['script.txt', scripted.script], ['shots.json', `${JSON.stringify(scripted.shots ?? [], null, 2)}\n`], ['brief.md', scripted.brief], ['pathpack.json', `${JSON.stringify(scripted.pathPack, null, 2)}\n`], ['script-meta.json', `${JSON.stringify({ shots: scripted.shots ?? [], ...(scripted.factTable ? { factTable: scripted.factTable } : {}), ...(scripted.endingCheck ? { endingCheck: scripted.endingCheck } : {}) })}\n`]]) {
         try { fs.writeFileSync(path.join(stage, name), value); } catch { /* one failed audit artifact does not skip the others */ }
       }
     };
@@ -773,7 +778,7 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
           let again;
           try {
             const fn = scriptStage ?? pl.planCodebuiltScript;
-            again = await fn({ route: rec.route ?? 'classic', topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, corrections, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, { onCall: addCall });
+            again = await fn({ route: rec.route ?? 'classic', buildModel: rec.buildModel, topic: rec.topic, duration: rec.duration, voice: rec.voice, signal, corrections, ...(measuredPace ? { pace: measuredPace } : {}), ...(rec.choices ? { choices: rec.choices } : {}), ...(rec.premise ? { premise: rec.premise } : {}) }, scriptDeps());
           } catch (error) { throw error instanceof StartError ? error : signal.aborted ? new StartError('aborted') : error?.quota === true ? new StartError('claude_limit', 502) : new StartError('script_failed', 502); }
           if (again && typeof again.script === 'string' && again.script.trim() && typeof again.brief === 'string' && again.pathPack?.id === 'codebuilt') {
             for (const call of again.calls ?? []) addCall(call);
