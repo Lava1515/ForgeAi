@@ -30,6 +30,7 @@ function ensureAuthorRoot(stage){
  return root;
 } 
 export function authorCaps(input={}) {
+ // codex · gpt-6.1-sol · 2026-11-19 08:07 +02:00: Sonnet's measured file is the unchanged ceiling for both authors.
  if(input.measurementMode===true && input.caps && Object.values(input.caps).some(v=>!Number.isFinite(v)||v<=0))throw authorError('author_caps_unmeasured');
  if(input.measurementMode===true) return {caps:{billableTotal:Math.min(input.caps?.billableTotal??1472004,1472004),contextPeak:Math.min(input.caps?.contextPeak??900000,900000)},reserves:{IMAGE_RESERVE:4000,OUTPUT_RESERVE:40000}};
  try {
@@ -52,7 +53,7 @@ export function verifyAuthorReceipt(out,input) {
  if(!Number.isInteger(receipt.attempt)||receipt.attempt<0||!Number.isInteger(receipt.round)||receipt.round<0||receipt.round>4)throw Error();
  if(receipt.identity!==authorIdentity(input))throw Error();
  const spec=validateOverlayPair(pair,code,{videoSeconds:input.nframes/30});pairCheck(code,spec,input);
- if(JSON.stringify(spec)!==JSON.stringify(out.overlaySpec) || out.accepted!==true || code!==out.buildScript || hash(code)!==out.sha256 || hash(JSON.stringify(spec))!==receipt.overlaySha256 || receipt.sha256!==out.sha256 || JSON.stringify(receipt)!==JSON.stringify(out.receipt) || receipt.argvSha256!==hash(JSON.stringify(authorArgv()))) throw Error();
+ if(JSON.stringify(spec)!==JSON.stringify(out.overlaySpec) || out.accepted!==true || code!==out.buildScript || hash(code)!==out.sha256 || hash(JSON.stringify(spec))!==receipt.overlaySha256 || receipt.sha256!==out.sha256 || JSON.stringify(receipt)!==JSON.stringify(out.receipt) || receipt.argvSha256!==hash(JSON.stringify(authorArgv(input.model??'sonnet')))) throw Error();
  const roundDir=path.join(dir,`a${receipt.attempt}`,`r${receipt.round}`);
  const preview=read(path.join(roundDir,'preview.json')),look=read(path.join(roundDir,'look.json'));
  if(readBytes(path.join(roundDir,'build.py'),'utf8')!==code || JSON.stringify(validateOverlayPair(read(path.join(roundDir,'overlay.json')),code,{videoSeconds:input.nframes/30}))!==JSON.stringify(spec))throw Error();
@@ -86,6 +87,7 @@ export function verifyAuthorReceipt(out,input) {
  }catch{throw authorError('author_hash');}
 }
 export async function runAuthorLoop(input,deps={}) {
+ const model=input.model??'sonnet';authorArgv(model);
  if(!path.isAbsolute(input.stageDir)|| (input.previewAttempt!==undefined&&(!Number.isInteger(input.previewAttempt)||input.previewAttempt<0)))throw authorError('bad_input');
  if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,50}$/.test(input.jobId)||typeof input.validate!=='function') throw authorError('bad_input');
  const measured=authorCaps(input), root=ensureAuthorRoot(input.stageDir);
@@ -94,10 +96,10 @@ export async function runAuthorLoop(input,deps={}) {
   if(typeof deps.layoutCheck!=='function')throw authorError('author_layout_unavailable');
  const attempts=fs.readdirSync(root).filter(n=>/^a\d+$/.test(n)).map(n=>Number(n.slice(1)));
  const attempt=Math.max(attempts.length?Math.max(...attempts)+1:0,input.previewAttempt??0),stage=path.join(root,`a${attempt}`);fs.mkdirSync(stage);
- const now=deps.now??Date.now,started=now(),argvSha256=hash(JSON.stringify(authorArgv())),calls=[],history=[];
+ const now=deps.now??Date.now,started=now(),argvSha256=hash(JSON.stringify(authorArgv(model))),calls=[],history=[];
  let spent=0,contextPeak=0,outputTotal=0,repairs=0,round=0,previews=0,code='',spec=null,feedback='',editRefusals=0,resynced=false;
  const journal=entry=>{const file=path.join(stage,'journal.jsonl');if(fs.existsSync(file))regular(file);fs.appendFileSync(file,JSON.stringify(entry)+'\n');};
- const state=status=>{const value={version:1,jobId:input.jobId,model:'sonnet',cliVersion:input.probe?.cliVersion??null,argvSha256,switch:{env:true,job:'authored'},caps:measured.caps,counters:{calls:calls.length,rounds:previews,minutes:(now()-started)/60000,billableTotal:spent,contextPeak,outputTotal},attempt,status};json(path.join(stage,'session.json'),value);json(path.join(root,'session.json'),value);};
+ const state=status=>{const value={version:1,jobId:input.jobId,model,cliVersion:input.probe?.cliVersion??null,argvSha256,switch:{env:true,job:'authored'},caps:measured.caps,counters:{calls:calls.length,rounds:previews,minutes:(now()-started)/60000,billableTotal:spent,contextPeak,outputTotal},attempt,status};json(path.join(stage,'session.json'),value);json(path.join(root,'session.json'),value);};
  const guard=()=>{if(input.signal?.aborted)throw authorError('aborted');if(now()-started>3600000)throw authorError('author_time');if(spent>measured.caps.billableTotal)throw authorError('author_tokens');if(contextPeak>measured.caps.contextPeak)throw authorError('author_context_full');};
  const timed=async(kind,fn)=>{guard();const t=now();try{return await fn();}finally{journal({kind,round,wallS:(now()-t)/1000});}};
  const ask=async(prompt,images,kind,dir)=>{
@@ -106,11 +108,11 @@ export async function runAuthorLoop(input,deps={}) {
   if(spent+reserve>measured.caps.billableTotal)throw authorError('author_tokens');
   const n=calls.length,t=now();write(path.join(dir,`prompt-${n}.txt`),prompt);
   let answer;
-  try {answer=await deps.askAuthor(prompt,images,{model:'sonnet',signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?1200000:600000,3600000-(now()-started)))});}
+  try {answer=await deps.askAuthor(prompt,images,{model,signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?1200000:600000,3600000-(now()-started)))});}
   catch(error){const usage=normalizeAuthorUsage(null,{promptChars:prompt.length,images:images.length,...measured.reserves});const entry={n,round,kind,status:'error',usage,reserve,spentBefore:spent,wallS:(now()-t)/1000};calls.push(entry);spent+=usage.billable;contextPeak=Math.max(contextPeak,usage.context);journal(entry);state('failed');deps.onCall?.(entry);throw error;}
   write(path.join(dir,`reply-${n}.txt`),answer.text);
   const usage=normalizeAuthorUsage(answer.rawUsage??answer.usage,{promptChars:prompt.length,images:images.length,...measured.reserves});
-  const entry={n,round,kind,step:'author',provider:'claude',model:'sonnet',promptSha256:hash(prompt),replySha256:hash(answer.text),imageSha256:images.map(i=>hash(i.bytes)),usage,wallS:(now()-t)/1000,receipt:answer.receipt,spentBefore:spent,reserve,promptChars:prompt.length,replyChars:answer.text.length,image_tokens_seen:images.length?Math.max(0,usage.context-Math.ceil(prompt.length/3))/images.length:null};
+  const entry={n,round,kind,step:'author',provider:'claude',model,promptSha256:hash(prompt),replySha256:hash(answer.text),imageSha256:images.map(i=>hash(i.bytes)),usage,wallS:(now()-t)/1000,receipt:answer.receipt,spentBefore:spent,reserve,promptChars:prompt.length,replyChars:answer.text.length,image_tokens_seen:images.length?Math.max(0,usage.context-Math.ceil(prompt.length/3))/images.length:null};
   calls.push(entry);spent+=usage.billable;contextPeak=Math.max(contextPeak,usage.context);outputTotal+=usage.output_tokens;journal(entry);deps.onCall?.(entry);state('running');guard();
   const rc=answer.receipt;
   if(!rc || rc.argvSha256!==argvSha256 || rc.promptSha256!==hash(prompt) || JSON.stringify(rc.imageSha256)!==JSON.stringify(entry.imageSha256) || rc.imageCount!==images.length || rc.toolsOffered!==0 || rc.noSessionPersistence!==true || rc.transport!=='stdin-image-blocks')throw authorError('author_receipt');
@@ -200,6 +202,8 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  const {createPreviewRunFn}=await import('../engines/codebuilt/composePreview.js');
  const {directionMarkdown}=await import('./direction.js');
  if(process.env.FORGEAI_AUTHOR_MODE!=='1')throw authorError('author_mode_disabled');
+ // codex · gpt-6.1-sol · 2026-11-19 08:07 +02:00: reuse the run's buildModel; Auto keeps Sonnet, unsupported authors fail closed.
+ const model=(!rec.buildModel||rec.buildModel==='Auto')?'sonnet':rec.buildModel.toLowerCase();authorArgv(model);
  const measurementMode=injected.measurementMode===true; // code-only: createCodebuiltStarter's authorLoop option, never a request field
  authorCaps({capsFile:injected.capsFile,measurementMode,caps:injected.caps});checkAuthorConfig(injected);
  const sheetMaker=injected.sheetMaker??createPreviewSheetMaker({execFileFn:hostExecFile});
@@ -220,9 +224,9 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
   if(!why.length){const bad=pl.pythonQaStructureCheck(code,{expect:{shotStarts,nframes}});if(Array.isArray(bad))why.push(...bad);}
   return why;
  };
- const input={jobId:rec.id,stageDir:stage,capsFile:injected.capsFile,measurementMode,caps:injected.caps,previewAttempt:rec.resumes?.length??0,signal,probe,nframes,shotStarts,shots:plan.lookShots,brief:scripted.brief+'\n'+plan.directionMarkdown,script:scripted.script,kitContract:pl.KIT_CONTRACT,wordsPath:voice.wordsPath,renderBudget:pathPack.rules.routes.overlay.render.RENDER_BUDGET_S_PER_FRAME,validate,writePrompt:pl.authorBuildPrompt({topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,words,pathPack,formats:rec.formats,choices:rec.choices,direction,shotStarts,nframes})};
+ const input={jobId:rec.id,model,stageDir:stage,capsFile:injected.capsFile,measurementMode,caps:injected.caps,previewAttempt:rec.resumes?.length??0,signal,probe,nframes,shotStarts,shots:plan.lookShots,brief:scripted.brief+'\n'+plan.directionMarkdown,script:scripted.script,kitContract:pl.KIT_CONTRACT,wordsPath:voice.wordsPath,renderBudget:pathPack.rules.routes.overlay.render.RENDER_BUDGET_S_PER_FRAME,validate,writePrompt:pl.authorBuildPrompt({topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,words,pathPack,formats:rec.formats,choices:rec.choices,direction,shotStarts,nframes})};
  try {const receipt=read(path.join(stage,'author','receipt.json')),code=readBytes(path.join(stage,'author','accepted.build.py'),'utf8'),pair=read(path.join(stage,'author','accepted.overlay.json'));verifyAuthorReceipt({accepted:true,buildScript:code,overlaySpec:pair.spec,sha256:hash(code),receipt},input);probe={passed:true};}catch{}
- if(!probe)probe=injected.probe ? await injected.probe({rec,stage,signal}) : await probeAuthorSupport({stageDir:path.join(stage,'author'),nonce:cryptoNonce(),makeCanary:sheetMaker.makeCanary,askFn:ask,signal});
+ if(!probe)probe=injected.probe ? await injected.probe({rec,stage,signal,model}) : await probeAuthorSupport({model,stageDir:path.join(stage,'author'),nonce:cryptoNonce(),makeCanary:sheetMaker.makeCanary,askFn:ask,signal});
  input.probe=probe;
  const base=injected.runPreview??(request=>createPreviewRunFn({runner:{run:args=>runtime.runner.run({...args,route:'authored',overlaySpec:request.overlaySpec})},inputs:{script:scripted.script,voWav:voice.voPath,words:voice.wordsPath,pathPack,brief:scripted.brief},jobRoot:jobsDir})(request));
  const layoutCheck=injected.layoutCheck??createLayoutGate({execFileFn:hostExecFile}).check;

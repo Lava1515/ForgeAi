@@ -15,7 +15,8 @@ const spawnFor = (events, inspect=()=>{}) => (bin,args,opts) => {
 };
 const init = {type:'system',subtype:'init',tools:[],skills:[],mcp_servers:[],model:'sonnet'};
 const result = {type:'result',result:'ok',usage:{input_tokens:100,output_tokens:20}};
-test('fixed argv rejects every non Sonnet model',()=> {assert.deepEqual(authorArgv('sonnet'),[...lookArgv('sonnet'),'--safe-mode']); for(const s of ['opus','sonnet --tools Bash','']) assert.throws(()=>authorArgv(s));});
+// codex · gpt-6.1-sol · 2026-11-19 08:07 +02:00: update the existing allowlist assertion for the second allowed author.
+test('fixed argv allows only Sonnet and Opus',()=> {for(const model of ['sonnet','opus']) assert.deepEqual(authorArgv(model),[...lookArgv(model),'--safe-mode']); for(const s of ['fable','sonnet --tools Bash','']) assert.throws(()=>authorArgv(s));});
 test('partial raw cache counters charged conservatively; zero is known',()=> {
  assert.equal(normalizeAuthorUsage({input_tokens:100,output_tokens:20},{promptChars:3000,images:0}).billable,2120);
  assert.equal(normalizeAuthorUsage({...result.usage,cache_read_input_tokens:0,cache_creation_input_tokens:0},{promptChars:3000,images:0}).billable,120);

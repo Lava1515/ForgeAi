@@ -10,7 +10,8 @@ export const AUTHOR_REPO = path.resolve(path.dirname(fileURLToPath(import.meta.u
 export const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 export const authorError = code => Object.assign(new Error(code), {code});
 export function authorArgv(model = 'sonnet') {
- if(model !== 'sonnet') throw authorError('author_model_unavailable');
+ // codex · gpt-6.1-sol · 2026-11-19 08:07 +02:00: per-run authors share the same confined transport.
+ if(!['sonnet','opus'].includes(model)) throw authorError('author_model_unavailable');
  return [...lookArgv(model),'--safe-mode'];
 }
 export function normalizeAuthorUsage(raw, {promptChars, images, IMAGE_RESERVE=4000, OUTPUT_RESERVE=40000}) {
