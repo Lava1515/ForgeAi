@@ -14,6 +14,11 @@ not marked blocked can be taken by the fleet.
    licences are out: do not download it, do not wire it in, propose an allowed alternative instead.
    Record every such thing in `licenses/register.json` (licence, source link, date, how you checked) and run
    `python tools/license_check.py`. The check runs before every commit and fails on anything missing or not allowed.
+
+   An agent may install a tool, library, model, or asset it judges useful, only after a Fable thread approves in
+   writing with three checks (necessary; not malware: what was checked, pinned version/commit; licence allows
+   monetized videos). All three must be yes; no other model's approval counts. The approval goes in the register
+   entry's how-checked field.
 2. **Lean process, fleet allowed.** Take work from `docs/BACKLOG.md`. One review by a different model family
    before merging. When only Claude can review (owner, 2026-11-17): Fable may review any work, and Opus may review
    work built by Sonnet or Haiku; a model never reviews its own work. No ticket system, no supervisor relays. Fleet (owner, 2026-11-14): Sol supervises; at most 3 Codex
