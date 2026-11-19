@@ -661,11 +661,13 @@ def map_land(name, color=None, image_path=None, relief=4.5, saturation=1.5, valu
     hs.inputs['Saturation'].default_value = saturation
     hs.inputs['Value'].default_value = value
     nt.links.new(col, hs.inputs['Color'])
-    natural = nt.nodes.new('ShaderNodeMixRGB')
+    # codex · gpt-6.1-sol · 2026-11-19 20:17 +02:00: restore the runtime RGBA Mix API.
+    natural = nt.nodes.new('ShaderNodeMix')
+    natural.data_type = 'RGBA'
     natural.blend_type = 'MULTIPLY'
-    natural.inputs[0].default_value = 1.0
-    nt.links.new(hs.outputs['Color'], natural.inputs[1])
-    nt.links.new(shade, natural.inputs[2])
+    natural.inputs['Factor'].default_value = 1.0
+    nt.links.new(hs.outputs['Color'], natural.inputs['A'])
+    nt.links.new(shade, natural.inputs['B'])
     # Fill hue stays editable; a wider hillshade range keeps terrain under full fills.
     # codex · gpt-6.1-sol · 2026-11-19 20:04 +02:00
     rgb = nt.nodes.new('ShaderNodeRGB')
@@ -676,20 +678,22 @@ def map_land(name, color=None, image_path=None, relief=4.5, saturation=1.5, valu
     lit.inputs['To Min'].default_value, lit.inputs['To Max'].default_value = 0.32, 1.05
     nt.links.new(lum, lit.inputs['Value'])
     k = _math(nt, 'MULTIPLY', lit.outputs['Result'], shade)
-    fill = nt.nodes.new('ShaderNodeMixRGB')
+    fill = nt.nodes.new('ShaderNodeMix')
+    fill.data_type = 'RGBA'
     fill.blend_type = 'MULTIPLY'
-    fill.inputs[0].default_value = 1.0
-    nt.links.new(rgb.outputs[0], fill.inputs[1])
-    nt.links.new(k, fill.inputs[2])
+    fill.inputs['Factor'].default_value = 1.0
+    nt.links.new(rgb.outputs[0], fill.inputs['A'])
+    nt.links.new(k, fill.inputs['B'])
     mixv = nt.nodes.new('ShaderNodeValue')
     mixv.name = 'hl_mix'
     mixv.outputs[0].default_value = 1.0 if color is not None else 0.0
-    mix = nt.nodes.new('ShaderNodeMixRGB')
-    nt.links.new(mixv.outputs[0], mix.inputs[0])
-    nt.links.new(natural.outputs['Color'], mix.inputs[1])
-    nt.links.new(fill.outputs['Color'], mix.inputs[2])
-    nt.links.new(mix.outputs['Color'], b.inputs['Base Color'])
-    nt.links.new(mix.outputs['Color'], b.inputs['Emission Color'])
+    mix = nt.nodes.new('ShaderNodeMix')
+    mix.data_type = 'RGBA'
+    nt.links.new(mixv.outputs[0], mix.inputs['Factor'])
+    nt.links.new(natural.outputs['Result'], mix.inputs['A'])
+    nt.links.new(fill.outputs['Result'], mix.inputs['B'])
+    nt.links.new(mix.outputs['Result'], b.inputs['Base Color'])
+    nt.links.new(mix.outputs['Result'], b.inputs['Emission Color'])
     b.inputs['Emission Strength'].default_value = glow
     return no_light(m)
 
@@ -740,12 +744,13 @@ def map_sea(name, color=MAP_SEA, shelf=MAP_SHELF, image_path=None, geographic=Tr
     depth.inputs['From Min'].default_value, depth.inputs['From Max'].default_value = 0.50, 0.66
     nt.links.new(lum, depth.inputs['Value'])
     t = _math(nt, 'MULTIPLY', _math(nt, 'MULTIPLY', depth.outputs['Result'], water), inside)
-    ramp = nt.nodes.new('ShaderNodeMixRGB')
-    ramp.inputs[1].default_value = (*color, 1)
-    ramp.inputs[2].default_value = (*shelf, 1)
-    nt.links.new(t, ramp.inputs[0])
-    nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
-    nt.links.new(ramp.outputs['Color'], b.inputs['Emission Color'])
+    ramp = nt.nodes.new('ShaderNodeMix')
+    ramp.data_type = 'RGBA'
+    ramp.inputs['A'].default_value = (*color, 1)
+    ramp.inputs['B'].default_value = (*shelf, 1)
+    nt.links.new(t, ramp.inputs['Factor'])
+    nt.links.new(ramp.outputs['Result'], b.inputs['Base Color'])
+    nt.links.new(ramp.outputs['Result'], b.inputs['Emission Color'])
     b.inputs['Emission Strength'].default_value = glow
     return no_light(m)
 
