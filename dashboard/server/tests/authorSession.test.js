@@ -7,6 +7,8 @@ import { EventEmitter } from 'node:events';
 import { createAuthorSession, sessionArgv, sessionPath, consumePreviewRequest } from '../episode/codebuilt/authorSession.js';
 import { askAuthorSession, hash } from '../episode/codebuilt/authorCall.js';
 import { runAuthorLoop, verifyAuthorReceipt } from '../episode/codebuilt/authorLoop.js';
+// B3 bug 2026-11-19: the session asked for scale 25 and the real fence refused it (BAD_JOB); the stub now runs the fence's own check.
+import { checkPreviewRequest } from '../episode/engines/codebuilt/jobFolder.js';
 
 test('author session uses only restricted job file tools, resumes, and refuses escapes and command requests', async () => {
  const root = 'C:/code/ForgeAi/output/agent-jobs/b2-session-test';
@@ -92,7 +94,7 @@ test('author session uses only restricted job file tools, resumes, and refuses e
    return {text,rawUsage:{input_tokens:10,output_tokens:10,cache_creation_input_tokens:0,cache_read_input_tokens:0},receipt:{argvSha256:hash(JSON.stringify(argv)),promptSha256:hash(prompt),imageSha256:images.map(i=>hash(i.bytes)),imageCount:images.length,noSessionPersistence:false,toolsOffered:3,transport:'author-session',sessionId:s.id}};
   },
   runPreview:async request=>{
-   previews++;assert.equal(request.spec.scale,25);assert.ok(request.spec.frames.length<=12);
+   previews++;checkPreviewRequest(request.spec.frames,request.spec.scale);assert.ok(request.spec.frames.length<=12);
    assert.equal(request.buildScript,previews===1?code:fixed);
    const dir=path.join(loopStage,`preview-${previews}`);fs.mkdirSync(dir);return {dir,frames:[]};
   },

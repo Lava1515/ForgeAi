@@ -143,7 +143,7 @@ export async function runAuthorLoop(input,deps={}) {
    const dir=path.join(stage,`r${round}`);fs.mkdirSync(dir);write(path.join(dir,'build.py'),code);json(path.join(dir,'overlay.json'),pair);
    const sha256=hash(code),overlaySha256=hash(JSON.stringify(spec)),previewId=`${input.jobId}-a${attempt}-pv${round+1}`;
    previews++;deps.onPhase?.('previewing');let preview=null,crash=null;
-   try{preview=await timed('preview',()=>deps.runPreview({jobId:previewId,buildScript:code,overlaySpec:spec,spec:{frames,scale:session?25:50},signal:input.signal}));}
+   try{preview=await timed('preview',()=>deps.runPreview({jobId:previewId,buildScript:code,overlaySpec:spec,spec:{frames,scale:50},signal:input.signal}));}
    catch(error){if(!['FENCE_FAILED','AGENT_EARLY_STOP','MISSING_OUTPUT','TIMEOUT'].includes(error.code)||error.detail?.backstop)throw error;crash=String(error.diagnostic??error.code).slice(0,2000);}
    guard();let sheets=[],kit=null,timing=null,layout=null;
    if(preview){
@@ -168,7 +168,7 @@ export async function runAuthorLoop(input,deps={}) {
     }
     layout={...await timed('layout',()=>deps.layoutCheck({overlaySpec:raw,nframes:input.nframes,fps:30,jobRoot:dir,frames:layoutFrames,lead:0.35,signal:input.signal,...(input.wordsPath?{words}:{}),...(layoutAnchors?{anchors:layoutAnchors}:{})})),uncovered};
     guard();journal({kind:'layout',round,ok:layout.ok,blocking:layout.blocking.length,labelHidden:layout.labelHidden.length,uncovered});
-    try{const t=read(path.join(work,'render-timing.json'));if(!Number.isFinite(t.render_s)||!(t.rendered>0))throw Error();timing=t.render_s/t.rendered*(session?16:4);journal({kind:'render_timing',round,secondsPerFrame:timing});}catch{journal({kind:'render_timing_unavailable',round});}
+    try{const t=read(path.join(work,'render-timing.json'));if(!Number.isFinite(t.render_s)||!(t.rendered>0))throw Error();timing=t.render_s/t.rendered*4;journal({kind:'render_timing',round,secondsPerFrame:timing});}catch{journal({kind:'render_timing_unavailable',round});}
    }
    const sheetRecords=sheets.map((s,i)=>{const file=`sheet-${i}.jpg`,bytes=readBytes(s.path);write(path.join(dir,'sheets',file),bytes);return {file,sha256:hash(bytes)};});
    const images=sheetRecords.map(s=>({bytes:readBytes(path.join(dir,'sheets',s.file)),mediaType:'image/jpeg'}));
