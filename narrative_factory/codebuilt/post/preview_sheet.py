@@ -138,7 +138,7 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
         if any(overlay.names_used(spec).values()) and not anchors_path:
             raise SheetError("overlay.json names anchors or values but anchors.json is missing")
         with _open_png(frames[0][1]) as first:
-            ov = overlay.Overlay(spec, marks, first.width, first.height, captions_track=track, fps=fps, nframes=nframes)
+            ov = overlay.Overlay(spec, marks, first.width, first.height, captions_track=track, fps=fps, nframes=nframes, partial_anchors=True)
         sampled_labels = {i: [0, 0] for i in range(len(spec["labels"]))}
         counter_values = []
         for frame, _ in frames:
