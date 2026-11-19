@@ -60,7 +60,7 @@ for(const route of ['overlay','authored']) for(const format of ['map','teardown'
   assert.equal(directed.route,route);assert.deepEqual(directed.formats,[format]);
   assert.match(prompt,/No text in 3D/);assert.match(prompt,/ONE python block and ONE json block/);
   assert.match(prompt,/AgX - Medium High Contrast/);assert.match(prompt,/pending review/);assert.match(prompt,/16 samples/);
-  assert.match(prompt,/budget: 1.5 s\/frame/);assert.doesNotMatch(prompt,/AgX washes|Put dark plates behind readouts/);
+  assert.match(prompt,/budget: 4 s\/frame/);assert.doesNotMatch(prompt,/AgX washes|Put dark plates behind readouts/);
   assert.doesNotMatch(prompt,/configure Cycles CPU and Standard explicitly|Standard view transform/);
   const s=current.scriptPrompt({topic:input.topic,duration:30,pack,premise,route});
   const line=s.split('\n').find(x=>x.startsWith('Premise data'));
