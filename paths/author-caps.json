@@ -39,7 +39,7 @@
   ],
   "caps": {
     "billableTotal": 940000,
-    "contextPeak": 90000
+    "contextPeak": 200000
   },
   "reserves": {
     "IMAGE_RESERVE": 11097,
