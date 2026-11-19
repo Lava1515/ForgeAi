@@ -86,13 +86,12 @@
     {
       "id": "ffmpeg",
       "kind": "tool",
-      "use": "joins frames, audio and captions into the video",
-      "licence": "LGPL/GPL; applies to the program, not to the videos it writes",
+      "use": "joins frames, audio and captions into the video (container and host winget Gyan.FFmpeg 9.0.2)",
+      "licence": "LGPL-2.1-or-later / GPL-2.0-or-later; applies to the program, not to the videos it writes",
       "allowed": true,
       "source": "https://ffmpeg.org/legal.html",
-      "checked": "2026-11-13",
-      "checked_how": "from memory",
-      "reverify": true
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; verified at https://ffmpeg.org/legal.html: 'FFmpeg is licensed under the GNU Lesser General Public License (LGPL) version 2.1 or later... GPL version 2 or later'; applies to the program, not to the videos it writes"
     },
     {
       "id": "debian",
@@ -423,6 +422,168 @@
       "source": "https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html",
       "checked": "2026-11-19",
       "checked_how": "Fable approval 2026-11-19 (claude-pro · claude-fable-5-2), owner rule of 2026-11-19. 1 necessary: MPFB ships no clothes, skin or hair. 2 not malware: the zip was listed before unpacking: 517 entries, only png, thumb, mhmat, obj, mhclo, proxy, mhw and one json; no executables or scripts. 3 monetization: pack page read today: every listed asset is marked CC0."
+    },
+    {
+      "id": "host-ffmpeg",
+      "kind": "tool",
+      "use": "host video joins, audio extraction and measurements (winget Gyan.FFmpeg 9.0.2)",
+      "licence": "LGPL-2.1-or-later / GPL-2.0-or-later; applies to the executable, not to output video files",
+      "allowed": true,
+      "source": "https://ffmpeg.org/legal.html",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; verified at https://ffmpeg.org/legal.html: 'FFmpeg is licensed under the GNU Lesser General Public License (LGPL) version 2.1 or later... GPL version 2 or later'; applies to the program, not to the videos it writes"
+    },
+    {
+      "id": "hyperframes",
+      "kind": "tool",
+      "use": "HTML-to-video rendering and text overlay generation; CLI pinned to version 0.9.70; browser animation only",
+      "licence": "Apache-2.0",
+      "allowed": true,
+      "source": "https://github.com/heygen-com/hyperframes/blob/main/LICENSE",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; read upstream Apache-2.0 LICENSE: 'Licensed under the Apache License, Version 2.0'; free for commercial work; browser animation only, no GSAP or external catalog blocks"
+    },
+    {
+      "id": "openverse",
+      "kind": "service",
+      "use": "search index for openly licensed media; only CC0 / public-domain items whose own page confirms it are used",
+      "licence": "MIT (code); content index: CC0 / public-domain items only (independently verified per item)",
+      "allowed": true,
+      "source": "https://github.com/WordPress/openverse/blob/main/documentation/terms_of_service.md",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; read Openverse terms of service: 'Openverse aggregates metadata about openly licensed content... You are responsible for independently verifying whether you have the right to use the content and data'; only CC0 and public-domain items verified at their source page are used"
+    },
+    {
+      "id": "ACE-Step/ACE-Step-1.5",
+      "kind": "model and code",
+      "use": "instrumental background music generation; pinned commit ca1e85fe9430179831e6bc6be790c332190a3866",
+      "licence": "MIT (code and model card weights; commercial use allowed)",
+      "allowed": true,
+      "source": "https://github.com/ACE-Step/ACE-Step-1.5",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; repository LICENSE read: 'MIT License Copyright (c) 2026 ACEStep'; model card README confirmed: 'This project is licensed under MIT', 'use the generated music for commercial purposes'; pinned commit ca1e85fe9430179831e6bc6be790c332190a3866"
+    },
+    {
+      "id": "ACE-Step/Ace-Step1.5",
+      "kind": "model",
+      "use": "HuggingFace model checkpoints for ACE-Step 1.5 music generation",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://huggingface.co/ACE-Step/Ace-Step1.5",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; model card README confirmed: 'This project is licensed under MIT', 'use the generated music for commercial purposes'"
+    },
+    {
+      "id": "TripoSG",
+      "kind": "model and code",
+      "use": "photo-to-3D shape synthesis (part D, not wired in yet; input must be pre-cutout picture; bundled Bria RMBG-1.4 background remover is OUT)",
+      "licence": "MIT (code and weights)",
+      "allowed": true,
+      "source": "https://github.com/VAST-AI-Research/TripoSG",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; repository LICENSE read: 'MIT License Copyright (c) 2025 VAST-AI-Research and contributors'; model card tagged MIT for weights; Bria RMBG-1.4 is excluded as non-commercial; part D not wired in yet"
+    },
+    {
+      "id": "VAST-AI/TripoSG",
+      "kind": "model",
+      "use": "HuggingFace model weights for TripoSG photo-to-3D shape synthesis (part D, not wired in yet)",
+      "licence": "MIT",
+      "allowed": true,
+      "source": "https://huggingface.co/VAST-AI/TripoSG",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; model card tagged MIT for weights; Bria RMBG-1.4 is excluded as non-commercial; part D not wired in yet"
+    },
+    {
+      "id": "earshot",
+      "kind": "tool and library",
+      "use": "audio level and mix measurement tool (measure, critique) on host; measuring tool only, sound-bank audio is OUT; pinned commit 4ac3d2a",
+      "licence": "MIT (code); applies as measuring tool only; sound-bank audio excluded",
+      "allowed": true,
+      "source": "https://github.com/Leonxlnx/earshot",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; LICENSE read: 'MIT License Copyright (c) 2026 Leon Lin'; pinned commit 4ac3d2ac2b151e1c23376f9ce7f3047a17050013; measuring tool only (nothing ends up in video); sound-bank audio is excluded"
+    },
+    {
+      "id": "pip:earshot",
+      "kind": "library",
+      "use": "audio level and mix measurement Python package; measuring tool only, sound-bank audio is OUT; pinned commit 4ac3d2a",
+      "licence": "MIT (code)",
+      "allowed": true,
+      "source": "https://github.com/Leonxlnx/earshot",
+      "checked": "2026-11-19",
+      "checked_how": "approved by Fable (claude-pro, 2026-11-19) per the tools-tests REPORT; LICENSE read: 'MIT License Copyright (c) 2026 Leon Lin'; measuring tool only"
+    },
+    {
+      "id": "earshot:sound-bank",
+      "kind": "asset",
+      "use": "sound effects generated or bundled from Earshot sound bank; issue #21 open with unclarified provenance/licensing",
+      "licence": "unclear / unverified provenance (issue #21 open; not permitted in videos)",
+      "allowed": false,
+      "source": "https://github.com/Leonxlnx/earshot/issues/21",
+      "checked": "2026-11-19",
+      "checked_how": "Fable and agy check 2026-11-19: issue #21 still open with no maintainer clarification on sound-bank audio licensing; OUT for sounds in videos per tools-tests REPORT",
+      "patterns": [
+        "earshot sfx",
+        "earshot kit",
+        "earshot.forge.bank"
+      ]
+    },
+    {
+      "id": "gsap",
+      "kind": "library",
+      "use": "animation library for HyperFrames; standard license restricts permitted use to website/web app/digital interface, does not mention video generation",
+      "licence": "GSAP Standard License (website/web application only; video not permitted)",
+      "allowed": false,
+      "source": "https://gsap.com/licensing/",
+      "checked": "2026-11-19",
+      "checked_how": "verified at https://gsap.com/licensing/: Permitted Uses restricted to 'website, web application, or digital interface'; video use is not mentioned (grey zone; owner rule: no grey zone, do not use)",
+      "patterns": [
+        "npm:gsap",
+        "import gsap",
+        "from 'gsap'",
+        "from \"gsap\""
+      ]
+    },
+    {
+      "id": "npm:gsap",
+      "kind": "library",
+      "use": "animation library for HyperFrames; not allowed for video",
+      "licence": "GSAP Standard License (website/web application only; video not permitted)",
+      "allowed": false,
+      "source": "https://gsap.com/licensing/",
+      "checked": "2026-11-19",
+      "checked_how": "verified at https://gsap.com/licensing/: Permitted Uses restricted to website/web app; video not mentioned; not allowed",
+      "patterns": [
+        "\"gsap\":"
+      ]
+    },
+    {
+      "id": "hyperframes:catalog-blocks",
+      "kind": "asset",
+      "use": "pre-made HyperFrames registry catalog blocks without rebuild; 9 of 10 require GSAP and external fonts",
+      "licence": "Apache-2.0 upstream repo, but catalog blocks depend on GSAP and external font downloads; not allowed as-is",
+      "allowed": false,
+      "source": "https://github.com/heygen-com/hyperframes/tree/main/registry",
+      "checked": "2026-11-19",
+      "checked_how": "Fable and agy check 2026-11-19: inspected hf-test/proj registryItems; 9 of 10 catalog blocks load GSAP from external CDN and 4 load Google Fonts; usable only as design references to rebuild with browser animation, not as they are",
+      "patterns": [
+        "hyperframes.heygen.com/catalog",
+        "raw.githubusercontent.com/heygen-com/hyperframes/main/registry"
+      ]
+    },
+    {
+      "id": "briaai/RMBG-1.4",
+      "kind": "model",
+      "use": "background remover model loaded by TripoSG; non-commercial licence",
+      "licence": "bria-rmbg-1.4 / BRIA AI Model License Agreement for Non-Commercial Use (non-commercial only)",
+      "allowed": false,
+      "source": "https://huggingface.co/briaai/RMBG-1.4",
+      "checked": "2026-11-19",
+      "checked_how": "verified at https://huggingface.co/briaai/RMBG-1.4: license tagged bria-rmbg-1.4, strictly for non-commercial evaluation; commercial use prohibited without paid license from BRIA; OUT per monetization rule",
+      "patterns": [
+        "briaai/RMBG-1.4",
+        "bria-rmbg"
+      ]
     }
   ]
 }
