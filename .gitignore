@@ -168,3 +168,6 @@ output/*
 # Runtime state written by the dashboard
 /data/pipeline_state.json
 /data/trends/
+
+# CC0 asset library (fetched and built on the host by tools/asset_library*.py; never committed)
+blender_worker/codebuilt/assets/

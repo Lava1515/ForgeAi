@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { SET_PICKER_TEXT } from './setCatalog.js';
+import { ASSET_CONTRACT_TEXT } from './assetCatalog.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -155,6 +156,8 @@ export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '', 
     if (!(route === 'overlay' || route === 'authored' || jobUsesOverlay(pack, formats))) {
       content = content.split('\n## When text is drawn after the render')[0].trimEnd();
     }
+    // codex ? gpt-6.1-sol ? 2026-11-19: library guidance belongs only to an enabled authored run.
+    if (route !== 'authored' || !ASSET_CONTRACT_TEXT) content = content.split('\n### Real assets from the library')[0].trimEnd();
     parts.push(`### ${name}\n${content}`);
   }
   const sets = formatSetsText(pack, step, formats);

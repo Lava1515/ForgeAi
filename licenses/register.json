@@ -383,6 +383,46 @@
       "source": "https://docs.ambientcg.com/license/",
       "checked": "2026-11-16",
       "checked_how": "licence page read: CC0 1.0 Universal public domain dedication, commercial use allowed without credit"
+    },
+    {
+      "id": "polyhaven:hdris",
+      "kind": "asset",
+      "use": "real photographed skies and rooms for scene lighting (blender_worker/codebuilt/library.py); fetched by tools/asset_library.py into the git-ignored blender_worker/codebuilt/assets",
+      "licence": "CC0-1.0 (Public Domain)",
+      "allowed": true,
+      "source": "https://polyhaven.com/license",
+      "checked": "2026-11-19",
+      "checked_how": "Fable approval 2026-11-19 (claude-pro · claude-fable-5-2), owner rule of 2026-11-19. 1 necessary: scenes were lit by lamps and a colour only, checks called the result flat. 2 not malware: image files (.hdr) only, from dl.polyhaven.org, each verified against the md5 the Poly Haven API returns. 3 monetization: licence page and API terms (https://polyhaven.com/our-api) read today: CC0, free for commercial use, each API request must carry a User-Agent naming the application (the tool sends one)."
+    },
+    {
+      "id": "polyhaven:models",
+      "kind": "asset",
+      "use": "real-size CC0 models for set dressing and props (blender_worker/codebuilt/library.py); fetched by tools/asset_library.py",
+      "licence": "CC0-1.0 (Public Domain)",
+      "allowed": true,
+      "source": "https://polyhaven.com/license",
+      "checked": "2026-11-19",
+      "checked_how": "Fable approval 2026-11-19 (claude-pro · claude-fable-5-2), owner rule of 2026-11-19. 1 necessary: props and scenery were primitives only. 2 not malware: .blend files and textures from dl.polyhaven.org, md5-verified; a .blend can carry Python, but the kit only appends objects and Blender does not auto-run scripts in background mode unless asked; file contents were not audited one by one. 3 monetization: CC0, as polyhaven:hdris."
+    },
+    {
+      "id": "mpfb",
+      "kind": "tool",
+      "use": "MPFB 2.0.18 (MakeHuman add-on) on the HOST Blender only, used once by tools/asset_library_people_build.py to build the library's people; it is not in the job image and no job loads it",
+      "licence": "GPL-3.0-or-later (code); what you make with it is yours",
+      "allowed": true,
+      "source": "https://github.com/makehumancommunity/mpfb2/blob/master/LICENSE.md",
+      "checked": "2026-11-19",
+      "checked_how": "Fable approval 2026-11-19 (claude-pro · claude-fable-5-2), owner rule of 2026-11-19. 1 necessary: people were sphere dolls, noted as a weakness in the 2026-11-17 hand-made videos. 2 not malware: installed from extensions.blender.org (the official, reviewed Blender extension site), 309k downloads, maintained by the MakeHuman Community; its source was not audited by me. 3 monetization: LICENSE.md read today: code GPLv3, 'makes no claim whatsoever over output', assets CC0."
+    },
+    {
+      "id": "makehuman:system-assets",
+      "kind": "asset",
+      "use": "skins, clothes, hair, eyes for the library's people (packed into blender_worker/codebuilt/assets/people/*.blend)",
+      "licence": "CC0-1.0 (Public Domain)",
+      "allowed": true,
+      "source": "https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html",
+      "checked": "2026-11-19",
+      "checked_how": "Fable approval 2026-11-19 (claude-pro · claude-fable-5-2), owner rule of 2026-11-19. 1 necessary: MPFB ships no clothes, skin or hair. 2 not malware: the zip was listed before unpacking: 517 entries, only png, thumb, mhmat, obj, mhclo, proxy, mhw and one json; no executables or scripts. 3 monetization: pack page read today: every listed asset is marked CC0."
     }
   ]
 }
