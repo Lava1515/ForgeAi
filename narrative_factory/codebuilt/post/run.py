@@ -61,7 +61,7 @@ def _graded_frame(path, width, height, vig):
 
 
 def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, width=None, height=None, crf=17, preset="medium",
-           sheet_count=12, sheet_cols=6, overlay_spec=None, anchors=None, job_root=None, audio_lead=None):
+           sheet_count=12, sheet_cols=6, overlay_spec=None, anchors=None, job_root=None, audio_lead=None, draw_text=True):
     """Run the whole post step. Returns the report dict (also written to OUT/NAME.post.json).
 
     Guards first, before anything is written: `name` must be a bare file name, `out_dir` has no '..', every output path must resolve
@@ -100,7 +100,8 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
             marks = anchors_file.Anchors.empty(width, height)
         ov = overlay.Overlay(spec, marks, width, height, captions_track=track, fps=fps, nframes=len(files))
         layout = ov.layout_report()
-    boxes = track.worst_boxes()
+    # codex · gpt-6.1-sol · 2026-11-19 14:40 +02:00: the text-free base has no Pillow caption boxes.
+    boxes = track.worst_boxes() if draw_text else []
     off_zone = [b for b in boxes if not captions.inside_safe_zone(b, width, height)]
     cs = captions.cues(track.chunks, lead=lead)
     srt.write_text(subtitles.to_srt(cs), encoding="utf-8")
@@ -145,7 +146,8 @@ def finish(frames_dir, words_json, audio, out_dir, name, lead=0.0, fps=FPS, widt
                 fill()
                 if ov is not None:
                     ov.draw(out, i, i / fps)
-                track.draw(out, i / fps)
+                if draw_text:
+                    track.draw(out, i / fps)
                 ff.stdin.write(out.tobytes())
         ff.stdin.close()
         err = ff.stderr.read().decode("utf-8", "replace")[-media.STDERR_TAIL:]

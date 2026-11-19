@@ -16,7 +16,8 @@ import { scanReparsePoints } from '../../codebuilt/reparse.js';
 import { CodebuiltError } from './errors.js';
 import { REPO_ROOT } from './launch.js';
 
-const SAFE_ENV_KEYS = ['PATH', 'Path', 'SystemRoot', 'TEMP', 'TMP', 'FFMPEG_PATH', 'LANG'];
+// codex · gpt-6.1-sol · 2026-11-19 14:29 +02:00: host-only opt-in; never passed into the render fence.
+const SAFE_ENV_KEYS = ['PATH', 'Path', 'SystemRoot', 'TEMP', 'TMP', 'FFMPEG_PATH', 'LANG', 'FORGE_HYPERFRAMES_CLI', 'FORGE_HYPERFRAMES_BROWSER'];
 const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const isRegular = (file) => { try { const st = fs.lstatSync(file); return st.isFile() && !st.isSymbolicLink() && st.nlink === 1; } catch { return false; } };
 
@@ -57,7 +58,7 @@ export function createHostOutputProducer({
   if (!(timeoutMs > 0)) throw new TypeError('timeoutMs must be positive');
   const script = path.join(path.resolve(repoRoot), 'narrative_factory', 'codebuilt', 'post', 'cb5_main.py');
 
-  return async function produceOutputs({ jobDir, signal } = {}) {
+  return async function produceOutputs({ jobDir, signal, route } = {}) {
     if (typeof jobDir !== 'string' || !path.isAbsolute(jobDir)) throw new CodebuiltError('PRODUCER_FAILED', 'jobDir must be absolute');
     const job = path.resolve(jobDir);
     try { assertNoLinksInTree(job, 'job folder', { reparseScan: linkScan }); } catch (error) {
@@ -75,7 +76,9 @@ export function createHostOutputProducer({
     stage(path.join(job, 'inputs', 'vo.wav'), path.join(job, 'mix.wav'), 'mix.wav');
 
     const stdout = await new Promise((resolve, reject) => {
-      const child = execFileFn(python, ['-I', script, job], { timeout: timeoutMs, windowsHide: true, shell: false, env: safeEnv(env), maxBuffer: 1024 * 1024, signal }, (error, out, err) => {
+      const args = ['-I', script, job];
+      if (route === 'authored' && env.FORGE_HYPERFRAMES_TEXT === '1') args.push('--hyperframes');
+      const child = execFileFn(python, args, { timeout: timeoutMs, windowsHide: true, shell: false, env: safeEnv(env), maxBuffer: 1024 * 1024, signal }, (error, out, err) => {
         if (error) {
           // A named layout refusal is not a crash: it carries the bounded blocking list so the job can end with its own code.
           const refusal = layoutRefusal(out);

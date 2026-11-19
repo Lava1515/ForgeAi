@@ -1,0 +1,13 @@
+/* codex · gpt-6.1-sol · 2026-11-19 14:29 +02:00; original blocks, browser animation only. */
+@font-face{font-family:ForgeInter;src:url('Inter-700.woff2');font-weight:700;font-display:block}
+*{box-sizing:border-box;margin:0}html,body{overflow:hidden;background:#000}
+#root{position:relative;overflow:hidden;font-family:ForgeInter;font-weight:700;color:#fff}
+#base,#graphics,#flash{position:absolute;inset:0;width:100%;height:100%}
+#base{object-fit:cover}#flash{background:#fff;opacity:0;pointer-events:none}
+.panel{position:absolute;padding:1.2% 2%;background:#10151deb;border-left:solid .4em #ffd60a;border-radius:.3em;max-width:80%;overflow-wrap:anywhere}
+.counter{left:10%;top:13%;font-size:5.4em}.counter small{display:block;font-size:.35em}.counter strong{font-size:1em;color:#ffd60a}
+.label{font-size:2.2em;max-width:35%}.big{left:10%;top:40%;width:80%;text-align:center;font-size:5em}.big small{display:block;font-size:.35em}
+.tag{left:10%;top:23%;font-size:2.5em}.bar{left:10%;top:30%;width:30%;font-size:1.8em}.bar i{display:block;height:.4em;background:#ffd60a;transform-origin:left}
+.measure{position:absolute;height:2px;background:#ffd60a;transform-origin:left}.measure span{position:absolute;background:#10151d;font-size:2em;white-space:nowrap}
+#captions{position:absolute;left:10%;width:80%;top:69%;text-align:center;font-size:5em;line-height:1.15;text-transform:uppercase;-webkit-text-stroke:.1em #000;paint-order:stroke fill}
+#captions span{display:inline-block;margin:0 .12em}#captions .key{color:#ffd60a}
