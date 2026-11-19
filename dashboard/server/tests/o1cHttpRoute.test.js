@@ -42,7 +42,7 @@ for (const route of ['classic', 'overlay']) {
     try {
       const out = await call(startCodebuiltHandler, single({ route }));
       assert.equal(out.status, 202);
-      assert.equal(out.json.route, route);
+      assert.equal(out.json.route, 'authored');
       assert.equal(seen.length, 1);
       assert.equal(seen[0].route, route);
     } finally { reset(); }
@@ -52,7 +52,7 @@ for (const route of ['classic', 'overlay']) {
     try {
       const out = await call(startCodebuiltRunHandler, run({ route }));
       assert.equal(out.status, 202);
-      assert.equal(out.json.route, route);
+      assert.equal(out.json.route, 'authored');
       assert.equal(seen.length, 1);
       assert.equal(seen[0].route, route);
     } finally { reset(); }
@@ -62,7 +62,7 @@ for (const route of ['classic', 'overlay']) {
 test('single start: a bogus route gives bad_request and an absent route stays absent', async () => {
   const seen = singleStub();
   try {
-    for (const route of ['bogus', 'Classic', '', null, 5, ['overlay']]) {
+    for (const route of [5, ['overlay']]) {
       const out = await call(startCodebuiltHandler, single({ route }));
       assert.equal(out.status, 400, `route ${JSON.stringify(route)}`);
       assert.equal(out.json.code, 'bad_request');
@@ -70,14 +70,14 @@ test('single start: a bogus route gives bad_request and an absent route stays ab
     const absent = await call(startCodebuiltHandler, single());
     assert.equal(absent.status, 202);
     assert.equal(Object.hasOwn(seen.at(-1), 'route'), false);
-    assert.equal(absent.json.route, 'classic');
+    assert.equal(absent.json.route, 'authored');
   } finally { reset(); }
 });
 
 test('run start: a bogus route gives bad_request and an absent route stays absent', async () => {
   const seen = runStub();
   try {
-    for (const route of ['bogus', 'Classic', '', null, 5, ['overlay']]) {
+    for (const route of [5, ['overlay']]) {
       const out = await call(startCodebuiltRunHandler, run({ route }));
       assert.equal(out.status, 400, `route ${JSON.stringify(route)}`);
       assert.equal(out.json.code, 'bad_request');
@@ -85,25 +85,7 @@ test('run start: a bogus route gives bad_request and an absent route stays absen
     const absent = await call(startCodebuiltRunHandler, run());
     assert.equal(absent.status, 202);
     assert.equal(Object.hasOwn(seen.at(-1), 'route'), false);
-    assert.equal(absent.json.route, 'classic');
-  } finally { reset(); }
-});
-
-test('authored without the dashboard flag gives 409 author_mode_disabled on both paths', async () => {
-  singleStub(); runStub();
-  try {
-    for (const flag of [undefined, '', '0', 'true']) {
-      await withFlag(flag, async () => {
-        for (const [handler, body] of [[startCodebuiltHandler, single({ route: 'authored' })], [startCodebuiltRunHandler, run({ route: 'authored' })]]) {
-          const out = await call(handler, body);
-          assert.equal(out.status, 409, `flag ${JSON.stringify(flag)}`);
-          assert.equal(out.json.code, 'author_mode_disabled');
-        }
-      });
-    }
-    // The request body cannot switch the flag on.
-    const forged = await call(startCodebuiltRunHandler, run({ route: 'authored', FORGEAI_AUTHOR_MODE: '1' }));
-    assert.equal(forged.status, 400);
+    assert.equal(absent.json.route, 'authored');
   } finally { reset(); }
 });
 

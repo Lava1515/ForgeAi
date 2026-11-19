@@ -9,6 +9,7 @@ import { createCodebuiltRunCoordinator } from '../episode/codebuilt/runCoordinat
 const profile = { niche: 'map explainers about people, places and routes', language: 'en', avoid: [] };
 const channel = { id: 'diagnostic-map', video_types: ['factual'], profile };
 const good = {
+  story_question:'Where does your route go?',ending_answer:'It bends around the mountains.',turn:'Then the road ends',who:'A traveler',want:'To reach the coast',
   topic: 'Why does Chile split your route?', title: 'Why does Chile split your route?', subject: 'Chile',
   stake: 'You face a long detour.', answer: 'The Andes divide the country.',
   payoff: 'A map route bends around the mountains.', hook: 'Why does your route split?',

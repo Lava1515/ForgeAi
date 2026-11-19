@@ -1,7 +1,7 @@
 ﻿// codex · gpt-6.1-sol · 2026-11-17 17:21 +02:00
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {overlayScriptProblems, validateBuildScript, planCodebuiltBuild, loadCodebuiltPathPack} from './planner.js';
+import {overlayScriptProblems, validateBuildScript, authorBuildPrompt, loadCodebuiltPathPack} from './planner.js';
 const good = `from blender_worker.codebuilt import anchors, stage
 def shot(t):
  anchors.mark('lid',(0,0,0))
@@ -47,9 +47,7 @@ test('overlay prompt keeps set geometry, omits hidden text handles and stale tex
  const pack = structuredClone(loadCodebuiltPathPack());
  pack.rules.formats = {...pack.rules.formats, journey:{overlay:true}};
  let prompt;
- await assert.rejects(planCodebuiltBuild({topic:'A journey',duration:30,script:'Hello.',brief:'A journey',words:{dur:1.15,words:[{w:'Hello',s:0,e:1.15}]},pathPack:pack,formats:['journey']}, {
-  direct:false, askFn:async p=>{prompt ??= p; return {text:'invalid'};}, syntaxCheck:()=>'',qaStructureCheck:()=>[],
- }));
+ prompt=authorBuildPrompt({topic:'A journey',duration:30,script:'Hello.',brief:'A journey',words:{dur:1.15,words:[{w:'Hello',s:0,e:1.15}]},pathPack:pack,formats:['journey'],shotStarts:[0],nframes:90});
  for (const name of ['cutaway_planet','polar_penguin','tunnel']) {
   const line = prompt.split('\n').find(l=>l.startsWith(name+'.build'));
   assert.ok(line, name+' geometry manual remains');

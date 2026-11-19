@@ -34,7 +34,7 @@ export const startCodebuiltHandler = handler(async (req, res) => {
 export const listCodebuiltHandler = handler(async (req, res) => {
   res.json({
     jobs: codebuiltStarter().list(),
-    authorModeAvailable: process.env.FORGEAI_AUTHOR_MODE === '1',
+    authorModeAvailable: true,
   });
 });
 export const getCodebuiltHandler = handler(async (req, res) => { res.json(codebuiltStarter().get(String(req.params.jobId))); });

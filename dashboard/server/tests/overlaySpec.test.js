@@ -35,7 +35,6 @@ test('overlay canonical marks are accepted; comments do not count',()=>{
 for(const call of ['anchors.write','anchors.reset','anchors.begin','anchors.capture','anchors.document','anchors.usage','anchors.discard','anchors._write','stage.text','stage.hud_text','stage.hud','stage.fit_text']) test(`overlay refuses ${call}`,()=>assert.ok(overlayScriptProblems(good+`\n${call}()`,spec).length));
 for(const code of ['a=anchors','f=anchors.mark','from blender_worker.codebuilt import anchors as a','from blender_worker.codebuilt.anchors import write as x','getattr(anchors,"write")()','anchors.__dict__["write"]()','f=stage.text','bpy.data.curves.new("x",type="FONT")','anchors.mark=foo','from blender_worker.codebuilt import *','bpy.ops.object.text_add()','bpy.data.curves.new("x",type="FO"+"NT")','c=bpy.data.curves; c.new("x","FO"+"NT")']) test(`overlay refuses bypass ${code}`,()=>assert.ok(overlayScriptProblems(good+'\n'+code,spec).length));
 
-import {planCodebuiltBuild} from '../episode/codebuilt/planner.js';
 import {writeInputs,verifyInputs,ensureJobFolder,jobPaths} from '../episode/engines/codebuilt/jobFolder.js';
 const scratch = path.resolve('../../output/temp');
 fs.mkdirSync(scratch, {recursive:true});
@@ -113,25 +112,7 @@ test('overlay staging enforces exact frame-rounded time bound',()=>{
  assert.throws(()=>writeInputs(paths,req,[root]),e=>e.code==='bad_time');
  assert.ok(writeInputs(paths,{...req,overlaySpec:{version:1,tag:{text:'X',from:0,to:3}}},[root])['overlay.json']);
 });
-test('overlay repairs only JSON with at most two attempts',async()=>{
- const prompts=[];
- const result=await planCodebuiltBuild(planInput,{...deps,askFn:async prompt=>{
-  prompts.push(prompt);
-  return {text:prompts.length===1 ? '```python\n'+base+'```' : '```json\n{"version":1}\n```'};
- }});
- assert.equal(prompts.length,2);
- assert.match(prompts[0],/stage\.Camera/);
- assert.match(prompts[0],/shotcheck\.run_qa/);
- assert.match(prompts[0],/5\. Render the FINAL profile/);
- assert.doesNotMatch(prompts[0],/stage\.(?:text|hud_text|hud|fit_text)\(/);
- assert.doesNotMatch(prompts[0],/\.label\(|\.callout\(|readout text|label\s*=/i);
- assert.match(prompts[1],/Reply with one json block only/);
- assert.equal(result.overlaySpec.version,1);
- assert.equal(result.buildScript,base);
- let count=0;
- await assert.rejects(()=>planCodebuiltBuild(planInput,{...deps,askFn:async()=>{count++;return {text:count===1 ? '```python\n'+base+'```' : '```json\n{}\n```'};}}),e=>e.code==='BAD_OVERLAY');
- assert.equal(count,3);
-});
+
 test('overlay inputs are write-once and hashed, including unexpected injection',()=>{
  fs.mkdirSync(root,{recursive:true});
  const paths=jobPaths(root,'overlay-'+Date.now());ensureJobFolder(paths);
@@ -210,13 +191,7 @@ for (const [name, body] of Object.entries(k2Refused)) test(`overlay K2 refuses $
  assert.deepEqual(validateBuildScript(base,overlay),[]);
  assert.ok(validateBuildScript(base+'\n'+body,overlay).length,'overlay must refuse');
 });
-test('overlay K2 forms are not new classic rules: classic answers are unchanged', () => {
- // Classic (overlay off) must answer exactly as it did at 717d65f for the same bodies; the stricter shotcheck rule is overlay only.
- const classic = {nframes:90,shotStarts:[0]};
- for (const body of ["(shotcheck).OVERLAY_INPUT = '/job/none'", "shotcheck \\\n .OVERLAY_INPUT = '/job/none'", 'sc = shotcheck', "import os\nos.path.exists = lambda p: False"])
-  assert.deepEqual(validateBuildScript(base+'\n'+body,classic),[],body);
- assert.ok(validateBuildScript(base+"\nimport blender_worker.codebuilt.shotcheck as q",classic).length);
-});
+
 test('overlay K2 still accepts the kit usage the contract shows, and ordinary assignments', () => {
  const overlay = {nframes:90,shotStarts:[0],overlay:true,overlaySpec:spec};
  for (const body of ["import os, math\nx = math.cos(0.5)\ny = os.path.join('/job', 'x')", "scene.frame_end = NFRAMES\nscene.render.film_transparent = False", "cam = meshes.ball(c)\ncam.location = (0, 0, 1)"])

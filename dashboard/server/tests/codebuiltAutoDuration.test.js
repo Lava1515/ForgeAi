@@ -1,3 +1,4 @@
+import { authorOptions, authorPlanner, renderPack } from './helpers/authored.js';
 // codex · gpt-6.1-sol · 2026-11-16 08:56 +02:00
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,15 +26,12 @@ function rig(root, hooks = {}) {
   const events = [];
   const starter = createCodebuiltStarter({
     jobsDir: root, episodesRoot: path.join(root, 'episodes'), newId: () => `q1-${++seq}`,
-    planner: { planCodebuiltBuild: async (input) => {
-      events.push(['plan', input.topic, input.duration]);
-      await hooks.plan?.(input);
-      return { buildScript: 'safe fixture', nframes: 900, shotStarts: [0] };
-    } },
+    planner: authorPlanner(async input => { events.push(['plan', input.topic, input.duration]); await hooks.plan?.(input); }),
+    authorLoop: authorOptions(root, {visual: async input => { events.push(['visual', input.jobId]); await hooks.visual?.(input); }}),
     scriptStage: async (input) => {
       events.push(['script', input.topic, input.duration, input.autoDuration]);
       await hooks.script?.(input);
-      return { script: `Narration for ${input.topic}`, brief: 'brief', pathPack: { id: 'codebuilt', skills: [] }, ...(hooks.duration ? { duration: hooks.duration } : {}) };
+      return { script: `Narration for ${input.topic}`, brief: 'brief', pathPack: renderPack, ...(hooks.duration ? { duration: hooks.duration } : {}) };
     },
     factCheckStage: hooks.factCheck ?? (async () => ({ verified: true })),
     voiceStage: async (input) => {
@@ -51,14 +49,6 @@ function rig(root, hooks = {}) {
       await hooks.render?.(input);
       fs.mkdirSync(path.join(root, input.jobId), { recursive: true });
     } } }),
-    visualLoop: {
-      probe: async () => ({}),
-      runLoop: async (input) => {
-        events.push(['visual', input.jobId]);
-        await hooks.visual?.(input);
-        return { accepted: true, buildScript: input.buildScript, sha256: crypto.createHash('sha256').update(input.buildScript).digest('hex'), receipt: {} };
-      },
-    },
     lightMetadataStage: async () => ({}),
     toDraft: (input) => { events.push(['draft', input.jobId, input.requestedDuration]); return { id: `draft-${input.jobId}`, metadata: { social: { duration_seconds: input.requestedDuration } } }; },
   });

@@ -14,42 +14,11 @@ function scratch() {
 }
 const channel = { id:'route-channel', video_types:['factual'], profile:{niche:'engineering',status:'active', formats:[]} };
 
-test('O1a both boundaries accept only exact routes and gate authored on the exact switch', () => {
-  const prior = process.env.FORGEAI_AUTHOR_MODE;
-  try {
-    for (const check of [r => checkStartRequest({topic:'A bridge', ...r}), checkRunRequest]) {
-      assert.equal(check({}).route,'classic');
-      for (const route of [null, '', 'auto', 'Overlay', ' overlay', 'overlay ', false, 0, [], {}, 'toString']) {
-        assert.throws(()=>check({route}), {code:'bad_request'});
-      }
-      for (const flag of [undefined, '0', 'true', ' 1']) {
-        if (flag === undefined) delete process.env.FORGEAI_AUTHOR_MODE; else process.env.FORGEAI_AUTHOR_MODE=flag;
-        assert.throws(()=>check({route:'authored'}),{code:'author_mode_disabled',status:409});
-        assert.equal(check({route:'overlay'}).route,'overlay');
-      }
-      process.env.FORGEAI_AUTHOR_MODE='1';
-      assert.equal(check({route:'authored'}).route,'authored');
-    }
-  } finally { if(prior === undefined) delete process.env.FORGEAI_AUTHOR_MODE; else process.env.FORGEAI_AUTHOR_MODE=prior; }
-});
-
-test('O1a author switch is checked before enqueue and on restart/resume without changing saved state', async () => {
-  const prior=process.env.FORGEAI_AUTHOR_MODE;
-  const root=scratch(); let compose=0;
-  const starter=createCodebuiltStarter({jobsDir:root, planner:{}, composeRunner:async()=>{compose++;throw new Error('stop');}});
-  try {
-    delete process.env.FORGEAI_AUTHOR_MODE;
-    assert.throws(()=>starter.start({topic:'Bridge',route:'authored'}),{code:'author_mode_disabled',status:409});
-    assert.equal(fs.existsSync(path.join(root,'.start')),false);
-    process.env.FORGEAI_AUTHOR_MODE='1';
-    const job=starter.start({topic:'Bridge',route:'authored'});
-    await starter.idle(); assert.equal(starter.get(job.id).route,'authored');
-    const file=path.join(root,'.start',job.id,'status.json'); const before=fs.readFileSync(file,'utf8');
-    delete process.env.FORGEAI_AUTHOR_MODE;
-    const restarted=createCodebuiltStarter({jobsDir:root});
-    assert.throws(()=>restarted.resume(job.id),{code:'author_mode_disabled',status:409});
-    assert.equal(fs.readFileSync(file,'utf8'),before); assert.equal(compose,0); // A1 rejects unmeasured author caps before composition.
-  } finally { await starter.idle(); if(prior===undefined)delete process.env.FORGEAI_AUTHOR_MODE;else process.env.FORGEAI_AUTHOR_MODE=prior; }
+test('both boundaries normalize old route strings and reject malformed route data', () => {
+ for(const check of [r => checkStartRequest({topic:'A bridge', ...r}),checkRunRequest]) {
+  for(const route of [undefined,null,'classic','overlay','authored','auto','Old']) assert.equal(check({route}).route,'authored');
+  for(const route of [false,0,[],{}]) assert.throws(()=>check({route}),{code:'bad_request'});
+ }
 });
 
 for (const scenario of ['classic','overlay','authored','format','channel-format']) test(`O1a batch route/topic persistence: ${scenario}`, async()=>{
@@ -65,7 +34,7 @@ for (const scenario of ['classic','overlay','authored','format','channel-format'
     const route=['classic','overlay','authored'].includes(scenario)?scenario:undefined;
     const job=coordinator.startRun({...(route?{route}:{}),...(scenario==='format'?{formats:['journey']}:{}),type:'factual',duration:30,voice:'aiden'});
     await coordinator.idle();
-    const expected=scenario==='classic'?'classic':scenario==='authored'?'authored':'overlay';
+    const expected='authored';
     assert.equal(starts[0].route,expected);assert.equal(picks[0].picture,expected==='classic'?undefined:true);
     assert.equal(job.route,expected);assert.equal(coordinator.getRun(job.id).route,expected);
     const saved=JSON.parse(fs.readFileSync(path.join(root,job.id,'run.json')));
@@ -82,12 +51,8 @@ test('O1a journey promotes classic and remains allowed on authored after the top
   try {
     for(const route of ['classic','authored']) {
       const job=starter.start({topic:'A drill',duration:30,formats:['journey'],route},{factCheck:true,runId:'route-journey',choices:{type:'factual'},premise});
-      await starter.idle();assert.equal(starter.get(job.id).route,route==='classic'?'overlay':'authored');
+      await starter.idle();assert.equal(starter.get(job.id).route,'authored');
     }
     delete process.env.FORGEAI_AUTHOR_MODE;
-    let lookedUp=false;
-    const coordinator=createCodebuiltRunCoordinator({runsDir:root,getChannels:()=>{lookedUp=true;return [channel];}});
-    assert.throws(()=>coordinator.startRun({route:'authored'}),{code:'author_mode_disabled',status:409});
-    assert.equal(lookedUp,false);
   } finally {await starter.idle();if(prior===undefined)delete process.env.FORGEAI_AUTHOR_MODE;else process.env.FORGEAI_AUTHOR_MODE=prior;}
 });

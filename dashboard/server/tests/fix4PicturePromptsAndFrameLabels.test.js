@@ -37,7 +37,7 @@ const reply = (text) => {
 };
 const corrections = [{ text: STATEMENT, problem: 'contradicted', evidence: 'The water itself is not purple.' }];
 
-test('picture routes add the narration rule; classic and implicit prompts do not', async () => {
+test('all route inputs receive the authored narration rule', async () => {
   const prompts = {};
   for (const route of ['authored', 'overlay', 'classic', undefined]) {
     await planCodebuiltScript({ topic: 'the strait', duration: 30, route, corrections, pack }, {
@@ -46,14 +46,11 @@ test('picture routes add the narration rule; classic and implicit prompts do not
       askRoleFn: async () => { throw new Error('ending check off for this test'); },
     });
   }
-  for (const route of ['authored', 'overlay']) {
+  for (const route of ['authored', 'overlay', 'classic', 'undefined']) {
     assert.ok(prompts[route].includes(PICTURE_NARRATION_RULE), route);
     assert.match(prompts[route], /in its own words/, route);
   }
-  for (const route of ['classic', 'undefined']) {
-    assert.ok(!prompts[route].includes('Narration states only what is true'), route);
-    assert.ok(!prompts[route].includes('in its own words'), route);
-  }
+
 });
 
 test('a picture-route rewrite that repeats a refused statement is asked again and the second answer is kept', async () => {
@@ -72,16 +69,6 @@ test('a picture-route rewrite that repeats a refused statement is asked again an
   assert.ok(result.script.includes('The pilot waits for the turn.'));
 });
 
-test('a classic rewrite that repeats the same statement is not refused (classic text is unchanged)', async () => {
-  let calls = 0;
-  const result = await planCodebuiltScript({ topic: 'the strait', duration: 30, route: 'classic', corrections, pack }, {
-    askFn: async () => { calls += 1; return reply(scriptWith(STATEMENT)); },
-    askRoleFn: async () => { throw new Error('ending check off for this test'); },
-  });
-  assert.equal(calls, 1);
-  assert.ok(result.script.includes(STATEMENT));
-});
-
 test('a layout finding with no frame number prints no "frame -1"', () => {
   const prompt = buildLookPrompt({
     brief: 'A tanker.', script: 'A tanker.', shots: [{ id: 'shot-0', subject: 'tanker', narration: 'A tanker.' }],
@@ -93,25 +80,14 @@ test('a layout finding with no frame number prints no "frame -1"', () => {
   assert.match(prompt, /frame 7: caption_overlap \(labels\[0\]\)/);
 });
 
-test('the picture-route skill text carries the marker and land rules, and classic map guidance is unchanged', () => {
+test('the picture-route skill text carries the marker and land rules, and authored map guidance is loaded', () => {
   const mapPack = { ...pack, rules: { ...pack.rules, skillsByStep: { ...pack.rules.skillsByStep, build: ['codebuilt-scene-generation'] } } };
   const picture = loadCodebuiltGuides({ pack: mapPack, step: 'build', topic: 'a country border map', route: 'authored', formats: [] });
   assert.match(picture, /A place marker is smaller than the place it marks/);
   assert.match(picture, /Land must read as land/);
-  const classic = loadCodebuiltGuides({ pack: mapPack, step: 'build', topic: 'a country border map', route: 'classic', formats: [] });
-  assert.ok(classic.includes('### codebuilt-maps'));
-  assert.ok(!classic.includes('A place marker is smaller'));
-  assert.ok(!classic.includes('Land must read as land'));
-  const before = execFileSync('git', ['show', '018dd15:.claude/skills/codebuilt-maps/SKILL.md'], { cwd: fileURLToPath(root), encoding: 'utf8' })
-    .replace(/\r\n/g, '\n').replace(/^---\n[\s\S]*?\n---\n/, '').split('\n## When text is drawn after the render')[0].trim();
-  assert.equal(classic.replace(/\r\n/g, '\n').split('### codebuilt-maps\n')[1].split('\n### ')[0].trim(), before);
-});
-
-test('the picture-route script skill text forbids colours in narration and repeated refused statements', () => {
   const scriptPack = { ...pack, rules: { ...pack.rules, skillsByStep: { ...pack.rules.skillsByStep, script: ['codebuilt-script'] } } };
-  const picture = loadCodebuiltGuides({ pack: scriptPack, step: 'script', route: 'authored', formats: [] });
-  assert.match(picture, /never in `narration`/);
-  assert.match(picture, /must not come back in its own words/);
-  const classic = loadCodebuiltGuides({ pack: scriptPack, step: 'script', route: 'classic', formats: [] });
-  assert.ok(!classic.includes('never in `narration`'));
+  const scriptGuidance = loadCodebuiltGuides({ pack: scriptPack, step: 'script', route: 'authored', formats: [] });
+  assert.match(scriptGuidance, /never in `narration`/);
+  assert.match(scriptGuidance, /must not come back in its own words/);
+
 });

@@ -46,25 +46,13 @@ export const RUN_ACTIVE_STATUSES = Object.freeze(['queued', 'running', 'aborting
 export const isActiveRun = (run) => !!run && RUN_ACTIVE_STATUSES.includes(run.status);
 const TEXT_CHOICE = /^[\p{L}\p{N} ,.'&/+()-]{1,60}$/u;
 
-// "How it is made": Classic (3D text, the default), Text after render (overlay), One author (authored).
-export const CODEBUILT_ROUTE_OPTIONS = Object.freeze([
-  Object.freeze({ value: 'classic', label: 'Classic' }),
-  Object.freeze({ value: 'overlay', label: 'Text after render' }),
-  Object.freeze({ value: 'authored', label: 'One author' }),
-]);
-const routeKey = (route) => {
-  if (route === undefined || route === 'classic') return {};
-  if (!CODEBUILT_ROUTE_OPTIONS.some((option) => option.value === route)) throw new Error('Invalid how it is made choice');
-  return { route };
-};
-
-/** Body of POST /api/codebuilt/start. Throws on a bad topic or duration; the server checks both again. Classic sends no route key. */
+/** Body of POST /api/codebuilt/start. Throws on a bad topic or duration; the server checks both again. The author route is always used. */
 export function buildCodebuiltStartBody({ topic, duration, buildModel, channelId, route }) {
   const text = typeof topic === 'string' ? topic.trim() : '';
   if (!text || text.length > 200 || /[\x00-\x1F\x7F]/.test(text)) throw new Error('Topic must be between 1 and 200 characters');
   if (!CODEBUILT_DURATIONS.includes(duration)) throw new Error('Duration must be 30, 45, 60 or 90 seconds');
   if (buildModel !== undefined && !BUILD_MODELS.includes(buildModel)) throw new Error('Invalid build model');
-  return { topic: text, duration, ...(buildModel !== undefined ? { buildModel } : {}), ...(channelId ? { channelId } : {}), ...routeKey(route) };
+  return { topic: text, duration, ...(buildModel !== undefined ? { buildModel } : {}), ...(channelId ? { channelId } : {}), route: 'authored' };
 }
 
 const blankOrAuto = (v) => v === undefined || v === null || (typeof v === 'string' && (!v.trim() || v.trim().toLowerCase() === 'auto'));
@@ -149,7 +137,7 @@ export function buildCodebuiltRunBody({ count = 1, topic, genre, theme, type, vo
     body.buildModel = buildModel;
   }
   if (channelId) body.channelId = channelId;
-  Object.assign(body, routeKey(route));
+  body.route = 'authored';
   return body;
 }
 
@@ -192,10 +180,9 @@ export function runLabel(run) {
 }
 
 // --- React Component ---
-// One author is shown only when the jobs endpoint reports author mode (FORGEAI_AUTHOR_MODE=1).
-export default function CodebuiltStart({ authorModeAvailable = false } = {}) {
+// One author owns each video.
+export default function CodebuiltStart() {
   const [topic, setTopic] = useState('');
-  const [route, setRoute] = useState('classic');
   const [duration, setDuration] = useState(60);
   const [autoDuration, setAutoDuration] = useState(false);
   const [buildModel, setBuildModel] = useState('Auto');
@@ -262,7 +249,7 @@ export default function CodebuiltStart({ authorModeAvailable = false } = {}) {
       setError(channelLoadError || channelAssignment.error || 'Loading channel assignments.');
       return;
     }
-    const chosenRoute = authorModeAvailable || route !== 'authored' ? route : 'classic';
+    const chosenRoute = 'authored';
     const form = { count, topic, genre, theme, type, voice, duration, autoDuration, buildModel, channelId: channelAssignment.channel.id, route: chosenRoute };
     setBusy(true);
     try {
@@ -364,10 +351,7 @@ export default function CodebuiltStart({ authorModeAvailable = false } = {}) {
             </label>
             <label className="flex flex-col gap-1">
               <span>How it is made</span>
-              <select value={route} onChange={(e) => setRoute(e.target.value)} disabled={active} aria-label="How it is made" data-codebuilt-route
-                className="rounded bg-ink-900 border border-ink-700 px-2 py-1 text-xs text-ink-100">
-                {CODEBUILT_ROUTE_OPTIONS.filter((option) => option.value !== 'authored' || authorModeAvailable).map((option) => (<option key={option.value} value={option.value}>{option.label}</option>))}
-              </select>
+              <span className="text-xs text-ink-100">One author</span>
             </label>
             <label className="flex flex-col gap-1">
               <span>Voice</span>

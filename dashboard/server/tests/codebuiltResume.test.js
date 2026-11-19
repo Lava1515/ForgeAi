@@ -1,3 +1,4 @@
+import { authorOptions, authorPlanner, renderPack, CODE } from './helpers/authored.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,7 +20,7 @@ function wavFixture() {
 }
 
 for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) test(`resume preserves host receipts and reuse under ${attack}`, async () => {
-  const scratch = path.resolve('../../output/temp');
+  const scratch = 'C:/code/ForgeAi/output/agent-jobs/c4-remove-classic';
   fs.mkdirSync(scratch, { recursive: true });
   const root = fs.mkdtempSync(path.join(scratch, 'codebuilt-resume-regression-'));
   const id = 'resume-regression';
@@ -30,7 +31,7 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) tes
     const script = 'The careful narration validates every measured word boundary before saved scene code continues after a paused job resumes safely today';
     const brief = '# Cached brief';
     const overlay = attack === 'overlay';
-    const pathPack = { id: 'codebuilt', skills: [], ...(overlay ? {rules:{formats:{journey:{overlay:true}}}} : {}) };
+    const pathPack = renderPack;
     const newBuild = "from blender_worker.codebuilt import anchors\ndef shot(t):\n anchors.mark('new_point',(0,0,0))\n";
     const overlaySpec = {version:1,labels:[{anchor:'new_point',title:'NEW',from:0,to:1}]};
     const wav = wavFixture();
@@ -63,10 +64,8 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) tes
     let scriptCalls = 0; let voiceCalls = 0; let plannerCalls = 0; let loopBuild = null; let finalRequest = null;
     const starter = createCodebuiltStarter({
       jobsDir: root, episodesRoot: path.join(root, 'episodes'), draftsDir: path.join(root, 'drafts'),
-      planner: {
-        planCodebuiltScript: async () => { scriptCalls += 1; throw new Error('script should be reused'); },
-        planCodebuiltBuild: async () => { plannerCalls += 1; if (overlay) return {buildScript:newBuild,overlaySpec,shotStarts:[0],nframes:955,calls:[]}; throw new Error('planner should be skipped'); },
-      },
+      authorLoop: authorOptions(root),
+      planner: {...authorPlanner(), planCodebuiltScript:async()=>{scriptCalls++;throw Error('script should be reused');}},
       voiceStage: async () => { voiceCalls += 1; throw new Error('voice should be reused'); },
       validateReusableBuild: () => [],
       composeRunner: async () => ({ runner: { run: async (req) => {
@@ -82,38 +81,27 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) tes
         fs.chmodSync(receipt, 0o444);
         return {};
       } } }),
-      visualLoop: {
-        probe: async () => ({ passed: true }),
-        validate: () => [],
-        runLoop: async (input) => {
-          loopBuild = input.buildScript;
-          if (overlay) assert.equal(input.startRound,2); // Preserve prior round folders; contract 2.6 replans without an overlay pair.
-          assert.deepEqual(input.resumeHistory, []);
-          return { accepted: true, buildScript: input.buildScript, sha256: hash(input.buildScript), receipt: { model: 'HOST' }, calls: [] };
-        },
-      },
       toDraft: () => ({ id: 'draft-resume-regression', metadata: {} }),
       lightMetadataStage: async () => ({}),
     });
 
     const queued = starter.resume(id);
     assert.equal(queued.id, id);
-    assert.equal(queued.resumes.at(-1).fromStep, overlay ? 'planning' : 'visual_loop');
-    assert.deepEqual(queued.resumes.at(-1).reused, overlay ? ['script', 'voice'] : ['script', 'voice', 'buildScript']);
+    assert.equal(queued.resumes.at(-1).fromStep, 'planning');
+    assert.deepEqual(queued.resumes.at(-1).reused, ['script', 'voice']);
     await starter.idle();
 
     const finished = starter.get(id);
-    assert.equal(finished.status, attack === 'readonly' || overlay ? 'done' : 'failed');
-    if (attack === 'readonly') assert.equal(JSON.parse(fs.readFileSync(path.join(root, id, 'visual_loop.json'), 'utf8')).model, 'HOST');
+    assert.equal(finished.status, attack === 'readonly' || overlay ? 'done' : 'failed', JSON.stringify(finished.error));
+    if (attack === 'readonly') assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, id, 'visual_loop.json'), 'utf8')), JSON.parse(fs.readFileSync(path.join(state,'author','receipt.json'),'utf8')));
     if (attack === 'orphan') assert.equal(fs.existsSync(path.join(root, id, 'cost_calls.json')), false);
     if (attack !== 'readonly' && !overlay) assert.equal(finished.draftId, null);
     assert.equal(scriptCalls, 0);
     assert.equal(voiceCalls, 0);
-    assert.equal(plannerCalls, overlay ? 1 : 0);
-    assert.equal(loopBuild, overlay ? newBuild : cachedBuild);
+    assert.equal(plannerCalls, 0);
     if (overlay) {
-      assert.equal(finalRequest.buildScript,newBuild);
-      assert.deepEqual(finalRequest.overlaySpec,{...overlaySpec,labels:overlaySpec.labels.map(label=>({...label,side:'auto'})),measures:[],bars:[],big:[]});
+      assert.equal(finalRequest.buildScript,CODE);
+      assert.equal(finalRequest.overlaySpec.version,1);
     }
     const calls = JSON.parse(fs.readFileSync(path.join(state, 'cost_calls.json'), 'utf8')).calls;
     assert.equal(calls[0].step, 'previous');
@@ -124,7 +112,7 @@ for (const attack of ['readonly', 'orphan', 'receipt-directory', 'overlay']) tes
 
 for (const lockName of ['locked-job.lock', 'locked-job-pv3.lock', 'unreadable-directory']) {
   test(`resume refuses a held or quarantined job before reuse: ${lockName}`, () => {
-    const scratch = path.resolve('../../output/temp');
+    const scratch = 'C:/code/ForgeAi/output/agent-jobs/c4-remove-classic';
     fs.mkdirSync(scratch, { recursive: true });
     const root = fs.mkdtempSync(path.join(scratch, 'resume-lock-'));
     const id = 'locked-job';

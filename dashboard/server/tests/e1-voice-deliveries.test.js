@@ -1,3 +1,4 @@
+import { authorOptions } from './helpers/authored.js';
 // codex · gpt-6.1-sol · 2026-11-16 08:59 +02:00: S2 extends E1 delivery assertions to every beat.
 // E1b (owner order 2026-11-15): the ending of a video is voiced with its own lift.
 // Real damage guarded: the code-built voice call sent the whole script as ONE scene with no deliveries, so the factory could never
@@ -60,7 +61,7 @@ function fakeFactory({ withSentences = true, calls = [] } = {}) {
 }
 
 function scratch() {
-  const root = fs.mkdtempSync(path.join(path.resolve('../../output/temp'), 'e1-voice-'));
+  const root = fs.mkdtempSync(path.join('C:/code/ForgeAi/output/agent-jobs/c4-remove-classic', 'e1-voice-'));
   fs.mkdirSync(path.join(root, 'job'), { recursive: true });
   createEpisodeDir(path.join(root, 'episodes'), 'cb-e1');
   return { root, outDir: path.join(root, 'job'), episodesRoot: path.join(root, 'episodes') };
@@ -68,7 +69,7 @@ function scratch() {
 const voiceArgs = (s, extra) => ({ script: SCRIPT, voice: 'aiden', outDir: s.outDir, allowedRoot: s.root, episodeDir: 'cb-e1', episodesRoot: s.episodesRoot, ...extra });
 const manifestOf = (s) => JSON.parse(fs.readFileSync(path.join(s.outDir, 'voice.json'), 'utf8'));
 
-fs.mkdirSync(path.resolve('../../output/temp'), { recursive: true });
+fs.mkdirSync('C:/code/ForgeAi/output/agent-jobs/c4-remove-classic', { recursive: true });
 
 test('the voice gets one feel per beat, same order and count as the scenes, and voice.json keeps what the factory said it used per sentence', async () => {
   const s = scratch(); const calls = [];
@@ -141,7 +142,7 @@ test('a job hands the script shots to the voice step', async () => {
   let seen = null;
   try {
     const starter = createCodebuiltStarter({
-      jobsDir: s.root, episodesRoot: path.join(s.root, 'episodes'), draftsDir: path.join(s.root, 'drafts'),
+      authorLoop: authorOptions(s.root), jobsDir: s.root, episodesRoot: path.join(s.root, 'episodes'), draftsDir: path.join(s.root, 'drafts'),
       scriptStage: async () => ({ script: SCRIPT, brief: '# brief', shots: BEATS, endingCheck: { status: 'degraded', reason: 'checker unavailable' }, pathPack: { id: 'codebuilt', skills: [] }, calls: [] }),
       composeRunner: async () => ({ runner: { run: async () => ({}) } }), visualLoop: false, // false: no Claude CLI probe in a test
       voiceStage: async (input) => { seen = input; throw new Error('stop here'); },

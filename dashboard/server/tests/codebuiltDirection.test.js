@@ -20,13 +20,13 @@ test('phrases end at punctuation and cover every word once, in order', () => {
   assert.deepEqual(phrases.map((p) => p.firstWord), [0, 5, 10, 15, 20, 25, 30, 35]);
 });
 
-test('journey format accepts one place and a 14 second shot while an ordinary job refuses both', () => {
+test('authored direction accepts one place and a 14 second shot with or without journey', () => {
   const journeyPhrases = Array.from({ length: 12 }, (_, i) => ({ i, start: i * 2.5, end: i * 2.5 + 2.3, text: `line ${i}` }));
   const input = JSON.stringify({ look: 'Navy, amber and teal with a soft key light and a quiet mood.', places: [place('track')], shots: [
     { ...shot(0, 'track'), from: 0 }, { ...shot(6, 'track'), from: 6 },
   ] });
   assert.equal(checkDirection({ phrases: journeyPhrases, videoSeconds: 29, parse: parseModelJson, formats: ['journey'] })(input).places.length, 1);
-  assert.throws(() => checkDirection({ phrases: journeyPhrases, videoSeconds: 29, parse: parseModelJson })(input), (error) => /places must list 2 to 5/.test(error.message));
+  assert.equal(checkDirection({ phrases: journeyPhrases, videoSeconds: 29, parse: parseModelJson })(input).places.length,1);
 });
 
 test('a direction whose cuts sit on phrase starts is accepted and gives frame-aligned starts', () => {
@@ -63,7 +63,7 @@ test('timing slips are repaired on the phrase grid, not refused: too long, too s
     starts.forEach((st, k) => {
       if (k) assert.ok(d.shots[k].from > d.shots[k - 1].from);
       const len = (k + 1 < starts.length ? starts[k + 1] : videoSeconds) - st;
-      assert.ok(len >= MIN_DIRECTED_SHOT_S - 1e-6 && len <= MAX_DIRECTED_SHOT_S + 1e-6, `shot ${k + 1} lasts ${len}`);
+      assert.ok(len >= MIN_DIRECTED_SHOT_S - 1e-6 && len <= 16 + 1e-6, `shot ${k + 1} lasts ${len}`);
     });
     assert.equal(d.narrations.join(' ').split(' ').length, 40);
   }

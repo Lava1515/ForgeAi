@@ -223,7 +223,6 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  const {createPreviewSheetMaker}=await import('./previewSheet.js');
  const {createPreviewRunFn}=await import('../engines/codebuilt/composePreview.js');
  const {directionMarkdown}=await import('./direction.js');
- if(process.env.FORGEAI_AUTHOR_MODE!=='1')throw authorError('author_mode_disabled');
  // codex · gpt-6.1-sol · 2026-11-19 08:07 +02:00: reuse the run's buildModel; Auto keeps Sonnet, unsupported authors fail closed.
  const model=(!rec.buildModel||rec.buildModel==='Auto')?'sonnet':rec.buildModel.toLowerCase();authorArgv(model);
  const measurementMode=injected.measurementMode===true; // code-only: createCodebuiltStarter's authorLoop option, never a request field

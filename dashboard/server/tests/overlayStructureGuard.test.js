@@ -20,8 +20,3 @@ for(const [id,body] of Object.entries(forms)) test(`overlay refuses ${id} with a
  const p=overlayScriptProblems(good+'\n'+body,spec);
  assert.ok(p.some(x=>/cannot (convert objects|use the Geometry Nodes)/.test(x)),JSON.stringify(p));
 });
-test('classic validation is not affected by the overlay guard',()=>{
- const o={nframes:90,shotStarts:[0]};
- const base=validateBuildScript(good,o);
- for(const body of Object.values(forms)) assert.deepEqual(validateBuildScript(good+'\n'+body,o).filter(x=>!base.includes(x)),[]);
-});

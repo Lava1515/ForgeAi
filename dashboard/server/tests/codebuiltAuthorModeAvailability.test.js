@@ -10,7 +10,7 @@ const call = async () => {
   return out.json;
 };
 
-test('jobs list reports only exact author-mode availability and preserves its jobs array', async () => {
+test('jobs list reports author availability without a flag and preserves its jobs array', async () => {
   const jobs = [{ id: 'existing-job', status: 'done' }];
   setCodebuiltStarter({ list: () => jobs });
   const old = process.env.FORGEAI_AUTHOR_MODE;
@@ -20,7 +20,7 @@ test('jobs list reports only exact author-mode availability and preserves its jo
       else process.env.FORGEAI_AUTHOR_MODE = value;
       const response = await call();
       assert.deepEqual(response.jobs, jobs);
-      assert.equal(response.authorModeAvailable, value === '1');
+      assert.equal(response.authorModeAvailable, true);
       assert.equal(typeof response.authorModeAvailable, 'boolean');
       assert.deepEqual(Object.keys(response).sort(), ['authorModeAvailable', 'jobs']);
     }

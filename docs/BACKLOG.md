@@ -1,5 +1,9 @@
 # ForgeAi backlog
 
+## Found, not built
+
+- 2026-11-19 15:54 +02:00 · codex · gpt-6.1-sol (C4): retained shared kit no-overlay modes, overlay schema fixtures, base buildPrompt/KIT_CONTRACT, and the channel engine enum where authored/direct callers still use them or removal is uncertain; the HyperFrames legacy overlay TEXT fallback is deliberately kept.
+
 One list for everything the owner wants in ForgeAi. Updated 2026-11-14 by claude-pro Â· claude-sonnet-5-5.
 `READY` = nothing outside the code blocks it; the fleet can take it. `OWNER` = waits on the owner. `PARKED` = the
 owner put it later. Each lane lists the files it mostly touches so two workers do not collide. Workers work in

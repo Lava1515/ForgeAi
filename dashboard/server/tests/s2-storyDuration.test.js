@@ -16,7 +16,7 @@ function reply(duration, { count = wordWindow(duration).target, returnedDuration
   beats.at(-1).feel = 'curious';
   return { duration: returnedDuration, script: tokens.join(' '), shots: beats, brief: 'Follow your journey across familiar countries. Each stop changes the route and raises the stakes.' };
 }
-const deps = (value, inspect = () => {}) => ({ askFn: async (prompt) => { inspect(prompt); return JSON.stringify(value); }, askRoleFn: async () => ({ ok: true }) });
+const deps = (value, inspect = () => {}) => ({ askAuthor: async prompt => { inspect(prompt); return {text:JSON.stringify({...value,factTable:[{claim:'fixture',sources:['https://example.org/source']}]})}; } });
 
 test('Auto selects each supported length with matching prompt budgets, returned brief and spoken beats', async () => {
   for (const duration of AUTO_SCRIPT_DURATIONS) {

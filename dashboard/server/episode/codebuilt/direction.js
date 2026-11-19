@@ -89,7 +89,7 @@ const limitsFor = (formats, route, pack) => {
   };
 };
 
-export function directionPrompt({ topic, duration, script, brief, beats = [], phrases, videoSeconds, setManual, propsManual, guides = '', choicesText = '', formats = currentJobFormats(), route = 'classic', pack = null }) {
+export function directionPrompt({ topic, duration, script, brief, beats = [], phrases, videoSeconds, setManual, propsManual, guides = '', choicesText = '', formats = currentJobFormats(), route = 'authored', pack = null }) {
   const limits = limitsFor(formats, route, pack);
   const range = directedShotRange(videoSeconds, limits.maxShotSeconds);
   const phraseLines = phrases.map((p) => `P${p.i} [${p.start.toFixed(2)}-${p.end.toFixed(2)} s] ${JSON.stringify(p.text)}`).join('\n');
@@ -238,7 +238,7 @@ function timingProblems(shots, { phrases, videoSeconds, range, maxShotSeconds = 
 }
 
 /** The parsed direction with shot windows attached, or a DirectionError that lists every problem. `parse(text)` turns a reply into an object. */
-export function checkDirection({ phrases, videoSeconds, setNames = [], parse, formats = currentJobFormats(), route = 'classic', pack = null }) {
+export function checkDirection({ phrases, videoSeconds, setNames = [], parse, formats = currentJobFormats(), route = 'authored', pack = null }) {
   const limits = limitsFor(formats, route, pack);
   const range = directedShotRange(videoSeconds, limits.maxShotSeconds);
   return (text) => {
@@ -339,7 +339,7 @@ export function directionMarkdown(direction, shotStarts, videoSeconds) {
  * A direction made without a model call, for when the director's reply is refused twice: cuts by arithmetic (cadence.js) and the
  * script's own beats spread over them, one custom place per distinct beat subject up to MAX_PLACES. The video is still made.
  */
-export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5, reasons = null, formats = currentJobFormats(), route = 'classic', pack = null }) {
+export function fallbackDirection({ words, beats = [], lead = 0.35, tail = 1.5, reasons = null, formats = currentJobFormats(), route = 'authored', pack = null }) {
   const why = Array.isArray(reasons) && reasons.length
     ? `the director's reply was refused twice: ${reasons.slice(0, 6).join('; ')}`
     : "the director's reply was refused twice and could not be repaired (the reasons are under step \"direction\" in cost_calls.json)";

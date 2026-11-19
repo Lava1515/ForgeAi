@@ -41,11 +41,3 @@ test('only assets whose file is on disk inside the library are offered', () => {
 });
 
 // codex ? gpt-6.1-sol ? 2026-11-19: reproduced library guidance leaking to overlay with no catalog.
-test('non-authored routes never receive the asset library skill section', async () => {
-  const { loadCodebuiltGuides } = await import('../episode/codebuilt/skills.js');
-  const pack = JSON.parse(fs.readFileSync(new URL('../../../paths/codebuilt.json', import.meta.url), 'utf8'));
-  for (const route of ['classic', 'overlay']) {
-    const text = loadCodebuiltGuides({ pack, step: 'build', route, formats: ['journey'] });
-    assert.doesNotMatch(text, /Real assets from the library|library\.hdri/);
-  }
-});

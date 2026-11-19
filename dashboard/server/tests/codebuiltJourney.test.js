@@ -29,6 +29,6 @@ test('a job scoped to journey receives the format-specific direction prompt limi
     topic: 'A rolling ball', duration: 27, script: 'A ball rolls.', brief: 'Simple.',
     phrases: [{ i: 0, start: 0, end: 1, text: 'A ball rolls.' }], videoSeconds: 27, setManual: '', propsManual: '', formats: [],
   });
-  assert.match(ordinary, /PLACES\. 2 to 5 places/);
-  assert.match(ordinary, /2\.2 to 8 seconds/);
+  assert.match(ordinary, /PLACES\. 1 to 4 places/);
+  assert.match(ordinary, /2\.2 to 16 seconds/);
 });

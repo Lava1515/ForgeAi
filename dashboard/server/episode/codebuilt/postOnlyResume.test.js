@@ -1,3 +1,4 @@
+import { authorOptions, authorPlanner, renderPack } from '../../tests/helpers/authored.js';
 // claude-pro · claude-sonnet-5-5 · fix 2 of fable-check-2: a post layout refusal is a named end, and the job finishes from the post step.
 //
 // The runner, the host producer and the Python post kit are the real ones. Only the isolated fence is a stub that writes the planner's frame count of small PNG
@@ -47,14 +48,14 @@ function wavFixture() {
 }
 
 /** A failed overlay job whose accepted pair, voice and receipts are saved; the fence is a counting stub. */
-function makeJob({ route = 'overlay', afterPost = () => {}, beforeDraft = () => {} } = {}) {
-  const root = path.join(REPO, 'output/agent-jobs/check2-post', `test-${route}-${crypto.randomBytes(4).toString('hex')}`);
+function makeJob({ route = 'authored', afterPost = () => {}, beforeDraft = () => {} } = {}) {
+  const root = path.join('C:/code/ForgeAi', 'output/agent-jobs/check2-post', `test-${route}-${crypto.randomBytes(4).toString('hex')}`);
   const state = path.join(root, '.start', ID);
-  const dir = path.join(state, route === 'authored' ? 'author' : 'loop');
+  const dir = path.join(state, 'author');
   fs.mkdirSync(dir, { recursive: true });
   const script = 'The careful narration validates every measured word boundary';
   const brief = '# Cached brief';
-  const pathPack = { id: 'codebuilt', skills: [] };
+  const pathPack = renderPack;
   const wav = wavFixture();
   fs.writeFileSync(path.join(state, 'script.txt'), script); fs.writeFileSync(path.join(state, 'brief.md'), brief);
   fs.writeFileSync(path.join(state, 'pathpack.json'), JSON.stringify(pathPack)); fs.writeFileSync(path.join(state, 'vo.wav'), wav);
@@ -71,8 +72,7 @@ function makeJob({ route = 'overlay', afterPost = () => {}, beforeDraft = () => 
   fs.writeFileSync(path.join(dir, 'accepted.build.py'), BUILD);
   fs.writeFileSync(path.join(dir, 'accepted.overlay.json'), JSON.stringify(overlayPair(BUILD, BLOCKED, { videoSeconds: nframes / 30 })));
   const receipt = { version: 1, accepted: true, note: 'saved look receipt' };
-  if (route === 'authored') fs.writeFileSync(path.join(dir, 'receipt.json'), JSON.stringify(receipt));
-  else fs.writeFileSync(path.join(dir, 'accepted-receipt.json'), JSON.stringify({ sha256: hash(BUILD), receipt }));
+  fs.writeFileSync(path.join(dir, 'receipt.json'), JSON.stringify(receipt));
   fs.writeFileSync(path.join(state, 'status.json'), JSON.stringify({ version: START_VERSION, id: ID, topic: 'Resume post', duration: VOICE_S, voice: 'aiden', route, status: 'failed', step: 'looking', steps: [] }));
 
   const counts = { renders: 0 };
@@ -90,7 +90,7 @@ function makeJob({ route = 'overlay', afterPost = () => {}, beforeDraft = () => 
   });
   const drafts = [];
   const starter = () => createCodebuiltStarter({
-    jobsDir: root, episodesRoot: path.join(root, 'episodes'), planner: { KIT_CONTRACT: 'kit', validateBuildScript: () => [] }, validateReusableBuild: () => [],
+    jobsDir: root, episodesRoot: path.join(root, 'episodes'), planner: {...authorPlanner(),frameCountFor}, authorLoop: authorOptions(root,{code:BUILD,spec:BLOCKED,nframes}),
     composeRunner: async () => ({ runner }), visualLoop: false, lightMetadataStage: async () => ({}),
     toDraft: (args) => { beforeDraft(); drafts.push(args); return { id: `draft-${args.jobId}`, metadata: { social: { duration_seconds: 1 } } }; },
   });
@@ -329,16 +329,7 @@ test('a post-only attempt that fails for another reason restores the overlay and
   } finally { j.cleanup(); }
 });
 
-test('classic jobs are unchanged: a failed classic job keeps its plain resume and refuses a correction', needsKit, async () => {
-  const j = makeJob({ route: 'classic' });
-  try {
-    j.setRecord({ route: 'classic' });
-    const starter = j.starter();
-    const status = starter.get(ID);
-    assert.equal(status.resumeNeeds, undefined); assert.notEqual(status.resumeFrom, 'post');
-    assert.throws(() => starter.resume(ID, { correctedOverlay: CORRECTED }), (error) => error.code === 'overlay_correction_invalid');
-  } finally { j.cleanup(); }
-});
+
 
 test('the resume route passes correctedOverlay through and still refuses other body keys', async () => {
   const { resumeCodebuiltHandler } = await import('../../routes/codebuilt.js');

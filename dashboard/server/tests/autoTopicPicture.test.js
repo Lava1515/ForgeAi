@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { createAutoTopicProvider, sanitizeCandidates } from '../episode/codebuilt/autoTopic.js';
 import { scoreCandidates, THEME_RULES } from '../episode/codebuilt/theme.js';
 
@@ -28,20 +27,7 @@ test('picture story drops overlong actor and goal instead of repairing them', ()
   }
 });
 
-test('picture disabled preserves both classic prompt byte snapshots', async () => {
-  const prompt = async (channelId) => {
-    let text;
-    const pick = createAutoTopicProvider({
-      getChannel: () => channelId ? { id: channelId, profile: { status: 'active', niche: 'science', language: 'en', avoid: [], formats: [] } } : null,
-      history: () => ({ videos: [], available: false }),
-      askRoleFn: async (_role, value) => { text = value; return { candidates: [basic] }; },
-    });
-    await pick({ ...(channelId ? { channelId } : {}), picture: false });
-    return createHash('sha256').update(text).digest('hex');
-  };
-  assert.equal(await prompt(null), 'e3674475736bcdf3d337940efbb596fcdd3629b91df6e7fa49eaf4ce620f46b9');
-  assert.equal(await prompt('snapshot'), '64d8acc491d14a644e6281e89f541bbab9813ee9e5fa7e827c247cb6e13ef944');
-});
+
 
 test('picture-enabled prompt requests a viewer-clickable idea, visual follow, turn, five shapes and contract fields', async () => {
   const phrases = ['viewer would click', 'what the eye follows', 'line-up of sizes without a turn', 'journey, tour, comparison, mystery, or whatif_chain', '"picture"', '"story_question"', '"ending_answer"', '"turn"', '"who"', '"want"'];

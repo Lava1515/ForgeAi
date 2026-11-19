@@ -1,3 +1,4 @@
+import { authorOptions, authorPlanner, renderPack } from './helpers/authored.js';
 // claude-pro · claude-fable-5-2 · 2026-11-16, fix lane F1.
 // The bug that happened (final panel 2026-11-16): the Amazon and Point Nemo proofs were picked for the map channel, but their
 // scripts held none of the 15 map keywords, so no step loaded codebuilt-maps and no build called the map kit.
@@ -35,11 +36,11 @@ async function guidesSeenByJob(t, premise) {
   const starter = createCodebuiltStarter({
     jobsDir: root, episodesRoot: path.join(root, 'episodes'), newId: () => 'f1-1',
     scriptStage: async () => { seen.script = guidesFor(pack, 'script', '', 'factual'); return { script: SCRIPT, brief: 'brief', pathPack: pack }; },
-    planner: { planCodebuiltBuild: async (input) => {
+    authorLoop: authorOptions(root),
+    planner: authorPlanner(async input => {
       seen.direction = guidesFor(input.pathPack, 'direction', `${TOPIC} ${SCRIPT}`, 'factual');
       seen.build = guidesFor(input.pathPack, 'build', `${TOPIC} ${SCRIPT}`, 'factual');
-      return { buildScript: 'safe fixture', nframes: 900, shotStarts: [0] };
-    } },
+    }),
     factCheckStage: async () => ({ verified: true }),
     voiceStage: async (input) => {
       const out = { voPath: path.join(input.outDir, 'vo.wav'), wordsPath: path.join(input.outDir, 'words.json'), manifestPath: path.join(input.outDir, 'voice.json') };

@@ -87,11 +87,11 @@ export function jobUsesOverlay(pack, formats) {
 }
 
 /** Route defaults first, then each format override in job order. root remains the second argument for existing callers. */
-export function formatDirectionLimits(formats, root = REPO_ROOT, route = 'classic', pathPack = null) {
+export function formatDirectionLimits(formats, root = REPO_ROOT, route = 'authored', pathPack = null) {
   let configured = {};
   try {
     const pack = pathPack ?? JSON.parse(fs.readFileSync(path.join(root, 'paths', 'codebuilt.json'), 'utf8'));
-    if (route === 'overlay' || route === 'authored') configured = { ...pack?.rules?.routes?.overlay?.direction };
+    configured = { ...pack?.rules?.routes?.overlay?.direction };
     for (const name of cleanJobFormats(formats)) {
       const limits = pack?.rules?.formats?.[name]?.direction;
       if (limits && typeof limits === 'object' && !Array.isArray(limits)) configured = { ...configured, ...limits };
@@ -145,7 +145,7 @@ export function formatSetsText(pack, step, formats) {
  * `formats` (default: the formats of the running job): skills and ready sets of rules.formats are added for them, whatever the text says.
  * The text goes into a prompt as guidance; nothing here is mounted, executed or copied into generated code.
  */
-export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '', formats = currentJobFormats(), route = 'classic' } = {}) {
+export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '', formats = currentJobFormats(), route = 'authored' } = {}) {
   const names = [...new Set([...guideNamesFor(pack, step), ...formatGuideNamesFor(pack, step, formats), ...topicGuideNamesFor(pack, step, topic)])];
   const approved = new Set((Array.isArray(pack?.skills) ? pack.skills : []).filter((entry) => entry?.mode === 'guidance_only').map((entry) => entry.skill));
   const parts = [];
@@ -153,11 +153,7 @@ export function loadCodebuiltGuides({ pack, step, root = REPO_ROOT, topic = '', 
     if (!approved.has(name)) throw new Error(`skill ${name} is assigned to step ${step} but is not approved by the code-built path pack`);
     // The YAML frontmatter (name, description) is for skill listings, not for a prompt.
     let content = safeSkillText(root, name).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
-    if (!(route === 'overlay' || route === 'authored' || jobUsesOverlay(pack, formats))) {
-      content = content.split('\n## When text is drawn after the render')[0].trimEnd();
-    }
-    // codex ? gpt-6.1-sol ? 2026-11-19: library guidance belongs only to an enabled authored run.
-    if (route !== 'authored' || !ASSET_CONTRACT_TEXT) content = content.split('\n### Real assets from the library')[0].trimEnd();
+    if (!ASSET_CONTRACT_TEXT) content = content.split('\n### Real assets from the library')[0].trimEnd();
     parts.push(`### ${name}\n${content}`);
   }
   const sets = formatSetsText(pack, step, formats);

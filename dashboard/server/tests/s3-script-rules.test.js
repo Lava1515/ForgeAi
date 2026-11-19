@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planCodebuiltScript, wordWindow, scriptShotRange } from '../episode/codebuilt/planner.js';
 
-const deps = (value) => ({ askFn: async () => JSON.stringify(value), askRoleFn: async () => ({ ok: true }) });
+const deps = (value) => ({ askAuthor: async () => ({text:JSON.stringify({...value,factTable:[{claim:'fixture',sources:['https://example.org/source']}]})}), askRoleFn: async () => ({ ok: true }) });
 
 test('script planner rejects scripts without the required short lines and open question', async () => {
   const count = wordWindow(30).target;

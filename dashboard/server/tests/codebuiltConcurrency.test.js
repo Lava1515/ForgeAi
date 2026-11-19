@@ -1,3 +1,4 @@
+import { authorOptions, authorPlanner, renderPack } from './helpers/authored.js';
 // codex · gpt-6.1-sol · 2026-11-16 08:56 +02:00
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,15 +27,12 @@ function rig(root, hooks = {}) {
   const events = [];
   const starter = createCodebuiltStarter({
     jobsDir: root, episodesRoot: path.join(root, 'episodes'), newId: () => `q1-${++seq}`,
-    planner: { planCodebuiltBuild: async (input) => {
-      events.push(['plan', input.topic, input.duration]);
-      await hooks.plan?.(input);
-      return { buildScript: 'safe fixture', nframes: 900, shotStarts: [0] };
-    } },
+    planner: authorPlanner(async input => { events.push(['plan', input.topic, input.duration]); await hooks.plan?.(input); }),
+    authorLoop: authorOptions(root, {visual: async input => { events.push(['visual', input.jobId]); await hooks.visual?.(input); }}),
     scriptStage: async (input) => {
       events.push(['script', input.topic, input.duration, input.autoDuration]);
       await hooks.script?.(input);
-      return { script: `Narration for ${input.topic}`, brief: 'brief', pathPack: { id: 'codebuilt', skills: [] }, ...(hooks.duration ? { duration: hooks.duration } : {}) };
+      return { script: `Narration for ${input.topic}`, brief: 'brief', pathPack: renderPack, ...(hooks.duration ? { duration: hooks.duration } : {}) };
     },
     factCheckStage: async () => ({ verified: true }),
     voiceStage: async (input) => {
@@ -42,7 +40,7 @@ function rig(root, hooks = {}) {
       await hooks.voice?.(input);
       const out = { voPath: path.join(input.outDir, 'vo.wav'), wordsPath: path.join(input.outDir, 'words.json'), manifestPath: path.join(input.outDir, 'voice.json') };
       fs.writeFileSync(out.voPath, 'fixture');
-      fs.writeFileSync(out.wordsPath, '{}');
+      fs.writeFileSync(out.wordsPath, JSON.stringify({dur:28,words:[]}));
       fs.writeFileSync(out.manifestPath, JSON.stringify({ video_seconds: hooks.duration ?? 30 }));
       return out;
     },
@@ -51,14 +49,6 @@ function rig(root, hooks = {}) {
       await hooks.render?.(input);
       fs.mkdirSync(path.join(root, input.jobId), { recursive: true });
     } } }),
-    visualLoop: {
-      probe: async () => ({}),
-      runLoop: async (input) => {
-        events.push(['visual', input.jobId]);
-        await hooks.visual?.(input);
-        return { accepted: true, buildScript: input.buildScript, sha256: crypto.createHash('sha256').update(input.buildScript).digest('hex'), receipt: {} };
-      },
-    },
     lightMetadataStage: async () => ({}),
     toDraft: (input) => { events.push(['draft', input.jobId, input.requestedDuration]); return { id: `draft-${input.jobId}` }; },
   });
@@ -95,24 +85,6 @@ test('next script overlaps visual work; all GPU phases remain exclusive', async 
   assert.equal(events.filter(([phase, topic]) => phase === 'script' && topic === 'third').length, 0);
 });
 
-test('next scene plan can remain active while the current job previews and renders', async (t) => {
-  const firstPlan = deferred(); const secondPlan = deferred(); const visual = deferred();
-  const { starter, events } = rig(scratch(t), {
-    plan: ({ topic }) => topic === 'first' ? firstPlan.promise : secondPlan.promise,
-    visual: () => visual.promise,
-  });
-  const first = starter.start({ topic: 'first', duration: 30 });
-  const second = starter.start({ topic: 'second', duration: 30 });
-  await until(() => events.filter(([phase]) => phase === 'plan').length === 2);
-  firstPlan.resolve();
-  await until(() => events.some(([phase]) => phase === 'visual'));
-  assert.equal(starter.get(second.id).step, 'planning');
-  assert.equal(starter.get(first.id).status, 'planning');
-  secondPlan.resolve(); visual.resolve(); await starter.idle();
-  assert.equal(starter.get(first.id).status, 'done');
-  assert.equal(starter.get(second.id).status, 'done');
-});
-
 test('abort removes a GPU waiter without releasing the GPU owner, across starter instances', async (t) => {
   const root = scratch(t); const hold = deferred();
   const a = rig(path.join(root, 'a'), { visual: () => hold.promise });
@@ -125,7 +97,7 @@ test('abort removes a GPU waiter without releasing the GPU owner, across starter
   await b.starter.idle();
   assert.equal(b.starter.get(waiting.id).status, 'aborted');
   assert.equal(b.events.filter(([phase]) => phase === 'voice').length, 0);
-  assert.equal(a.starter.get(first.id).status, 'planning'); // injected loop has no phase callback
+  assert.equal(a.starter.get(first.id).status, 'previewing'); // injected loop has no phase callback
   hold.resolve();
   await a.starter.idle();
   assert.equal(a.starter.get(first.id).status, 'done');
@@ -177,7 +149,7 @@ test('ordinary voice failure releases the GPU and does not launch the same job t
 
 test('duplicate id cannot overwrite a live job or restart its pipeline', async (t) => {
   const hold = deferred(); const root = scratch(t); let compositions = 0;
-  const starter = createCodebuiltStarter({ jobsDir: root, newId: () => 'same-id', planner: {}, composeRunner: async () => {
+  const starter = createCodebuiltStarter({ jobsDir: root, newId: () => 'same-id', planner: {}, authorLoop: authorOptions(root), composeRunner: async () => {
     compositions += 1; await hold.promise; throw new Error('unavailable');
   } });
   const first = starter.start({ topic: 'first', duration: 30 });

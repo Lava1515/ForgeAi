@@ -39,7 +39,6 @@ const KEYS = Object.freeze(['count', 'genre', 'theme', 'topic', 'type', 'voice',
 const isAuto = (v) => v === undefined || v === null || (typeof v === 'string' && (!v.trim() || v.trim().toLowerCase() === 'auto'));
 
 const MESSAGES = Object.freeze({
-  author_mode_disabled: 'Author mode is disabled',
   bad_request: 'Invalid request', topic_needs_single_video: 'A typed topic is one video: set the count to 1, or leave the topic on Auto and give a theme for several videos',
   type_mismatch: 'The chosen type and the topic disagree (a what-if type needs a "What if ...?" topic and a factual type must not have one)',
   channel_type_mismatch: 'The selected channel is not assigned to this video type', channel_type_unassigned: 'No channel is assigned to this video type', channel_type_ambiguous: 'Several channels are assigned to this video type; choose a channel explicitly',
@@ -147,9 +146,9 @@ export function publicRun(rec) {
   if (!rec) return null;
   const { id, status, count, choices, channelId, createdAt, updatedAt, videos } = rec;
   return {
-    route: rec.route ?? 'classic', id, status, count, choices, channelId: channelId ?? null, createdAt, updatedAt, summary: countsOf(videos), error: publicError(rec.error),
+    route: checkJobRoute(rec.route), id, status, count, choices, channelId: channelId ?? null, createdAt, updatedAt, summary: countsOf(videos), error: publicError(rec.error),
     videos: videos.map((v) => ({
-      route: v.route ?? rec.route ?? 'classic', index: v.index, status: v.status, step: v.step ?? null, topic: v.topic ?? null, duration: v.duration ?? null, voice: v.voice ?? null, type: v.type ?? null,
+      route: checkJobRoute(v.route ?? rec.route), index: v.index, status: v.status, step: v.step ?? null, topic: v.topic ?? null, duration: v.duration ?? null, voice: v.voice ?? null, type: v.type ?? null,
       jobId: v.jobId ?? null, draftId: v.draftId ?? null, resolved: v.resolved ?? {}, theme_pick: v.theme_pick ?? null, calls: v.calls ?? [], error: publicError(v.error),
       ...(v.length_check ? { length_check: v.length_check } : {}),
     })),
@@ -249,7 +248,7 @@ export function createCodebuiltRunCoordinator({
     if (topic && !(rec.formats ?? []).includes('journey') && (type === 'teardown' || !channel?.profile?.formats?.includes('journey'))) resolved.topic = { source: 'owner' };
     else {
       const formats = cleanJobFormats([...(rec.formats ?? []), ...jobFormatsFor({ profile: channel?.profile, type })]);
-      const picture = effectiveJobRoute(rec.route ?? 'classic', formats) !== 'classic';
+      const picture = true;
       // codex · gpt-6.1-sol · 2026-11-19 14:24 +02:00: use the existing ranked channel pool without repeating a tried topic.
       const poolPick = () => {
         const inputs = autoInputs(channel);
@@ -342,14 +341,14 @@ export function createCodebuiltRunCoordinator({
           return null; // an individual failure never stops the run
         }
         video.calls = calls;
-        Object.assign(video, { route: rec.route ?? 'classic', ...(rec.formats ? {formats:rec.formats} : {}), topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, type: resolved.type, resolved: resolved.resolved, theme_pick: resolved.themePick ? { candidate_id: resolved.themePick.candidate_id, total: resolved.themePick.total, ranked: resolved.themePick.ranked, rejected: resolved.themePick.rejected, history_used: resolved.themePick.history_used, history_available: resolved.themePick.history_available } : null });
+        Object.assign(video, { route: checkJobRoute(rec.route), ...(rec.formats ? {formats:rec.formats} : {}), topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, type: resolved.type, resolved: resolved.resolved, theme_pick: resolved.themePick ? { candidate_id: resolved.themePick.candidate_id, total: resolved.themePick.total, ranked: resolved.themePick.ranked, rejected: resolved.themePick.rejected, history_used: resolved.themePick.history_used, history_available: resolved.themePick.history_available } : null });
         previousTopics.push(resolved.topic);
         if (ctl.aborted) { stopInFlight(video, 'resolving'); stopRest(i + 1); persist(rec, ctl); return null; }
         if (!persist(rec, ctl)) { stopInFlight(video, 'resolving'); stopRest(i + 1); return null; }
         let queued;
         try {
           queued = theStarter().start(
-            { route: rec.route ?? 'classic', ...(rec.formats ? {formats:rec.formats} : {}), topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, buildModel: rec.request.buildModel, ...(rec.channelId ? { channelId: rec.channelId } : {}) },
+            { route: checkJobRoute(rec.route), ...(rec.formats ? {formats:rec.formats} : {}), topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, buildModel: rec.request.buildModel, ...(rec.channelId ? { channelId: rec.channelId } : {}) },
             { factCheck: true, autoDuration: rec.request.duration === null, runId: rec.id, batchIndex: i, contentMode: resolved.type, choices: resolved.choices, ...(resolved.themePick?.premise ? { premise: resolved.themePick.premise } : {}), preCalls: calls },
           );
         } catch (error) {
