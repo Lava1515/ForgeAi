@@ -65,3 +65,17 @@ def test_cli_reports_bad_words_and_outside_paths_without_traceback(tmp_path, cap
     assert preview_sheet.main(args + ["--job-root", str(frames)]) == 1
     assert "would leave" in json.loads(capsys.readouterr().out)["error"]
     assert not out.exists()
+
+
+def test_preview_with_labels_for_anchors_not_in_the_sampled_frames_still_makes_a_sheet(tmp_path):
+    # B3 video 3 died here: a preview holds only the names visible in its sampled frames, the overlay names more.
+    frames, out = tmp_path / "frames", tmp_path / "out"
+    job = tmp_path / "job"; frames.mkdir(); job.mkdir(); out.mkdir()
+    frame(frames, 8)
+    spec = job / "overlay.json"
+    spec.write_text(json.dumps({"version": 1, "labels": [{"anchor": "mark", "title": "A", "from": 0, "to": 0.9},
+                                                         {"anchor": "later", "title": "B", "from": 0.9, "to": 1.0}]}))
+    anchors = job / "anchors-preview.json"
+    anchors.write_text(json.dumps({"version": 1, "width": 120, "height": 180, "frames": {"8": {"p": {"mark": [0.5, 0.45, 1]}}}}))
+    result = preview_sheet.make_sheets(frames, out, "ABCDE", overlay_spec=spec, anchors_path=anchors, nframes=30, fps=30, job_root=job)
+    assert result[0]["tiles"][0]["frame"] == 8

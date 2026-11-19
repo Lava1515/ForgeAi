@@ -336,11 +336,14 @@ class Overlay:
     pieces(frame, t) is the layout of one frame without drawing; layout_report() runs the layout checks on every frame.
     """
 
-    def __init__(self, spec, anchors, width, height, captions_track=None, fps=30, nframes=None):
+    def __init__(self, spec, anchors, width, height, captions_track=None, fps=30, nframes=None, partial_anchors=False):
         self.spec, self.anchors, self.width, self.height = spec, anchors, width, height
         required = names_used(spec)
         missing = (required["points"] - anchors.point_names) | (required["values"] - anchors.value_names)
-        if missing:
+        # claude-pro · claude-sonnet-5-5 · 2026-11-19: a preview renders only a few frames, so its anchors file holds only the
+        # names visible in those frames. With partial_anchors a name that is absent is simply hidden (point() and value() give None);
+        # the final render still requires every name.
+        if missing and not partial_anchors:
             raise media.MediaError("anchors.json: missing referenced names: " + ", ".join(sorted(missing)))
         self.track, self.fps, self.nframes = captions_track, fps, nframes
         self.s, self.sy = width / BASE_W, height / BASE_H
