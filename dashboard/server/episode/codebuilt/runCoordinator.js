@@ -267,7 +267,17 @@ export function createCodebuiltRunCoordinator({
       for (let attempt = 0; !themePick && attempt < 2; attempt += 1) {
         if (!canContinue()) throw new RunError('aborted');
         try {
-          themePick = await pickTopic({ ...(picture ? { picture: true } : {}), genre: c.genre ?? '', theme: c.theme ?? '', type, formats: rec.formats, inspiration: topic || inspiration, previousTopics, channelId: rec.channelId ?? undefined, onCallRecord });
+          themePick = await pickTopic({ ...(picture ? { picture: true } : {}), genre: c.genre ?? '', theme: c.theme ?? '', type, formats: rec.formats, inspiration: topic || inspiration, previousTopics, channelId: rec.channelId ?? undefined, onCallRecord,
+            // codex · gpt-6.1-sol · 2026-11-19 19:33 +02:00: save every failed answer before A4 retries.
+            onRejectedAnswer: (record) => {
+              const video = rec.videos[index];
+              const file = `topic-rejection-${index}-${(video.topic_rejections?.length ?? 0) + 1}.json`;
+              try {
+                atomicWrite(path.dirname(recFile(rec.id)), file, `${JSON.stringify(record, null, 1)}\n`);
+                (video.topic_rejections ??= []).push({ file, code: record.code });
+              } catch { throw new RunError('persistence_failed'); }
+              if (!canContinue()) throw new RunError('persistence_failed');
+            } });
           if (previousTopics.some((prior) => prior.toLowerCase() === themePick.topic?.trim().toLowerCase())) throw new AutoTopicError('theme_no_candidates');
         } catch (error) {
           themePick = null;
