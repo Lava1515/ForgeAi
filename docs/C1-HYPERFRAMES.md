@@ -23,7 +23,7 @@ Only `route === 'authored'` plus the exact flag `1` selects it. Unset the flag t
 python -I narrative_factory/codebuilt/post/cb5_main.py <absolute-job-folder> --hyperframes
 ```
 
-The CLI package must be **0.9.70**, checked from its installed package.json. No npx, installer or browser-ensure call is used. Both CLI and browser paths must exist; FFprobe must already be on PATH. Chrome headless shell **158.0.8127.36** passed the CPU sample; installed desktop Chrome stalled at capture and was stopped with its child processes. Missing prerequisites fail explicitly. Any additional installation needs Fable approval; none was performed.
+The CLI package must be **0.9.70**, checked from its installed package.json. No npx, installer or browser-ensure call is used. Both CLI and browser paths must exist; FFprobe must already be on PATH. Chrome headless shell **158.0.8127.36** passed the CPU sample; installed desktop Chrome stalled at capture and was stopped with its child processes. Missing prerequisites and other HyperFrames step failures are logged and fall back to the legacy text pass (review fix below). Any additional installation needs Fable approval; none was performed.
 
 The pass uses one worker, software browser capture and CPU encoding. It runs within the current serialized job's host post step, never inside the executor. Project files, render intermediates, caches, logs and output stay in a fresh directory under that job. A 25-minute timeout stops that render's process tree. The composition's CSP allows only local assets; telemetry is disabled. The font is an unmodified Inter Bold WOFF2 from the already installed HyperFrames distribution, with its OFL notice, copied into the repo. Both CLI and font source checks are in licenses/register.json. Source licences: [HyperFrames Apache-2.0](https://github.com/heygen-com/hyperframes/blob/main/LICENSE), [Inter OFL-1.1](https://github.com/rsms/inter/blob/master/LICENSE.txt).
 
@@ -60,3 +60,12 @@ Brain note:
 codex · gpt-6.1-sol: C1 defaults OFF; enable only after review with FORGE_HYPERFRAMES_TEXT=1 and installed CLI/browser paths; CLI pinned 0.9.70.
 codex · gpt-6.1-sol: Use installed Chrome headless shell 158.0.8127.36 for CPU capture; desktop Chrome stalled. New host state retains authored route for post-only completion.
 codex · gpt-6.1-sol: Font is bundled Inter Bold/OFL, not the Windows fonts from the demo. Reconcile C1 licence entries with A3 before merging.
+
+
+### 2026-11-19 14:53 +02:00 · codex · gpt-6.1-sol — cross-family review fix
+
+The agy review found that an optional HyperFrames failure lost the entire job. CB5 now catches exceptions from importing/running that text step and reruns the normal legacy overlay/caption pass with the existing audio mix and checked job paths. It logs the exception type and bounded reason to stderr, and writes `post.hyperframes = {"status": "fallback", "reason": "..."}` in `out/report.json`. Legacy encoding/layout errors still fail normally rather than accepting an invalid video.
+
+Added one regression test in `narrative_factory/tests/test_post_overlay_run.py`: a raising HyperFrames renderer must complete a real legacy encode, draw the tag/captions, preserve duration, produce all final artifacts, and record the reason in the saved report and log. It failed on the reviewed code and passed after the fix. This is the only added test; changed files for this correction are `cb5.py`, that existing test file, and this report. No other lane files changed.
+
+Validation after the fix: `python -m pytest narrative_factory -q`: **223 passed**, 5 existing Pillow warnings. `npm test`: **584 passed**. Licence check: **38 entries passed**, existing 19 source-recheck reminders unchanged. Default OFF, CLI pin, install restrictions, and activation settings are unchanged.

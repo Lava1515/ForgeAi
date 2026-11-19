@@ -1,5 +1,6 @@
 """Adapt the CB4 post kit to the fixed CB5 job-folder output contract."""
 import json
+import logging
 import math
 import shutil
 import tempfile
@@ -214,12 +215,19 @@ def produce(job_dir, *, fps=run.FPS, lead=LEAD, hyperframes=False):
     work = Path(tempfile.mkdtemp(prefix=".cb5-post-", dir=job))
     # codex · gpt-6.1-sol · 2026-11-19 14:29 +02:00: no Pillow text on the opt-in authored path.
     if hyperframes:
-        from . import hyperframes_text
         audio_lead = overlay_args.get("audio_lead")
         result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead,
                             audio_lead=audio_lead, draw_text=False)
-        result = hyperframes_text.finish(job, result, words, spec if spec.exists() else None,
-                                         marks if marks.exists() else None, fps=fps, lead=lead)
+        try:
+            from . import hyperframes_text
+            result = hyperframes_text.finish(job, result, words, spec if spec.exists() else None,
+                                             marks if marks.exists() else None, fps=fps, lead=lead)
+        except Exception as error:
+            # codex · gpt-6.1-sol · 2026-11-19 14:52 +02:00: optional text failures must not lose the job.
+            reason = f"{type(error).__name__}: {' '.join(str(error).split())}"[:1000]
+            logging.getLogger(__name__).warning("HyperFrames text failed; using legacy overlay text: %s", reason)
+            result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead, **overlay_args)
+            result["hyperframes"] = {"status": "fallback", "reason": reason}
     else:
         result = run.finish(frames, words, audio_paths["mix"], work, "render", fps=fps, lead=lead, **overlay_args)
     if result.get("ok") is not True:

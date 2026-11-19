@@ -70,6 +70,41 @@ def test_finish_with_overlay_adds_a_block_and_draws(tmp_path):
 
 
 @needs_ffmpeg
+def test_hyperframes_failure_finishes_with_legacy_text(tmp_path, monkeypatch, caplog):
+    # codex · gpt-6.1-sol · 2026-11-19 14:52 +02:00: a failed optional text renderer must not lose a job.
+    from narrative_factory.codebuilt.post import hyperframes_text
+    job_inputs(tmp_path)
+    (tmp_path / "inputs").mkdir()
+    spec = write(tmp_path / "inputs" / "overlay.json", {
+        "version": 1, "tag": {"text": "LEGACY TEXT", "from": 0, "to": 0.9}})
+    calls = []
+    original = run.finish
+
+    def finish(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    def fail(*args, **kwargs):
+        raise media.MediaError("browser render failed")
+
+    monkeypatch.setattr(run, "finish", finish)
+    monkeypatch.setattr(hyperframes_text, "finish", fail)
+    report = cb5.produce(tmp_path, hyperframes=True)
+    assert report["status"] == "ok"
+    assert len(calls) == 2 and calls[0]["draw_text"] is False
+    assert calls[1].get("draw_text", True) is True and calls[1]["overlay_spec"] == spec
+    assert report["post"]["overlay"]["elements"]["tag"] == 1
+    assert report["post"]["captions"]["groups"] > 0
+    assert report["post"]["hyperframes"] == {"status": "fallback", "reason": "MediaError: browser render failed"}
+    saved = json.loads((tmp_path / "out" / "report.json").read_text(encoding="utf-8"))
+    assert saved["post"]["hyperframes"] == report["post"]["hyperframes"]
+    assert "browser render failed" in caplog.text
+    assert media.probe(tmp_path / "out" / "video.mp4")["duration"] == N / run.FPS
+    for name in ("video.mp4", "subtitles.srt", "contact_sheet.png"):
+        assert (tmp_path / "out" / name).stat().st_size > 0
+
+
+@needs_ffmpeg
 def test_blocking_layout_finding_sets_ok_false(tmp_path):
     frames, words, audio = job_inputs(tmp_path)
     spec = write(tmp_path / "overlay.json", {"version": 1, "counter": {"value": "n", "format": "int", "from": 0, "to": 0.9},
