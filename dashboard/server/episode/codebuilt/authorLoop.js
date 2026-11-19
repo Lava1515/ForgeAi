@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { authorArgv, hash, authorError, normalizeAuthorUsage, AUTHOR_REPO } from './authorCall.js';
 import { overlayPair, validateOverlayPair } from './overlaySpec.js';
-import { AUTHOR_HEADER, writePair, parseAuthorLook, authorState } from './authorPrompts.js';
+import { AUTHOR_HEADER, SESSION_HEADER, sessionLookPrompt, writePair, parseAuthorLook, authorState } from './authorPrompts.js';
+import { createAuthorSession, sessionArgv, sessionPath, readSessionPair, consumePreviewRequest, smallSessionFrames } from './authorSession.js';
 import { exposureAdvice } from './exposureCheck.js';
 import { buildLookPrompt, sanitizeKitReport } from './visualLoopPrompts.js';
 import { pickAuthoredPreviewFrames, overlayWindows } from './previewFrames.js';
@@ -54,7 +55,9 @@ export function verifyAuthorReceipt(out,input) {
  if(!Number.isInteger(receipt.attempt)||receipt.attempt<0||!Number.isInteger(receipt.round)||receipt.round<0||receipt.round>4)throw Error();
  if(receipt.identity!==authorIdentity(input))throw Error();
  const spec=validateOverlayPair(pair,code,{videoSeconds:input.nframes/30});pairCheck(code,spec,input);
- if(JSON.stringify(spec)!==JSON.stringify(out.overlaySpec) || out.accepted!==true || code!==out.buildScript || hash(code)!==out.sha256 || hash(JSON.stringify(spec))!==receipt.overlaySha256 || receipt.sha256!==out.sha256 || JSON.stringify(receipt)!==JSON.stringify(out.receipt) || receipt.argvSha256!==hash(JSON.stringify(authorArgv(input.model??'sonnet')))) throw Error();
+ if(!!receipt.sessionId!==(input.sessionEnabled===true))throw Error();
+ const expectedArgv=receipt.sessionId?sessionArgv(input.model??'sonnet',receipt.sessionId,true):authorArgv(input.model??'sonnet');
+ if(JSON.stringify(spec)!==JSON.stringify(out.overlaySpec) || out.accepted!==true || code!==out.buildScript || hash(code)!==out.sha256 || hash(JSON.stringify(spec))!==receipt.overlaySha256 || receipt.sha256!==out.sha256 || JSON.stringify(receipt)!==JSON.stringify(out.receipt) || receipt.argvSha256!==hash(JSON.stringify(expectedArgv))) throw Error();
  const roundDir=path.join(dir,`a${receipt.attempt}`,`r${receipt.round}`);
  const preview=read(path.join(roundDir,'preview.json')),look=read(path.join(roundDir,'look.json'));
  if(readBytes(path.join(roundDir,'build.py'),'utf8')!==code || JSON.stringify(validateOverlayPair(read(path.join(roundDir,'overlay.json')),code,{videoSeconds:input.nframes/30}))!==JSON.stringify(spec))throw Error();
@@ -97,7 +100,9 @@ export async function runAuthorLoop(input,deps={}) {
   if(typeof deps.layoutCheck!=='function')throw authorError('author_layout_unavailable');
  const attempts=fs.readdirSync(root).filter(n=>/^a\d+$/.test(n)).map(n=>Number(n.slice(1)));
  const attempt=Math.max(attempts.length?Math.max(...attempts)+1:0,input.previewAttempt??0),stage=path.join(root,`a${attempt}`);fs.mkdirSync(stage);
- const now=deps.now??Date.now,started=now(),argvSha256=hash(JSON.stringify(authorArgv(model))),calls=[],history=[];
+ // codex · gpt-6.1-sol · 2026-11-19 15:11 +02:00: same host gates and caps; only the author transport and edit protocol change.
+ const session=input.sessionEnabled===true?createAuthorSession({stageDir:input.stageDir,attemptDir:stage}):null;
+ const now=deps.now??Date.now,started=now(),argvSha256=hash(JSON.stringify(session?sessionArgv(model,session.id,true):authorArgv(model))),calls=[],history=[];
  let spent=0,contextPeak=0,outputTotal=0,repairs=0,round=0,previews=0,code='',spec=null,feedback='',editRefusals=0,resynced=false;
  const journal=entry=>{const file=path.join(stage,'journal.jsonl');if(fs.existsSync(file))regular(file);fs.appendFileSync(file,JSON.stringify(entry)+'\n');};
  const state=status=>{const value={version:1,jobId:input.jobId,model,cliVersion:input.probe?.cliVersion??null,argvSha256,switch:{env:true,job:'authored'},caps:measured.caps,counters:{calls:calls.length,rounds:previews,minutes:(now()-started)/60000,billableTotal:spent,contextPeak,outputTotal},attempt,status};json(path.join(stage,'session.json'),value);json(path.join(root,'session.json'),value);};
@@ -109,14 +114,17 @@ export async function runAuthorLoop(input,deps={}) {
   if(spent+reserve>measured.caps.billableTotal)throw authorError('author_tokens');
   const n=calls.length,t=now();write(path.join(dir,`prompt-${n}.txt`),prompt);
   let answer;
-  try {answer=await deps.askAuthor(prompt,images,{model,signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?1200000:600000,3600000-(now()-started)))});}
+  const expectedArgv=session?sessionArgv(model,session.id,session.started):authorArgv(model);
+  try {answer=await deps.askAuthor(prompt,images,{model,...(session?{session,maxBillableTokens:measured.caps.billableTotal-spent,maxContextTokens:measured.caps.contextPeak}:{}),signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?1200000:600000,3600000-(now()-started)))});}
   catch(error){const usage=normalizeAuthorUsage(null,{promptChars:prompt.length,images:images.length,...measured.reserves});const entry={n,round,kind,status:'error',usage,reserve,spentBefore:spent,wallS:(now()-t)/1000};calls.push(entry);spent+=usage.billable;contextPeak=Math.max(contextPeak,usage.context);journal(entry);state('failed');deps.onCall?.(entry);throw error;}
   write(path.join(dir,`reply-${n}.txt`),answer.text);
   const usage=normalizeAuthorUsage(answer.rawUsage??answer.usage,{promptChars:prompt.length,images:images.length,...measured.reserves});
+  // Session result usage sums many tool turns; context is the largest individual turn, billable usage stays summed.
+  if(session&&Number.isFinite(answer.contextPeak)&&answer.contextPeak>0)usage.context=answer.contextPeak;
   const entry={n,round,kind,step:'author',provider:'claude',model,promptSha256:hash(prompt),replySha256:hash(answer.text),imageSha256:images.map(i=>hash(i.bytes)),usage,wallS:(now()-t)/1000,receipt:answer.receipt,spentBefore:spent,reserve,promptChars:prompt.length,replyChars:answer.text.length,image_tokens_seen:images.length?Math.max(0,usage.context-Math.ceil(prompt.length/3))/images.length:null};
   calls.push(entry);spent+=usage.billable;contextPeak=Math.max(contextPeak,usage.context);outputTotal+=usage.output_tokens;journal(entry);deps.onCall?.(entry);state('running');guard();
   const rc=answer.receipt;
-  if(!rc || rc.argvSha256!==argvSha256 || rc.promptSha256!==hash(prompt) || JSON.stringify(rc.imageSha256)!==JSON.stringify(entry.imageSha256) || rc.imageCount!==images.length || rc.toolsOffered!==0 || rc.noSessionPersistence!==true || rc.transport!=='stdin-image-blocks')throw authorError('author_receipt');
+  if(!rc || rc.argvSha256!==hash(JSON.stringify(expectedArgv)) || rc.promptSha256!==hash(prompt) || JSON.stringify(rc.imageSha256)!==JSON.stringify(entry.imageSha256) || rc.imageCount!==images.length || rc.toolsOffered!==(session?3:0) || rc.noSessionPersistence!==!session || rc.transport!==(session?'author-session':'stdin-image-blocks') || (session&&rc.sessionId!==session.id))throw authorError('author_receipt');
   return answer.text;
  };
  const refused=error=>{if(repairs>=3)throw authorError('author_reply');repairs++;feedback=String(error.message).replace(/(?:[A-Za-z]:[\\/]|\/)[^\s]*/g,'<path>').slice(0,1000);journal({kind:'refused',round,reason:feedback});};
@@ -124,16 +132,18 @@ export async function runAuthorLoop(input,deps={}) {
  try {
   if(input.probe?.passed!==true)throw authorError('author_transport_unavailable');
   const writeDir=path.join(stage,'write');fs.mkdirSync(writeDir);
-  while(!code){const text=await ask(`${AUTHOR_HEADER}\n${input.writePrompt}\n${feedback}`,[],'write',writeDir);try{const pair=writePair(text,input.nframes/30);pairCheck(pair.buildScript,pair.overlaySpec,input);code=pair.buildScript;spec=pair.overlaySpec;feedback='';}catch(error){refused(error);}}
+  while(!code){const prompt=session?(session.started?`Repair the scene/overlay files and preview request: ${feedback}`:`${input.writePrompt}\n${SESSION_HEADER}`):`${AUTHOR_HEADER}\n${input.writePrompt}\n${feedback}`;
+   const text=await ask(prompt,[],'write',writeDir);try{const pair=session?readSessionPair(session):writePair(text,input.nframes/30);pairCheck(pair.buildScript,pair.overlaySpec,input);code=pair.buildScript;spec=pair.overlaySpec;feedback='';}catch(error){refused(error);}}
   const shots=input.shots.map((s,i)=>({...s,id:`shot-${i}`}));
   for(round=0;round<5;round++){
    guard();const pair=pairCheck(code,spec,input);spec=pair.spec;
    // Fix 3: the frames follow the CURRENT overlay spec, so every big, tag, bars and counter window holds a frame the author sees.
-   const {frames,uncovered}=(deps.pickFrames??pickAuthoredPreviewFrames)({nframes:input.nframes,shotStarts:input.shotStarts,fps:30,overlaySpec:spec});
+   let {frames,uncovered}=(deps.pickFrames??pickAuthoredPreviewFrames)({nframes:input.nframes,shotStarts:input.shotStarts,fps:30,overlaySpec:spec});
+   if(session){consumePreviewRequest(session);frames=smallSessionFrames({...input,overlaySpec:spec},frames);}
    const dir=path.join(stage,`r${round}`);fs.mkdirSync(dir);write(path.join(dir,'build.py'),code);json(path.join(dir,'overlay.json'),pair);
    const sha256=hash(code),overlaySha256=hash(JSON.stringify(spec)),previewId=`${input.jobId}-a${attempt}-pv${round+1}`;
    previews++;deps.onPhase?.('previewing');let preview=null,crash=null;
-   try{preview=await timed('preview',()=>deps.runPreview({jobId:previewId,buildScript:code,overlaySpec:spec,spec:{frames,scale:50},signal:input.signal}));}
+   try{preview=await timed('preview',()=>deps.runPreview({jobId:previewId,buildScript:code,overlaySpec:spec,spec:{frames,scale:session?25:50},signal:input.signal}));}
    catch(error){if(!['FENCE_FAILED','AGENT_EARLY_STOP','MISSING_OUTPUT','TIMEOUT'].includes(error.code)||error.detail?.backstop)throw error;crash=String(error.diagnostic??error.code).slice(0,2000);}
    guard();let sheets=[],kit=null,timing=null,layout=null;
    if(preview){
@@ -158,10 +168,14 @@ export async function runAuthorLoop(input,deps={}) {
     }
     layout={...await timed('layout',()=>deps.layoutCheck({overlaySpec:raw,nframes:input.nframes,fps:30,jobRoot:dir,frames:layoutFrames,lead:0.35,signal:input.signal,...(input.wordsPath?{words}:{}),...(layoutAnchors?{anchors:layoutAnchors}:{})})),uncovered};
     guard();journal({kind:'layout',round,ok:layout.ok,blocking:layout.blocking.length,labelHidden:layout.labelHidden.length,uncovered});
-    try{const t=read(path.join(work,'render-timing.json'));if(!Number.isFinite(t.render_s)||!(t.rendered>0))throw Error();timing=t.render_s/t.rendered*4;journal({kind:'render_timing',round,secondsPerFrame:timing});}catch{journal({kind:'render_timing_unavailable',round});}
+    try{const t=read(path.join(work,'render-timing.json'));if(!Number.isFinite(t.render_s)||!(t.rendered>0))throw Error();timing=t.render_s/t.rendered*(session?16:4);journal({kind:'render_timing',round,secondsPerFrame:timing});}catch{journal({kind:'render_timing_unavailable',round});}
    }
    const sheetRecords=sheets.map((s,i)=>{const file=`sheet-${i}.jpg`,bytes=readBytes(s.path);write(path.join(dir,'sheets',file),bytes);return {file,sha256:hash(bytes)};});
    const images=sheetRecords.map(s=>({bytes:readBytes(path.join(dir,'sheets',s.file)),mediaType:'image/jpeg'}));
+   if(session){
+    for(const [i,s] of sheetRecords.entries())write(sessionPath(session,`sheet-${i}.jpg`),readBytes(path.join(dir,'sheets',s.file)));
+    json(sessionPath(session,'findings.json'),{round,crash,layout,kit,exposure:sheets.map(s=>s.tiles),exposureAdvice:exposureAdvice(sheets,input.exposureFindings)});
+   }
    json(path.join(dir,'preview.json'),{sha256,overlaySha256,jobId:previewId,frames,rendered:preview?.frames??[],sheets:sheetRecords});
    let reply;
    for(;;){
@@ -173,9 +187,16 @@ export async function runAuthorLoop(input,deps={}) {
     const budgetText=unused?`budget_unused: ${timing.toFixed(2)} s/frame is under half of the ${input.renderBudget} s/frame budget while ${flatNums.join(', ')} measure as flat or plain. The budget is meant to be spent: enrich the single largest hero surface (bands, bump, a colour ramp, more geometry, light) until a preview costs near the budget. The ceiling is unchanged.`:'';
     const layoutText=layout?layoutRefusal(layout):'';
     const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,60-(now()-started)/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}${budgetText?`\n${budgetText}`:''}${layoutText?`\n${layoutText}`:''}\n${feedback}`;
-    let prompt=makePrompt();while(prompt.length>200000&&replay.length){replay.shift();prompt=makePrompt();}
+    const sessionPrompt=()=>sessionLookPrompt({shots,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+`\n${budgetText}\n${layoutText}\n${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}\n${feedback}`;
+    let prompt=session?sessionPrompt():makePrompt();while(prompt.length>200000&&replay.length){replay.shift();prompt=session?sessionPrompt():makePrompt();}
     const text=await ask(prompt,images,editRefusals>=2&&!resynced?'resync':'look',dir);if(editRefusals>=2)resynced=true;
-    try{reply=parseAuthorLook(text,{buildScript:code,overlaySpec:spec,validate:(c,s)=>{pairCheck(c,s,input);return [];},videoSeconds:input.nframes/30,shots,sheetCodes:[...new Set(sheets.map(s=>s.code))],finalRound:round===4,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),kitFailures:kit?.findings.map(f=>f.check)??[]});
+    try{reply=parseAuthorLook(text,{buildScript:code,overlaySpec:spec,validate:(c,s)=>{pairCheck(c,s,input);return [];},videoSeconds:input.nframes/30,shots,sheetCodes:[...new Set(sheets.map(s=>s.code))],finalRound:!!session||round===4,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),kitFailures:kit?.findings.map(f=>f.check)??[]});
+     if(session){
+      const next=readSessionPair(session);next.overlaySpec=pairCheck(next.buildScript,next.overlaySpec,input).spec;
+      if(reply.look.verdict==='pass'){
+       if(next.buildScript!==code||JSON.stringify(next.overlaySpec)!==JSON.stringify(spec)||fs.existsSync(sessionPath(session,'render.request.json')))throw authorError('author_hash');
+      }else{reply.buildScript=next.buildScript;reply.overlaySpec=next.overlaySpec;}
+     }
      // Fix 6: a pass is not accepted while the host's all-frame layout says otherwise (blocking overlap, safe zone, caption, a label hidden on every previewed frame of its window).
      if(reply.look.verdict==='pass'&&layout){const why=layoutRefusal(layout);if(why)throw Error(why);}
      break;}
@@ -188,7 +209,7 @@ export async function runAuthorLoop(input,deps={}) {
    if(reply.look.verdict==='pass'){
     guard();if(readBytes(path.join(dir,'build.py'),'utf8')!==code || JSON.stringify(read(path.join(dir,'overlay.json')))!==JSON.stringify(pair))throw authorError('author_hash');
     write(path.join(root,'accepted.build.py'),code);json(path.join(root,'accepted.overlay.json'),pair);
-    const receipt={version:1,identity:authorIdentity(input),accepted:true,sha256,overlaySha256,argvSha256,attempt,round,rounds:history,calls:calls.length,layoutSha256:hash(JSON.stringify(layout))};json(path.join(root,'receipt.json'),receipt);
+    const receipt={version:1,identity:authorIdentity(input),accepted:true,sha256,overlaySha256,argvSha256,attempt,round,rounds:history,calls:calls.length,layoutSha256:hash(JSON.stringify(layout)),...(session?{sessionId:session.id}:{})};json(path.join(root,'receipt.json'),receipt);
     const out={accepted:true,buildScript:readBytes(path.join(root,'accepted.build.py'),'utf8'),overlaySpec:spec,sha256,receipt,calls};verifyAuthorReceipt(out,input);state('accepted');return out;
    }
    code=reply.buildScript;spec=reply.overlaySpec;
@@ -198,7 +219,7 @@ export async function runAuthorLoop(input,deps={}) {
 }
 // Integration adapter: direction is separate; all preview/sheet/transport effects remain injectable.
 export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected={},addCall,onPhase}) {
- const {askAuthor,probeAuthorSupport,checkAuthorConfig}=await import('./authorCall.js');
+ const {askAuthor,askAuthorSession,probeAuthorSupport,checkAuthorConfig}=await import('./authorCall.js');
  const {createPreviewSheetMaker}=await import('./previewSheet.js');
  const {createPreviewRunFn}=await import('../engines/codebuilt/composePreview.js');
  const {directionMarkdown}=await import('./direction.js');
@@ -226,12 +247,14 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
   return why;
  };
  const input={exposureFindings:rec.exposure_check?.findings??[],jobId:rec.id,model,stageDir:stage,capsFile:injected.capsFile,measurementMode,caps:injected.caps,previewAttempt:rec.resumes?.length??0,signal,probe,nframes,shotStarts,shots:plan.lookShots,brief:scripted.brief+'\n'+plan.directionMarkdown,script:scripted.script,kitContract:pl.AUTHOR_KIT_CONTRACT??pl.KIT_CONTRACT,wordsPath:voice.wordsPath,renderBudget:pathPack.rules.routes.overlay.render.RENDER_BUDGET_S_PER_FRAME,validate,writePrompt:pl.authorBuildPrompt({topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,words,pathPack,formats:rec.formats,choices:rec.choices,direction,shotStarts,nframes})};
+ input.sessionEnabled=process.env.FORGEAI_AUTHOR_SESSION==='1';
  try {const receipt=read(path.join(stage,'author','receipt.json')),code=readBytes(path.join(stage,'author','accepted.build.py'),'utf8'),pair=read(path.join(stage,'author','accepted.overlay.json'));verifyAuthorReceipt({accepted:true,buildScript:code,overlaySpec:pair.spec,sha256:hash(code),receipt},input);probe={passed:true};}catch{}
  if(!probe)probe=injected.probe ? await injected.probe({rec,stage,signal,model}) : await probeAuthorSupport({model,stageDir:path.join(stage,'author'),nonce:cryptoNonce(),makeCanary:sheetMaker.makeCanary,askFn:ask,signal});
  input.probe=probe;
  const base=injected.runPreview??(request=>createPreviewRunFn({runner:{run:args=>runtime.runner.run({...args,route:'authored',overlaySpec:request.overlaySpec})},inputs:{script:scripted.script,voWav:voice.voPath,words:voice.wordsPath,pathPack,brief:scripted.brief},jobRoot:jobsDir})(request));
  const layoutCheck=injected.layoutCheck??createLayoutGate({execFileFn:hostExecFile}).check;
- const outcome=await runAuthorLoop(input,{...injected,layoutCheck,askAuthor:ask,runPreview:request=>base({...request,route:'authored'}),makeSheets:args=>sheetMaker.makeSheets(args),onCall:addCall,onPhase});
+ const sessionAsk=injected.askAuthorSession??((p,i,o)=>askAuthorSession(p,i,{...injected,...o}));
+ const outcome=await runAuthorLoop(input,{...injected,layoutCheck,askAuthor:input.sessionEnabled?sessionAsk:ask,runPreview:request=>base({...request,route:'authored'}),makeSheets:args=>sheetMaker.makeSheets(args),onCall:addCall,onPhase});
  // codex - gpt-6.1-sol - 2026-11-18 11:57 +02:00: D2 is a forecast gate, including accepted final retries.
  const verifyReceipt=()=>{
   verifyAuthorReceipt(outcome,input);
