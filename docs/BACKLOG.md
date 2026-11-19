@@ -2,6 +2,8 @@
 
 ## Found, not built
 
+- F11: Dingo job mwns1inh-0cdbd0 replaces AUS kit materials with an opaque custom two-colour shader in build_map(); kit defaults cannot add relief beneath that authored override. Future author fix: retain map_land and tint through its fill controls. codex · gpt-6.1-sol · 2026-11-19 20:04 +02:00.
+
 - 2026-11-19 15:54 +02:00 · codex · gpt-6.1-sol (C4): retained shared kit no-overlay modes, overlay schema fixtures, base buildPrompt/KIT_CONTRACT, and the channel engine enum where authored/direct callers still use them or removal is uncertain; the HyperFrames legacy overlay TEXT fallback is deliberately kept.
 
 ### Fix lanes F6 to F9 (owner 2026-11-19 19:30, tonight; ids repeat the older F6 to F9 of 2026-11-18, these are the new ones) · 2026-11-19 19:45 +02:00 · claude-pro · claude-sonnet-5-5
