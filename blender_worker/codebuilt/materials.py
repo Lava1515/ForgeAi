@@ -523,19 +523,25 @@ def earth_relief(name="earth_relief", image_path=None, color=None):
     """Real pre-shaded Natural Earth colour raster; requires geographic UVs.
 
     This is cartographic hillshading, NOT an elevation grid: no colour-as-height bump.
+    Rich colour grade (saturation 1.5, value 0.8), roughness 0.55 and emission 0.06 match the Sonnet short.
     Optional country tint multiplies the relief so bright fills keep geographic detail.
     Missing/corrupt assets raise; no fictional terrain fallback.
     """
     import os
     image_path = image_path or os.path.join(os.path.dirname(__file__), "mapdata", "ne2_50m_sr_w_4096.jpg")
     img = bpy.data.images.load(image_path, check_existing=True)
-    m = pbr(name, color or (1, 1, 1), rough=0.85)
+    m = pbr(name, color or (1, 1, 1), rough=0.55)
     nt, b = m.node_tree, _principled(m)
     tex = nt.nodes.new('ShaderNodeTexImage')
     tex.image, tex.extension = img, 'EXTEND'
     tc = nt.nodes.new('ShaderNodeTexCoord')
     nt.links.new(tc.outputs['UV'], tex.inputs['Vector'])
-    out = tex.outputs['Color']
+    # codex · gpt-6.1-sol · 2026-11-19 20:04 +02:00: match the Sonnet Earth grade.
+    hs = nt.nodes.new('ShaderNodeHueSaturation')
+    hs.inputs['Saturation'].default_value = 1.5
+    hs.inputs['Value'].default_value = 0.8
+    nt.links.new(tex.outputs['Color'], hs.inputs['Color'])
+    out = hs.outputs['Color']
     if color is not None:
         # Luminance of real hillshading modulates the fill, preserving its hue.
         gray = nt.nodes.new('ShaderNodeRGBToBW')
@@ -554,7 +560,9 @@ def earth_relief(name="earth_relief", image_path=None, color=None):
         nt.links.new(ramp.outputs[0], mix.inputs[2])
         out = mix.outputs[0]
     nt.links.new(out, b.inputs['Base Color'])
-    return m
+    nt.links.new(out, b.inputs['Emission Color'])
+    b.inputs['Emission Strength'].default_value = 0.06
+    return no_light(m)
 
 
 # ---------------------------------------------------------------- F5 map look (dark sea, strong relief, bright fills)
@@ -634,7 +642,7 @@ def _relief_shade(nt, uv, image_path, relief, radius=3.0):
     return c.outputs['Color'], lum, shade
 
 
-def map_land(name, color=None, image_path=None, relief=4.5, saturation=1.25, value=0.62, glow=0.2):
+def map_land(name, color=None, image_path=None, relief=4.5, saturation=1.5, value=0.8, glow=0.2):
     """Land top face for the flat map: the registered Natural Earth II raster graded to a restrained natural tone, with the real
     hillshading strengthened by a local-contrast filter (`relief`, 0 = raster as is). Needs geographic UVs (as earth_relief).
 
@@ -653,19 +661,21 @@ def map_land(name, color=None, image_path=None, relief=4.5, saturation=1.25, val
     hs.inputs['Saturation'].default_value = saturation
     hs.inputs['Value'].default_value = value
     nt.links.new(col, hs.inputs['Color'])
+    # codex · gpt-6.1-sol · 2026-11-19 20:17 +02:00: restore the runtime RGBA Mix API.
     natural = nt.nodes.new('ShaderNodeMix')
     natural.data_type = 'RGBA'
     natural.blend_type = 'MULTIPLY'
     natural.inputs['Factor'].default_value = 1.0
     nt.links.new(hs.outputs['Color'], natural.inputs['A'])
     nt.links.new(shade, natural.inputs['B'])
-    # fill: tint * (0.55 .. 1.1 by the raster's light) * relief shade
+    # Fill hue stays editable; a wider hillshade range keeps terrain under full fills.
+    # codex · gpt-6.1-sol · 2026-11-19 20:04 +02:00
     rgb = nt.nodes.new('ShaderNodeRGB')
     rgb.name = 'country_tint'
     rgb.outputs[0].default_value = (*(color or (1.0, 0.45, 0.05)), 1)
     lit = nt.nodes.new('ShaderNodeMapRange')
     lit.inputs['From Min'].default_value, lit.inputs['From Max'].default_value = 0.35, 0.95
-    lit.inputs['To Min'].default_value, lit.inputs['To Max'].default_value = 0.62, 1.05
+    lit.inputs['To Min'].default_value, lit.inputs['To Max'].default_value = 0.32, 1.05
     nt.links.new(lum, lit.inputs['Value'])
     k = _math(nt, 'MULTIPLY', lit.outputs['Result'], shade)
     fill = nt.nodes.new('ShaderNodeMix')
@@ -739,6 +749,7 @@ def map_sea(name, color=MAP_SEA, shelf=MAP_SHELF, image_path=None, geographic=Tr
     ramp.inputs['A'].default_value = (*color, 1)
     ramp.inputs['B'].default_value = (*shelf, 1)
     nt.links.new(t, ramp.inputs['Factor'])
+    nt.links.new(ramp.outputs['Result'], b.inputs['Base Color'])
     nt.links.new(ramp.outputs['Result'], b.inputs['Emission Color'])
     b.inputs['Emission Strength'].default_value = glow
     return no_light(m)
