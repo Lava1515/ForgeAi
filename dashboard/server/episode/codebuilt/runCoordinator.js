@@ -200,7 +200,7 @@ export function createCodebuiltRunCoordinator({
   const fail = (video, code, stage, diagnostics = null) => { video.status = 'failed'; video.error = { code, message: MESSAGES[code] || MESSAGES.internal, ...(stage ? { stage } : {}), ...((code === 'theme_all_rejected' || code === 'theme_provider_failed') && diagnostics ? { diagnostics } : {}) }; };
 
   /** Auto resolution for one video. Every field records who decided it (owner or auto) and why. */
-  async function resolveVideo(rec, index, previousTopics, onCallRecord) {
+  async function resolveVideo(rec, index, previousTopics, onCallRecord, nextTopic = false, canContinue = () => true) {
     const c = rec.request; // null = left on Auto
     const resolved = {};
     let channel = null;
@@ -244,13 +244,42 @@ export function createCodebuiltRunCoordinator({
       resolved.type = { source: 'auto', reason: out.resolved.contentMode?.reason ?? 'default', value: type };
     }
     if (type === 'teardown' && (rec.formats ?? []).includes('journey')) throw new RunError('bad_request');
-    let topic = c.topic;
+    let topic = nextTopic ? null : c.topic;
     let themePick = null;
     if (topic && !(rec.formats ?? []).includes('journey') && (type === 'teardown' || !channel?.profile?.formats?.includes('journey'))) resolved.topic = { source: 'owner' };
     else {
       const formats = cleanJobFormats([...(rec.formats ?? []), ...jobFormatsFor({ profile: channel?.profile, type })]);
       const picture = effectiveJobRoute(rec.route ?? 'classic', formats) !== 'classic';
-      themePick = await pickTopic({ ...(picture ? { picture: true } : {}), genre: c.genre ?? '', theme: c.theme ?? '', type, formats: rec.formats, inspiration: topic || inspiration, previousTopics, channelId: rec.channelId ?? undefined, onCallRecord });
+      // codex · gpt-6.1-sol · 2026-11-19 14:24 +02:00: use the existing ranked channel pool without repeating a tried topic.
+      const poolPick = () => {
+        const inputs = autoInputs(channel);
+        const textOf = (item) => typeof item === 'string' ? item : item?.topic || item?.theme || item?.name || item?.title || '';
+        const usable = (text) => typeof text === 'string' && text.trim().length <= TOPIC_MAX
+          && !/[\x00-\x1F\x7F]/.test(text) && isWhatIfTopic(text) === (type === 'whatif')
+          && !previousTopics.some((prior) => prior.toLowerCase() === text.trim().toLowerCase());
+        const out = resolveAuto({ body: { auto_choices: { theme: true } }, channel,
+          growth: { ...inputs.growth, ideas: (inputs.growth?.ideas ?? []).filter((item) => usable(textOf(item))) },
+          trends: { ...inputs.trends, themes: (inputs.trends?.themes ?? []).filter((item) => usable(item?.premise || textOf(item))) },
+        });
+        const value = out.body.generation_profile?.custom_theme_text;
+        return value ? { topic: value, ranked: 1, candidate_id: 'channel-pool' } : null;
+      };
+      themePick = nextTopic ? poolPick() : null;
+      for (let attempt = 0; !themePick && attempt < 2; attempt += 1) {
+        if (!canContinue()) throw new RunError('aborted');
+        try {
+          themePick = await pickTopic({ ...(picture ? { picture: true } : {}), genre: c.genre ?? '', theme: c.theme ?? '', type, formats: rec.formats, inspiration: topic || inspiration, previousTopics, channelId: rec.channelId ?? undefined, onCallRecord });
+          if (previousTopics.some((prior) => prior.toLowerCase() === themePick.topic?.trim().toLowerCase())) throw new AutoTopicError('theme_no_candidates');
+        } catch (error) {
+          themePick = null;
+          if (error?.code !== 'theme_no_candidates') throw error;
+          if (attempt === 1) {
+            if (!canContinue()) throw new RunError('aborted');
+            themePick = poolPick();
+            if (!themePick) throw error;
+          }
+        }
+      }
       topic = themePick.topic;
       resolved.topic = { source: 'auto', reason: `theme pick: rank 1 of ${themePick.ranked}`, value: topic };
     }
@@ -294,28 +323,29 @@ export function createCodebuiltRunCoordinator({
     try {
       rec.status = 'running'; persist(rec, ctl);
       const previousTopics = [];
-      for (let i = 0; i < rec.count; i += 1) {
-        if (inFlight.length >= 2) await inFlight.shift();
+      // codex · gpt-6.1-sol · 2026-11-19 14:24 +02:00: each requested video owns at most two topic jobs.
+      async function startVideo(i, topicAttempt = 0) {
         const video = rec.videos[i];
-        if (ctl.aborted) { stopRest(i); break; }
+        // codex · gpt-6.1-sol · 2026-11-19 14:38 +02:00: a retry may re-enter with this video still running.
+        if (ctl.aborted) { if (topicAttempt > 0) stopInFlight(video, video.step); stopRest(i); return null; }
         video.status = 'resolving'; video.step = 'resolving';
         // Nothing costly (no topic pick) starts unless the run's state can be written.
-        if (!persist(rec, ctl)) { stopInFlight(video, 'resolving'); stopRest(i + 1); break; }
+        if (!persist(rec, ctl)) { stopInFlight(video, 'resolving'); stopRest(i + 1); return null; }
         const calls = [];
         const onCallRecord = (r) => { const call = sanitizeRouterCall(r); if (call) calls.push(call); };
         let resolved;
-        try { resolved = await resolveVideo(rec, i, previousTopics, onCallRecord); } catch (error) {
+        try { resolved = await resolveVideo(rec, i, previousTopics, onCallRecord, topicAttempt > 0, () => !ctl.aborted && persist(rec, ctl)); } catch (error) {
           video.calls = calls;
           fail(video, error instanceof AutoTopicError || error instanceof RunError ? error.code : 'resolve_failed', 'theme', error instanceof AutoTopicError ? error.diagnostics : null);
           persist(rec, ctl);
-          if (ctl.aborted) { stopRest(i + 1); break; }
-          continue; // an individual failure never stops the run
+          if (ctl.aborted) { stopRest(i + 1); return null; }
+          return null; // an individual failure never stops the run
         }
         video.calls = calls;
         Object.assign(video, { route: rec.route ?? 'classic', ...(rec.formats ? {formats:rec.formats} : {}), topic: resolved.topic, duration: resolved.duration, voice: resolved.voice, type: resolved.type, resolved: resolved.resolved, theme_pick: resolved.themePick ? { candidate_id: resolved.themePick.candidate_id, total: resolved.themePick.total, ranked: resolved.themePick.ranked, rejected: resolved.themePick.rejected, history_used: resolved.themePick.history_used, history_available: resolved.themePick.history_available } : null });
         previousTopics.push(resolved.topic);
-        if (ctl.aborted) { stopInFlight(video, 'resolving'); stopRest(i + 1); persist(rec, ctl); break; }
-        if (!persist(rec, ctl)) { stopInFlight(video, 'resolving'); stopRest(i + 1); break; }
+        if (ctl.aborted) { stopInFlight(video, 'resolving'); stopRest(i + 1); persist(rec, ctl); return null; }
+        if (!persist(rec, ctl)) { stopInFlight(video, 'resolving'); stopRest(i + 1); return null; }
         let queued;
         try {
           queued = theStarter().start(
@@ -325,13 +355,19 @@ export function createCodebuiltRunCoordinator({
         } catch (error) {
           fail(video, typeof error?.code === 'string' && MESSAGES[error.code] ? error.code : 'start_failed', 'start');
           persist(rec, ctl);
-          if (ctl.aborted) { stopRest(i + 1); break; }
-          continue;
+          if (ctl.aborted) { stopRest(i + 1); return null; }
+          return null;
         }
         video.jobId = queued.id; video.status = 'running'; video.step = queued.step ?? 'queued'; ctl.jobs.add(queued.id); persist(rec, ctl);
-        inFlight.push((async () => {
+        const settled = (async () => {
           const job = await waitForJob(ctl, queued.id, video, rec);
           ctl.jobs.delete(queued.id);
+          // codex · gpt-6.1-sol · 2026-11-19 14:38 +02:00: only Auto topics advance; re-entry also handles an abort at handoff.
+          if (job?.status === 'failed' && job.error?.code === 'fact_check_blocked' && topicAttempt === 0 && !rec.request.topic && resolved.resolved.topic.source === 'auto') {
+            const retry = await startVideo(i, topicAttempt + 1);
+            if (retry) await retry.settled;
+            return;
+          }
           if (!job) fail(video, 'job_lost', video.step);
           else if (job.status === 'done' && !ctl.persistFailed) { video.status = 'done'; video.step = 'done'; video.draftId = job.draftId ?? null; video.error = null; if (job.length_check) video.length_check = job.length_check; }
           else if (ctl.persistFailed) { video.draftId = job.status === 'done' ? (job.draftId ?? null) : null; fail(video, 'persistence_failed', job.step ?? video.step); }
@@ -344,7 +380,13 @@ export function createCodebuiltRunCoordinator({
           ctl.aborted = true;
           fail(video, 'internal', video.step);
           persist(rec, ctl);
-        }));
+        });
+        return { settled };
+      }
+      for (let i = 0; i < rec.count; i += 1) {
+        if (inFlight.length >= 2) await inFlight.shift();
+        const started = await startVideo(i);
+        if (started) inFlight.push(started.settled);
         if (ctl.aborted) { stopRest(i + 1); break; }
       }
       await Promise.all(inFlight);

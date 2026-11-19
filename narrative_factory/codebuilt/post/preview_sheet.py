@@ -192,6 +192,13 @@ def make_sheets(frames_dir, out_dir, code, cols=COLS, cell=CELL, per_sheet=PER_S
                 track.draw(im, number / fps)
             im = im.resize((cw, ch), Image.LANCZOS)
             stats = frame_stats(im)
+            if overlay_spec is not None:
+                # codex · gpt-6.1-sol · 2026-11-19 14:31 +02:00: advisory for the author; no QA flag.
+                try:
+                    from narrative_factory.codebuilt.post.exposure import frame_exposure
+                    stats["exposure"] = frame_exposure(im)
+                except Exception:
+                    pass  # Measurement failure must not fail a preview.
             td = ImageDraw.Draw(im)
             td.rectangle([0, 0, 120, 26], fill=(0, 0, 0))
             td.text((6, 3), f"T{n}  f{number}", fill=(255, 235, 60), font=small)

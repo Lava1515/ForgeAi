@@ -539,7 +539,8 @@ Figure API (actual signatures): figures.make_person(c, i) -> rig dict with root,
 
 /** The contract of the authored route: the same kit plus the optional local asset library (assetCatalog.js). The classic route keeps KIT_CONTRACT, whose prompts are frozen by the O1 snapshot tests. */
 export const AUTHOR_KIT_CONTRACT = ASSET_CONTRACT_TEXT ? `${KIT_CONTRACT}
-${ASSET_CONTRACT_TEXT}` : KIT_CONTRACT;
+${ASSET_CONTRACT_TEXT}
+AUTHOR LIGHTING DEFAULT: Start every scene with real photographed sky or room light from library.hdri(scene, id), using an id listed above. Add lamps only to shape the subject. Avoid flat, evenly-lit lab lighting; check for washed-out surfaces and large black regions in each look round.` : KIT_CONTRACT;
 
 function buildPrompt({ topic, duration, script, brief, words, pack, shotStarts, nframes, choices, skillGuidance = '', direction = null }) {
   const wordLine = words.words.map((w) => `${w.w}@${w.s.toFixed(2)}-${w.e.toFixed(2)}`).join(' ');

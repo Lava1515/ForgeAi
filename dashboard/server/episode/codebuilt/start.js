@@ -28,6 +28,7 @@ import { channelJobFormats } from './autoTopic.js';
 import { askRole } from '../../routes/askRole.js';
 import { postFactory } from '../../routes/factoryClient.js';
 import { askClaude } from '../../routes/claudeCli.js';
+import { checkFinalExposure } from './exposureCheck.js';
 import { runAuthorFor, authorCaps } from './authorLoop.js';
 import { checkAuthorConfig } from './authorCall.js';
 import { runVisualBuildLoop } from './visualLoop.js';
@@ -712,6 +713,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       askAuthor: authorLoop.askAuthor,
       authorOptions: { ...authorLoop, workRoot: path.join(stage, 'author', 'calls') },
     } : {}) });
+    // codex · gpt-6.1-sol · 2026-11-19 14:24 +02:00: one fact repair per topic, including length rewrites.
+    let factRewriteUsed = false;
     let measuredPace = null;
     for (let lengthAttempt = 0; ; lengthAttempt += 1) {
     const fresh = lengthAttempt > 0; // the retry reuses nothing from a resume: its script and voice are the ones being replaced
@@ -770,10 +773,14 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
       let verdict = await checkOnce(scripted.script);
       checkAbort();
       // Owner, 2026-11-14: a script the check does not verify is written again once from the check's findings, and checked again. It still blocks after that.
-      if (verdict?.verified !== true && Array.isArray(verdict?.facts?.claims)) {
-        const corrections = verdict.facts.claims.filter((x) => x && (x.verdict === 'contradicted' || x.verdict === 'uncertain'))
+      if (verdict?.verified !== true && !factRewriteUsed) {
+        const facts = verdict?.facts;
+        const blocked = ['claims', 'false_claims', 'uncertain_claims'].flatMap((key) => Array.isArray(facts?.[key]) ? facts[key] : [])
+          .filter((x) => x && (x.verdict === 'contradicted' || x.verdict === 'uncertain'));
+        const corrections = blocked.filter((x, i) => blocked.findIndex((claim) => claim.text === x.text) === i)
           .map((x) => ({ text: x.text, problem: x.verdict, evidence: x.verdict === 'contradicted' ? x.sources?.[0]?.passage : undefined }));
         if (corrections.length) {
+          factRewriteUsed = true;
           step(rec, 'scripting');
           let again;
           try {
@@ -947,6 +954,8 @@ ${plan.directionMarkdown}` : scripted.brief, script: scripted.script, shots, sho
         if (error?.code === 'OVERLAY_LAYOUT_BLOCKED') throw layoutBlockedError(error);
         throw new StartError('build_failed', 502);
       }
+      // codex · gpt-6.1-sol · 2026-11-19 14:31 +02:00: final-sheet advice never gates a run.
+      if (rec.route === 'authored') rec.exposure_check = await checkFinalExposure({jobDir:path.join(jobsDir,rec.id),execFileFn:hostExecFile,signal});
       writeCalls(rec.id, allCalls, true);
       writeLoopReceipt(rec.id, loopReceipt);
       if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
