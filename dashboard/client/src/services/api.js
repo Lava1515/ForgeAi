@@ -358,6 +358,11 @@ export async function startCodebuiltRun(body) {
   return request('/api/codebuilt/runs', { method: 'POST', body: JSON.stringify(body) });
 }
 
+// Every run the server knows, newest first. The page uses it to find a run that is still going after a reload.
+export async function listCodebuiltRuns() {
+  return request('/api/codebuilt/runs');
+}
+
 export async function getCodebuiltRun(id) {
   return request('/api/codebuilt/runs/' + encodeURIComponent(id));
 }

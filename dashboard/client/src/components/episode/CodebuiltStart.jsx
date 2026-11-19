@@ -43,7 +43,16 @@ export const CODEBUILT_COUNTS = Object.freeze([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 export const CODEBUILT_TYPES = Object.freeze(['Auto', 'factual', 'whatif', 'history', 'teardown']);
 export const CODEBUILT_VOICES = Object.freeze(['Auto', 'aiden', 'dylan', 'eric', 'ono_anna', 'ryan', 'serena', 'sohee', 'uncle_fu', 'vivian']);
 export const RUN_ACTIVE_STATUSES = Object.freeze(['queued', 'running', 'aborting']);
+export const RECENT_JOB_ROWS = 5;
 export const isActiveRun = (run) => !!run && RUN_ACTIVE_STATUSES.includes(run.status);
+/**
+ * The run the page shows, from the server's list (newest first) and the run it showed before. A run that is still going always wins, whoever
+ * started it (this page before a reload, another tab, an agent); otherwise the run shown before is kept and refreshed, so its result stays readable.
+ */
+export function pickShownRun(runs, shown) {
+  const rows = Array.isArray(runs) ? runs : [];
+  return rows.find(isActiveRun) ?? (shown ? rows.find((row) => row.id === shown.id) ?? shown : null);
+}
 const TEXT_CHOICE = /^[\p{L}\p{N} ,.'&/+()-]{1,60}$/u;
 
 /** Body of POST /api/codebuilt/start. Throws on a bad topic or duration; the server checks both again. The author route is always used. */
@@ -203,6 +212,8 @@ export default function CodebuiltStart() {
   const [job, setJob] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [run, setRun] = useState(null);
+  const [checked, setChecked] = useState(false); // true after the first answer about running work: until then Start stays off
+  const [allJobs, setAllJobs] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef(null);
@@ -233,13 +244,16 @@ export default function CodebuiltStart() {
     return () => clearInterval(timer.current);
   }, [job?.id, job?.status]);
 
+  // The run list is polled all the time, not only for a run this page started: after a reload the page has no run of its own, and while a
+  // run picks its next topic no job is active, so without this the form looked free and the run was invisible (owner, 2026-11-19).
   useEffect(() => {
-    if (!isActiveRun(run)) return undefined;
-    const poll = setInterval(async () => {
-      try { setRun(await api.getCodebuiltRun(run.id)); } catch { /* keep the last status; the next poll retries */ }
-    }, 3000);
-    return () => clearInterval(poll);
-  }, [run?.id, run?.status]);
+    let alive = true;
+    const poll = async () => {
+      try { const result = await api.listCodebuiltRuns(); if (alive) { setRun((shown) => pickShownRun(result?.runs, shown)); setChecked(true); } } catch { /* keep the last status; the next poll retries */ }
+    };
+    void poll(); const id = setInterval(poll, 3000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   const start = async (e) => {
     if (e) e.preventDefault();
@@ -278,6 +292,8 @@ export default function CodebuiltStart() {
 
   const otherActive = jobs.some((row) => row.id !== job?.id && isActiveJob(row));
   const active = isActiveJob(job) || isActiveRun(run) || otherActive;
+  // The page listed every job ever made (50 rows, six screens on a phone). The newest few are shown; the rest open on request.
+  const shownJobs = allJobs ? jobs : jobs.slice(0, RECENT_JOB_ROWS);
   const several = count > 1;
   const problem = runFormProblem({ count, topic, type: blankOrAuto(type) ? undefined : type, channels, channelId, channelsLoaded, channelLoadError });
   // The video that is running now, whoever started it (this page, another tab, a batch): the newest active row of the job list.
@@ -290,7 +306,11 @@ export default function CodebuiltStart() {
     <>
     {running && <JobProgress job={running} onAbort={abortRow} fetchProgress={api.getCodebuiltJobProgress} />}
     <Panel title="Code-built video" className="space-y-4" data-codebuilt-start>
-      {running && <p className="text-xs text-amber-300" data-codebuilt-busy-note>One video is made at a time. The form unlocks when the running video finishes or is aborted.</p>}
+      {isActiveRun(run) && <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-ink-200 space-y-1" data-codebuilt-run-banner={run.id}>
+        <div className="font-semibold text-amber-300">{runLabel(run)}</div>
+        <div className="text-ink-400">The list of its videos is at the bottom of this panel.</div>
+      </div>}
+      {active && <p className="text-xs text-amber-300" data-codebuilt-busy-note>One video is made at a time. The form unlocks when {isActiveRun(run) ? 'the run finishes or is aborted' : 'the running video finishes or is aborted'}.</p>}
       <TypeChannelResearch disabled={active} duration={duration} onCreated={setRun} />
       <p className="text-xs text-ink-400">
         Builds the video with generated code in the isolated runner, then hands it to review as a draft. Press Start to begin; nothing runs until you do.
@@ -382,7 +402,7 @@ export default function CodebuiltStart() {
           </div>
         </details>
         <div className="flex items-center gap-3">
-          <Button type="submit" variant="primary" icon={Play} loading={busy} disabled={active || busy || !!problem} data-codebuilt-start-button>{several ? `Start ${count} code-built videos` : 'Start code-built video'}</Button>
+          <Button type="submit" variant="primary" icon={Play} loading={busy} disabled={!checked || active || busy || !!problem} data-codebuilt-start-button>{several ? `Start ${count} code-built videos` : 'Start code-built video'}</Button>
           {isActiveJob(job) && <Button type="button" variant="secondary" icon={Square} onClick={abort} data-codebuilt-abort>Abort</Button>}
           {isActiveRun(run) && <Button type="button" variant="secondary" icon={Square} onClick={abortRun} disabled={run.status === 'aborting'} data-codebuilt-abort-run>Abort run</Button>}
         </div>
@@ -391,15 +411,17 @@ export default function CodebuiltStart() {
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-job={job.id} data-codebuilt-status={job.status}>
           <div>{jobLabel(job)}</div>
           <JobDetailArtifacts job={job} />
-          {job.status === 'done' && job.draftId && <div>Draft: <code className="text-ink-200">{job.draftId}</code> (review it in Drafts)</div>}
+          {job.status === 'done' && job.draftId && <div>Draft: <code className="text-ink-200">{job.draftId}</code> (watch it in Library, Videos)</div>}
           {job.visual_check?.approved === false && <div className="text-amber-300">Visual check not approved: {(job.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</div>}
         </div>
       )}
-      {jobs.length > 0 && <div className="space-y-2" data-codebuilt-job-rows>{jobs.map((row) => <div key={row.id} className="rounded-lg border border-ink-800 p-3 text-xs text-ink-300" data-codebuilt-job={row.id} data-codebuilt-status={row.status}>
+      {jobs.length > 0 && <div className="space-y-2" data-codebuilt-job-rows>{shownJobs.map((row) => <div key={row.id} className="rounded-lg border border-ink-800 p-3 text-xs text-ink-300" data-codebuilt-job={row.id} data-codebuilt-status={row.status}>
         <div className="flex items-center justify-between gap-3"><span>{row.topic} · {jobLabel(row)}</span>{(row.status === 'failed' || row.status === 'aborted') && <Button type="button" size="sm" variant="secondary" disabled={!row.resumable || otherActive || busy} onClick={() => resume(row.id)} data-codebuilt-resume={row.id}>Resume</Button>}</div>
         {((row.status === 'failed' || row.status === 'aborted') || row.resumes?.length > 0) && <p className="mt-1 text-ink-400">Resumes from {row.resumeFrom || 'the first missing step'}{row.reuses?.length ? ` · reuses ${row.reuses.join(', ')}` : ''}{row.resumeBlockedReason ? ` · ${row.resumeBlockedReason}` : ''}</p>}
         {row.visual_check?.approved === false && <p className="mt-1 text-amber-300">Visual check not approved: {(row.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</p>}
-      </div>)}</div>}
+      </div>)}
+        {jobs.length > RECENT_JOB_ROWS && <Button type="button" size="sm" variant="ghost" onClick={() => setAllJobs((all) => !all)} data-codebuilt-job-rows-toggle>{allJobs ? `Show only the last ${RECENT_JOB_ROWS}` : `Show all ${jobs.length} videos`}</Button>}
+      </div>}
       {run && (
         <div className="text-xs text-ink-300 space-y-1" data-codebuilt-run={run.id} data-codebuilt-run-status={run.status}>
           <div className="text-ink-200">{runLabel(run)}</div>
@@ -409,7 +431,7 @@ export default function CodebuiltStart() {
               {v.jobId && <JobDetailArtifacts job={{ id: v.jobId, status: v.status, duration: v.resolved?.duration }} />}
             </li>))}
           </ul>
-          {!isActiveRun(run) && run.summary?.drafts > 0 && <div>Review the drafts in Drafts. Nothing is published automatically.</div>}
+          {!isActiveRun(run) && run.summary?.drafts > 0 && <div>Watch the finished videos in Library, Videos. Nothing is published automatically.</div>}
         </div>
       )}
     </Panel>

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Inbox, RefreshCw } from 'lucide-react';
 import * as api from '../services/api.js';
 import PublishYouTube from './PublishYouTube.jsx';
-import StillsReviewPanel from './StillsReviewPanel.jsx';
 import PageHeader from '../ui/PageHeader.jsx';
 import Button from '../ui/Button.jsx';
 import Badge from '../ui/Badge.jsx';
@@ -21,13 +20,13 @@ export default function Drafts() {
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [pending, setPending] = useState([]);
   const [removingId, setRemovingId] = useState('');
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.getYoutubeDrafts(), api.getPendingStillReviews()])
-      .then(([d, p]) => { setDrafts(Array.isArray(d) ? d : []); setPending(Array.isArray(p) ? p : []); setError(''); })
+    // The still review list of the old pipeline was loaded here too; its server route is gone, so the page showed "HTTP 404" and no drafts.
+    api.getYoutubeDrafts()
+      .then((d) => { setDrafts(Array.isArray(d) ? d : []); setError(''); })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   };
@@ -54,20 +53,8 @@ export default function Drafts() {
 
       {error && <Banner tone="error" onDismiss={() => setError('')}>{error}</Banner>}
 
-      {pending.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-sm font-semibold text-ink-100">Awaiting still review ({pending.length})</h2>
-          {pending.map((item) => (
-            <div key={item.id} className="space-y-2">
-              <p className="text-xs text-ink-400 font-mono">{item.title} · {item.approved}/{item.scenes} approved</p>
-              <StillsReviewPanel runId={item.id} onAnimated={load} />
-            </div>
-          ))}
-        </section>
-      )}
-
       {drafts.length === 0 ? (
-        !loading && !error && pending.length === 0 && <EmptyState icon={Inbox} title="No drafts">Nothing waiting. Videos land here when YouTube's upload limit is reached, or when you mark one for later in the Library.</EmptyState>
+        !loading && !error && <EmptyState icon={Inbox} title="No drafts">Nothing waiting. Videos land here when YouTube's upload limit is reached, or when you mark one for later in the Library.</EmptyState>
       ) : (
         <ul className="space-y-4">
           {drafts.map((item) => (

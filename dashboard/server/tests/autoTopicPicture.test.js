@@ -100,3 +100,19 @@ test('a failing planner call keeps its cause in the theme_provider_failed diagno
   const pick = createAutoTopicProvider({ history: () => ({ videos: [], available: false }), askRoleFn: async () => { throw Object.assign(new Error('usage limit\nreset at 22:17'), { code: 'usage_limit' }); } });
   await assert.rejects(() => pick({}), (e) => e.code === 'theme_provider_failed' && e.diagnostics?.cause === 'usage_limit: usage limit reset at 22:17');
 });
+
+test('an answer that is not valid JSON is asked for once more, other failures are not', async () => {
+  const candidate = { ...basic, title: basic.topic, subject: 'paper plane', stake: 'A fold changes how far it flies.', payoff: 'The room becomes a runway.', facts: [], shots: [], ...story, picture };
+  let calls = 0;
+  const pick = createAutoTopicProvider({ history: () => ({ videos: [], available: false }), askRoleFn: async () => { calls += 1; if (calls === 1) throw new SyntaxError("Expected ',' or '}' after property value in JSON at position 4749"); return { candidates: [candidate] }; } });
+  assert.equal((await pick({ picture: true })).premise.picture !== undefined, true);
+  assert.equal(calls, 2);
+  let bad = 0;
+  const never = createAutoTopicProvider({ history: () => ({ videos: [], available: false }), askRoleFn: async () => { bad += 1; throw new SyntaxError('still broken'); } });
+  await assert.rejects(() => never({}), (e) => e.code === 'theme_provider_failed' && /SyntaxError/.test(e.diagnostics?.cause));
+  assert.equal(bad, 2);
+  let limited = 0;
+  const limit = createAutoTopicProvider({ history: () => ({ videos: [], available: false }), askRoleFn: async () => { limited += 1; throw Object.assign(new Error('usage limit'), { code: 'usage_limit' }); } });
+  await assert.rejects(() => limit({}), (e) => e.code === 'theme_provider_failed');
+  assert.equal(limited, 1);
+});

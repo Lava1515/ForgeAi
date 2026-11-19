@@ -226,7 +226,13 @@ export function createAutoTopicProvider({ askRoleFn = productionTopicAsk, histor
     if (type !== 'teardown' && profile?.niche && !theme) theme = profile.niche;
     let answer;
     const formats = [...new Set([...jobFormatsFor({ profile, type }), ...(Array.isArray(requestedFormats) ? requestedFormats.filter((item) => typeof item === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(item)) : [])])].slice(0, 4);
-    try { answer = await askRoleFn('planner', promptFor({ genre, theme, type, inspiration, previousTopics, profile, formats, picture }), { onCallRecord }); } catch (err) { throw new AutoTopicError('theme_provider_failed', { cause: String(err?.code ?? err?.name ?? 'Error') + ': ' + String(err?.message ?? err).replace(/[A-Za-z]:[\\/][^ ]*/g, '<path>').replace(/(?:\/home|\/Users)\/[^ ]*/g, '<path>').replace(/[A-Za-z0-9_-]{32,}/g, '<redacted>').replace(/\s+/g, ' ').slice(0, 300) }); }
+    // An answer that is not valid JSON is asked for once more (2026-11-19: one comma missing in the answer cost video 2 of an owner batch).
+    // Any other failure (usage limit, no CLI) is not retried: asking again would not help.
+    const askPlanner = async () => {
+      const prompt = promptFor({ genre, theme, type, inspiration, previousTopics, profile, formats, picture });
+      try { return await askRoleFn('planner', prompt, { onCallRecord }); } catch (err) { if (err?.name !== 'SyntaxError') throw err; return askRoleFn('planner', prompt, { onCallRecord }); }
+    };
+    try { answer = await askPlanner(); } catch (err) { throw new AutoTopicError('theme_provider_failed', { cause: String(err?.code ?? err?.name ?? 'Error') + ': ' + String(err?.message ?? err).replace(/[A-Za-z]:[\\/][^ ]*/g, '<path>').replace(/(?:\/home|\/Users)\/[^ ]*/g, '<path>').replace(/[A-Za-z0-9_-]{32,}/g, '<redacted>').replace(/\s+/g, ' ').slice(0, 300) }); }
     const rejected = [];
     const candidates = sanitizeCandidates(answer, { type, profile, formats, picture, rejected });
     // Persist before throwing or retrying: there may never be a production job for this answer.

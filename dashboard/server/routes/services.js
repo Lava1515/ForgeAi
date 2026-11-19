@@ -1,4 +1,4 @@
-import { getFactoryUrl } from './factoryClient.js';
+import { getFactoryUrl, getWorkerAuthHeaders } from './factoryClient.js';
 import { readLocalState, isHttpUrl } from './control.js';
 import { auditDenied } from '../middleware/auth.js';
 
@@ -40,7 +40,8 @@ async function fetchStatus(baseUrl) {
 export async function getServiceStatusHandler(req, res) {
   const url = getFactoryUrl();
   try {
-    const r = await fetch(`${url}/status`, { signal: AbortSignal.timeout(3000) });
+    // The factory asks for its token (TTS_TOKEN). Without the header it answered 401 and the sidebar said "Offline" while it was up.
+    const r = await fetch(`${url}/status`, { signal: AbortSignal.timeout(3000), headers: getWorkerAuthHeaders(url) });
     if (r.ok) {
       const data = await r.json();
       if (!res.headersSent) {
@@ -48,6 +49,8 @@ export async function getServiceStatusHandler(req, res) {
       }
       return;
     }
+    // It answered, so it is up; this dashboard just has no token for the details.
+    if ((r.status === 401 || r.status === 403) && !res.headersSent) return res.json({ ok: true, online: true, url, status: 'online', locked: true });
   } catch {
     // offline
   }
