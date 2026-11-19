@@ -43,7 +43,7 @@ export function authorCaps(input={}) {
  }catch{throw authorError('author_caps_unmeasured');}
 }
 // codex · gpt-6.1-sol · 2026-11-17 23:21 +02:00: bind accepted evidence to current narration, words and direction inputs.
-const authorIdentity=input=>hash(JSON.stringify({script:input.script,words:input.wordsPath?hash(readBytes(input.wordsPath)):null,brief:input.brief,writePrompt:input.writePrompt,shots:input.shots,shotStarts:input.shotStarts,nframes:input.nframes}));
+const authorIdentity=input=>hash(JSON.stringify({script:input.script,words:input.wordsPath?hash(readBytes(input.wordsPath)):null,brief:input.brief,writePrompt:input.writePrompt,shots:input.shots,shotStarts:input.shotStarts,nframes:input.nframes,...(input.finalExposureReturn?{finalExposureReturn:true}:{})}));
 function pairCheck(code,spec,input) {
  const pair=overlayPair(code,spec,{videoSeconds:input.nframes/30});
  const reasons=input.validate(code,pair.spec); if(reasons.length) throw Error(reasons.join('; ')); return pair;
@@ -102,20 +102,23 @@ export async function runAuthorLoop(input,deps={}) {
  const attempt=Math.max(attempts.length?Math.max(...attempts)+1:0,input.previewAttempt??0),stage=path.join(root,`a${attempt}`);fs.mkdirSync(stage);
  // codex · gpt-6.1-sol · 2026-11-19 15:11 +02:00: same host gates and caps; only the author transport and edit protocol change.
  const session=input.sessionEnabled===true?createAuthorSession({stageDir:input.stageDir,attemptDir:stage}):null;
- const now=deps.now??Date.now,started=now(),argvSha256=hash(JSON.stringify(session?sessionArgv(model,session.id,true):authorArgv(model))),calls=[],history=[];
- let spent=0,contextPeak=0,outputTotal=0,repairs=0,round=0,previews=0,code='',spec=null,feedback='',editRefusals=0,resynced=false;
+ // codex | gpt-6.1-sol | 2026-11-19 19:33 +02:00: the final repair shares the first attempt's caps and clock.
+ const priorState=input.finalExposureReturn===true?read(path.join(root,'session.json')):null,prior=priorState?.counters;
+ const now=deps.now??Date.now,started=priorState?.startedAt??now()-(prior?.minutes??0)*60000,argvSha256=hash(JSON.stringify(session?sessionArgv(model,session.id,true):authorArgv(model))),calls=[],history=[];
+ let spent=prior?.billableTotal??0,contextPeak=prior?.contextPeak??0,outputTotal=prior?.outputTotal??0,repairs=0,round=0,previews=0,code='',spec=null,feedback='',editRefusals=0,resynced=false;
  const journal=entry=>{const file=path.join(stage,'journal.jsonl');if(fs.existsSync(file))regular(file);fs.appendFileSync(file,JSON.stringify(entry)+'\n');};
- const state=status=>{const value={version:1,jobId:input.jobId,model,cliVersion:input.probe?.cliVersion??null,argvSha256,switch:{env:true,job:'authored'},caps:measured.caps,counters:{calls:calls.length,rounds:previews,minutes:(now()-started)/60000,billableTotal:spent,contextPeak,outputTotal},attempt,status};json(path.join(stage,'session.json'),value);json(path.join(root,'session.json'),value);};
+ const state=status=>{const value={version:1,jobId:input.jobId,model,startedAt:started,cliVersion:input.probe?.cliVersion??null,argvSha256,switch:{env:true,job:'authored'},caps:measured.caps,counters:{calls:(prior?.calls??0)+calls.length,rounds:previews,minutes:(now()-started)/60000,billableTotal:spent,contextPeak,outputTotal},attempt,status};json(path.join(stage,'session.json'),value);json(path.join(root,'session.json'),value);};
  const guard=()=>{if(input.signal?.aborted)throw authorError('aborted');if(now()-started>3600000)throw authorError('author_time');if(spent>measured.caps.billableTotal)throw authorError('author_tokens');if(contextPeak>measured.caps.contextPeak)throw authorError('author_context_full');};
  const timed=async(kind,fn)=>{guard();const t=now();try{return await fn();}finally{journal({kind,round,wallS:(now()-t)/1000});}};
  const ask=async(prompt,images,kind,dir)=>{
-  guard(); if(calls.length>=12)throw authorError('author_calls');if(prompt.length>200000 || images.length>4)throw authorError('author_context_full');
+  guard(); if((prior?.calls??0)+calls.length>=12)throw authorError('author_calls');if(prompt.length>200000 || images.length>4)throw authorError('author_context_full');
   const reserve=normalizeAuthorUsage(null,{promptChars:prompt.length,images:images.length,...measured.reserves}).reserve;
   if(spent+reserve>measured.caps.billableTotal)throw authorError('author_tokens');
   const n=calls.length,t=now();write(path.join(dir,`prompt-${n}.txt`),prompt);
   let answer;
   const expectedArgv=session?sessionArgv(model,session.id,session.started):authorArgv(model);
-  try {answer=await deps.askAuthor(prompt,images,{model,...(session?{session,maxBillableTokens:measured.caps.billableTotal-spent,maxContextTokens:measured.caps.contextPeak}:{}),signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?1200000:600000,3600000-(now()-started)))});}
+  // F8: Opus a0 write mwncecq0-53c79e timed out at 1200.190s; 30 minutes leaves room under the same one-hour guard.
+  try {answer=await deps.askAuthor(prompt,images,{model,...(session?{session,maxBillableTokens:measured.caps.billableTotal-spent,maxContextTokens:measured.caps.contextPeak}:{}),signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?(model==='opus'?1800000:1200000):600000,3600000-(now()-started)))});}
   catch(error){const usage=normalizeAuthorUsage(null,{promptChars:prompt.length,images:images.length,...measured.reserves});const entry={n,round,kind,status:'error',usage,reserve,spentBefore:spent,wallS:(now()-t)/1000};calls.push(entry);spent+=usage.billable;contextPeak=Math.max(contextPeak,usage.context);journal(entry);state('failed');deps.onCall?.(entry);throw error;}
   write(path.join(dir,`reply-${n}.txt`),answer.text);
   const usage=normalizeAuthorUsage(answer.rawUsage??answer.usage,{promptChars:prompt.length,images:images.length,...measured.reserves});
@@ -132,7 +135,7 @@ export async function runAuthorLoop(input,deps={}) {
  try {
   if(input.probe?.passed!==true)throw authorError('author_transport_unavailable');
   const writeDir=path.join(stage,'write');fs.mkdirSync(writeDir);
-  while(!code){const prompt=session?(session.started?`Repair the scene/overlay files and preview request: ${feedback}`:`${input.writePrompt}\n${SESSION_HEADER}`):`${AUTHOR_HEADER}\n${input.writePrompt}\n${feedback}`;
+  while(!code){const prompt=session?(session.started?`Repair the scene/overlay files and preview request: ${feedback}`:`${input.writePrompt}\n${input.repairPrompt??''}\n${SESSION_HEADER}`):`${AUTHOR_HEADER}\n${input.writePrompt}\n${input.repairPrompt??''}\n${feedback}`;
    const text=await ask(prompt,[],'write',writeDir);try{const pair=session?readSessionPair(session):writePair(text,input.nframes/30);pairCheck(pair.buildScript,pair.overlaySpec,input);code=pair.buildScript;spec=pair.overlaySpec;feedback='';}catch(error){refused(error);}}
   const shots=input.shots.map((s,i)=>({...s,id:`shot-${i}`}));
   for(round=0;round<5;round++){
@@ -245,7 +248,11 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
   if(!why.length){const bad=pl.pythonQaStructureCheck(code,{expect:{shotStarts,nframes}});if(Array.isArray(bad))why.push(...bad);}
   return why;
  };
- const input={exposureFindings:rec.exposure_check?.findings??[],jobId:rec.id,model,stageDir:stage,capsFile:injected.capsFile,measurementMode,caps:injected.caps,previewAttempt:rec.resumes?.length??0,signal,probe,nframes,shotStarts,shots:plan.lookShots,brief:scripted.brief+'\n'+plan.directionMarkdown,script:scripted.script,kitContract:pl.AUTHOR_KIT_CONTRACT??pl.KIT_CONTRACT,wordsPath:voice.wordsPath,renderBudget:pathPack.rules.routes.overlay.render.RENDER_BUDGET_S_PER_FRAME,validate,writePrompt:pl.authorBuildPrompt({topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,words,pathPack,formats:rec.formats,choices:rec.choices,direction,shotStarts,nframes})};
+ const input={finalExposureReturn:rec.exposure_return===true,exposureFindings:rec.exposure_check?.findings??[],jobId:rec.id,model,stageDir:stage,capsFile:injected.capsFile,measurementMode,caps:injected.caps,previewAttempt:rec.resumes?.length??0,signal,probe,nframes,shotStarts,shots:plan.lookShots,brief:scripted.brief+'\n'+plan.directionMarkdown,script:scripted.script,kitContract:pl.AUTHOR_KIT_CONTRACT??pl.KIT_CONTRACT,wordsPath:voice.wordsPath,renderBudget:pathPack.rules.routes.overlay.render.RENDER_BUDGET_S_PER_FRAME,validate,writePrompt:pl.authorBuildPrompt({topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,words,pathPack,formats:rec.formats,choices:rec.choices,direction,shotStarts,nframes})};
+ if(input.finalExposureReturn){
+  const previousCode=readBytes(path.join(stage,'author','accepted.build.py'),'utf8'),previousOverlay=read(path.join(stage,'author','accepted.overlay.json')).spec;
+  input.repairPrompt=`\nFINAL EXPOSURE REPAIR (the only return for this video): rebuild the accepted scene to fix these final-sheet findings, then request a preview. Keep narration and direction unchanged.\n${input.exposureFindings.join('\n')}\nACCEPTED SCENE:\n${previousCode}\nACCEPTED OVERLAY:\n${JSON.stringify(previousOverlay)}`;
+ }
  input.sessionEnabled=process.env.FORGEAI_AUTHOR_SESSION==='1';
  try {const receipt=read(path.join(stage,'author','receipt.json')),code=readBytes(path.join(stage,'author','accepted.build.py'),'utf8'),pair=read(path.join(stage,'author','accepted.overlay.json'));verifyAuthorReceipt({accepted:true,buildScript:code,overlaySpec:pair.spec,sha256:hash(code),receipt},input);probe={passed:true};}catch{}
  if(!probe)probe=injected.probe ? await injected.probe({rec,stage,signal,model}) : await probeAuthorSupport({model,stageDir:path.join(stage,'author'),nonce:cryptoNonce(),makeCanary:sheetMaker.makeCanary,askFn:ask,signal});

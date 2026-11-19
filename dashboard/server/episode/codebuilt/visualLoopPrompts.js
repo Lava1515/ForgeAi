@@ -183,6 +183,8 @@ export function buildLookPrompt({
   const flagged = sheets.flatMap((sheet) => sheet.tiles.filter((t) => t.flag).map((t) => `T${t.n} (frame ${t.frame}) is ${t.flag === 'flat' ? 'ONE FLAT COLOUR (the camera is inside or against a surface, or nothing is lit)' : t.flag === 'dark' ? 'almost black' : t.flag === 'plain' ? 'nearly one colour: look closely, and if the frame is mostly one flat surface (a wall, floor, dome or plate filling it) that is a P0' : 'blown out (a quarter or more of it is pure white)'}`));
   if (flagged.length) parts.push(`MEASURED FROM THE PIXELS (facts, not opinions; a flat tile can never pass):\n${flagged.join('\n')}`);
   if (hasSheets) parts.push(...kitPromptSections(kit, sheets));
+  // codex | gpt-6.1-sol | 2026-11-19 19:33 +02:00: F9 uses the existing framing signal.
+  if (hasSheets) parts.push('Opening check (frame 0 / first preview tile): the whole subject must be inside the frame and readable at phone size. Use its measured framing when available; report a cropped or unreadable opening as a P1 finding with the tile number and a concrete fix.');
   if (layoutFindings.length) {
     // preview_sheet.py writes frame -1 for findings that belong to no single frame (label_hidden): print no frame for them, never "frame -1".
     const clean = layoutFindings.slice(0, 120).map((f) => `${Number.isInteger(f.frame) && f.frame >= 0 ? `frame ${f.frame}` : 'no single frame'}: ${String(f.code ?? 'layout issue').slice(0, 50)}${Array.isArray(f.elements) && f.elements.length ? ` (${f.elements.slice(0, 8).join(', ')})` : ''}`);
