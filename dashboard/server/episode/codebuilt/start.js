@@ -293,7 +293,7 @@ export function createCodebuiltStarter({
     const reused = [];
     if (scriptOk) reused.push('script');
     if (voiceOk) reused.push('voice');
-    const postOnly = postOnlyArtifacts(id, rec, stage, scriptOk && voiceOk, words ? frameCountFor(words) : 0);
+    const postOnly = postOnlyArtifacts(rec.exposure_return?`${id}-expose`:id, rec, stage, scriptOk && voiceOk, words ? frameCountFor(words) : 0);
     if (postOnly?.ok) reused.push('frames');
     const resumeFrom = postOnly?.ok ? (postOnly.completed ? 'drafting' : 'post') : !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : 'planning';
     let scriptMeta = {}; try { scriptMeta = JSON.parse(readSafe(path.join(stage, 'script-meta.json')) || '{}'); } catch {}
@@ -495,7 +495,7 @@ export function createCodebuiltStarter({
     // 1a. Fix 2: a job that ended on overlay_layout_blocked finishes from the post step with a corrected overlay and its kept frames.
     // No script, voice, planner, look or render step runs; the runner re-checks the frames and every input before it posts.
     if (resume?.postOnlyRun) {
-      const post = resume.postOnly;
+      const post = resume.postOnly, finalJobId=rec.exposure_return?`${rec.id}-expose`:rec.id;
       step(rec, 'building');
       const correctedPair = overlayPair(post.buildScript, resume.postOnlyRun.overlaySpec, { videoSeconds: post.nframes / 30 });
       const correctionDir = path.dirname(postResumeFile(stage));
@@ -509,7 +509,7 @@ export function createCodebuiltStarter({
       };
       try {
         if (typeof runtime.runner.runPostOnly !== 'function') throw new StartError('runner_unavailable', 501);
-        await runtime.runner.runPostOnly({ jobId: rec.id, buildScript: post.buildScript, overlaySpec: resume.postOnlyRun.overlaySpec, signal, completed: post.completed === true });
+        await runtime.runner.runPostOnly({ jobId: finalJobId, buildScript: post.buildScript, overlaySpec: resume.postOnlyRun.overlaySpec, signal, completed: post.completed === true });
         // Persist the pair even if cancellation arrived just after the runner committed; later recovery only drafts.
         saveCorrected();
       } catch (error) {
@@ -523,8 +523,9 @@ export function createCodebuiltStarter({
       checkAbort();
       saveCorrected();
       writeCalls(rec.id, allCalls, true);
-      writeLoopReceipt(rec.id, post.receipt);
-      if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
+      if(finalJobId!==rec.id)writeCalls(finalJobId,allCalls,true);
+      writeLoopReceipt(finalJobId, post.receipt);
+      if (rec.premise) writeHostJobReceipt(jobsDir, finalJobId, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
       rec.post_correction = { at: clock(), refused_overlay_sha256: post.originalOverlaySha256 ?? null, corrected_overlay_sha256: overlayBytesSha(correctedPair.spec), blocking_refused: post.blocking.length, rendered_again: false };
       await draftStage(resume.scripted, rec.factCheck ? restoreFactCheck(stage) : null);
       return;
@@ -697,6 +698,9 @@ export function createCodebuiltStarter({
     break;
     }
     const pathPack = scripted.pathPack;
+    // codex | gpt-6.1-sol | 2026-11-19 19:33 +02:00: persist one final-exposure return before another author attempt.
+    for (;;) {
+    const finalJobId=rec.exposure_return?`${rec.id}-expose`:rec.id;
     let plan;
     {
       step(rec,'planning');
@@ -731,7 +735,7 @@ export function createCodebuiltStarter({
       step(rec, 'building');
       try {
         await runtime.runner.run({
-          route: checkJobRoute(rec.route), jobId: rec.id, kind: 'generated-code', timeoutMs: TIMEOUT_MS[rec.duration] ?? 60 * 60 * 1000, signal,
+          route: checkJobRoute(rec.route), jobId: finalJobId, kind: 'generated-code', timeoutMs: TIMEOUT_MS[rec.duration] ?? 60 * 60 * 1000, signal,
           script: scripted.script, voWav: voice.voPath, words: voice.wordsPath, pathPack, brief: scripted.brief, buildScript, ...(plan.overlaySpec ? {overlaySpec: plan.overlaySpec} : {}),
         });
       } catch (error) {
@@ -741,14 +745,20 @@ export function createCodebuiltStarter({
         if (error?.code === 'OVERLAY_LAYOUT_BLOCKED') throw layoutBlockedError(error);
         throw new StartError('build_failed', 502);
       }
-      // codex · gpt-6.1-sol · 2026-11-19 14:31 +02:00: final-sheet advice never gates a run.
-      rec.exposure_check = await checkFinalExposure({jobDir:path.join(jobsDir,rec.id),execFileFn:hostExecFile,signal});
+      // F6 uses the existing black_region result; the repair has its own fenced job folder.
+      rec.exposure_check = await (authorLoop.checkFinalExposure??checkFinalExposure)({jobDir:path.join(jobsDir,finalJobId),execFileFn:hostExecFile,signal});
       writeCalls(rec.id, allCalls, true);
-      writeLoopReceipt(rec.id, loopReceipt);
-      if (rec.premise) writeHostJobReceipt(jobsDir, rec.id, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
+      if(finalJobId!==rec.id)writeCalls(finalJobId,allCalls,true);
+      writeLoopReceipt(finalJobId, loopReceipt);
+      if (rec.premise) writeHostJobReceipt(jobsDir, finalJobId, 'premise.json', `${JSON.stringify(rec.premise, null, 2)}\n`);
       checkAbort();
     });
 
+    if (!rec.exposure_return && rec.exposure_check?.tiles?.some(tile=>tile.issues?.includes('black_region'))) {
+      rec.exposure_return=true;save(rec);continue;
+    }
+    break;
+    }
     await draftStage(scripted, verifiedFactCheck);
 
     // 6. Titles and tags are the only model-authored draft metadata. Failures retain the topic fallback. (A function so a post-only resume
@@ -764,8 +774,9 @@ export function createCodebuiltStarter({
     const title = validateTitle(metadata) ? metadata.title : undefined;
     const tags = validateTags(metadata) ? metadata.tags : undefined;
     try {
-      const out = toDraft({ videoType: rec.contentMode, jobId: rec.id, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}), requestedDuration: rec.duration, ...(verifiedFactCheck ? { factCheck: verifiedFactCheck } : {}) });
-      rec.draftId = out?.id ?? out?.draftId ?? draftIdForJob(rec.id);
+      const draftJobId=rec.exposure_return?`${rec.id}-expose`:rec.id;
+      const out = toDraft({ videoType: rec.contentMode, jobId: draftJobId, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}), requestedDuration: rec.duration, ...(verifiedFactCheck ? { factCheck: verifiedFactCheck } : {}) });
+      rec.draftId = out?.id ?? out?.draftId ?? draftIdForJob(draftJobId);
       // KAN-933: requested versus actual seconds. The probed video length (draft metadata) wins over the voice estimate; a miss is recorded, never patched by stretching audio.
       const probed = out?.metadata?.social?.duration_seconds;
       const check = lengthCheck(rec.duration, Number.isFinite(probed) && probed > 0 ? probed : null);
