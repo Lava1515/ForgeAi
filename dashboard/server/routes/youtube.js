@@ -7,6 +7,7 @@ import { sendGeneric5xx } from './redact.js';
 import { getAllChannels, getActiveChannel, getChannelToken, saveChannelToken, getChannelById, safeChildDir } from './channelsManager.js';
 import { readCostSummary } from '../perf/creationCost.js';
 import { autoReleaseTick, readReleaseLog } from './autoRelease.js';
+import { syncUploaderResults } from './uploader.js';
 
 // YouTube publishing: one-time OAuth sign-in (uploads need the channel owner's consent; API keys can't upload),
 // then resumable uploads of finished video drafts.
@@ -380,6 +381,8 @@ async function reconcileNative(drafts, accessTokenFor) {
 }
 
 export async function releaseDue(now = Date.now()) {
+  // The separate uploader's answers (uploader/): read from its results folder, nothing is uploaded here.
+  try { syncUploaderResults(); } catch (err) { console.error('uploader results:', err.message); }
   const natives = dueNative(allDrafts(), now);
   if (natives.length) {
     const cache = new Map();
