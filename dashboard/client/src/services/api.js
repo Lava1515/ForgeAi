@@ -192,6 +192,15 @@ export async function cancelYoutubeSchedule(draftId) {
   return request(`/api/youtube/schedule/${encodeURIComponent(draftId)}/cancel`, { method: 'POST' });
 }
 
+// The separate uploader (uploader/): hand a finished draft over; it publishes at the channel's slot times.
+export async function sendToUploader(draftId, { title, tags }) {
+  return request(`/api/uploader/send/${encodeURIComponent(draftId)}`, { method: 'POST', body: JSON.stringify({ title, tags }) });
+}
+
+export async function getUploaderStatus(draftId) {
+  return request(`/api/uploader/status/${encodeURIComponent(draftId)}`);
+}
+
 export async function getYoutubeDrafts() {
   return request('/api/youtube/drafts');
 }

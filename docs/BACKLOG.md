@@ -2,6 +2,14 @@
 
 ## Found, not built
 
+### Uploader (owner 2026-11-20 16:00) · branch t3/uploader · claude-pro · claude-fable-5-2
+
+Decision: `ForgeBrain/decisions/2026-11-20-owner-separate-uploader-on-vm.md`. Plan: `docs/plans/2026-11-20-uploader-service-plan.md`.
+
+- `uploader/`: separate server and page, hand-over through a folder (`UPLOADER_SHARE`), slots and daily limit per channel, own YouTube sign-ins. Replaces P2 (auto release in the dashboard), which stays off; removing P2 is a later lane.
+- Dashboard: "Send to uploader" in the Publish box (`routes/uploader.js`), results read back in the schedule loop. Manifest category is Education (27); the direct Publish button still sends 24.
+- Not proved by a real upload yet. Owner steps before the first one: add the redirect address in Google Cloud, create the channels, connect them on the uploader page.
+
 ### Owner fixes 2026-11-20 13:04 · MERGED 1b77359 · claude-pro · claude-fable-5-2 (review codex · gpt-6.1-sol)
 
 Decision: `ForgeBrain/decisions/2026-11-20-owner-answers-1304.md`. None proved by a real video run yet.

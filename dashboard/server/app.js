@@ -27,6 +27,7 @@ import {
 } from './routes/growthRoutes.js';
 import { getServiceStatusHandler, testServiceUrlHandler } from './routes/services.js';
 import * as youtubeRoutes from './routes/youtube.js';
+import { uploaderSendHandler, uploaderStatusHandler } from './routes/uploader.js';
 import { getVoicesHandler, getSingleVoiceHandler, getVoiceSampleHandler } from './routes/voices.js';
 import {
   getChannelsHandler,
@@ -239,6 +240,9 @@ export function createApp() {
   app.post('/api/youtube/schedule/:draftId/cancel', youtubeCancelScheduleHandler);
   app.get('/api/youtube/drafts', youtubeDraftsHandler);
   app.get('/api/youtube/release-log', releaseLogHandler);
+  // Hand-over to the separate uploader (uploader/): only the owner's Send button calls the first one.
+  app.post('/api/uploader/send/:draftId', uploaderSendHandler);
+  app.get('/api/uploader/status/:draftId', uploaderStatusHandler);
 
   // Growth: per-channel report, strategy and topic ideas
   app.get('/api/growth/report', getGrowthReportHandler);

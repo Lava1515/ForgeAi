@@ -1,0 +1,11 @@
+{
+  "name": "forgeai-uploader",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Takes finished ForgeAi videos from a hand-over folder and publishes them to YouTube at each channel's slot times.",
+  "scripts": {
+    "start": "node --env-file-if-exists=../.env server/index.js",
+    "test": "node --test tests/*.test.js"
+  }
+}

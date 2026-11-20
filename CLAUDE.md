@@ -30,8 +30,9 @@ not marked blocked can be taken by the fleet.
 3. **Tests** only for real damage (the job fence, music level, video length) and for bugs that actually happened.
 4. **No paid API keys.** AI calls go through the Claude and agy command-line tools.
 5. A job may write only inside its own folder under `output/agent-jobs`.
-6. **Publishing.** An agent never uploads or publishes a video itself. A video goes out only through the
-   dashboard's Publish button (the owner presses it) or through auto release. Auto release is built in this repo
-   and stays OFF per channel until the owner switches it on for that channel; an agent never switches it on.
+6. **Publishing (owner, 2026-11-20).** A video goes out only through the uploader (`uploader/`, a separate small
+   server; the owner presses "Send to uploader" on a draft). An agent never sends a video to it, never uploads and
+   never changes its slots, limits or pause. Until the uploader is proven, the dashboard's Publish button stays for
+   the owner. Auto release inside the dashboard stays OFF and is not switched on by anyone; the uploader replaces it.
 7. The dashboard is local only: there is no admin token and no review step before publishing (owner, 2026-11-14).
    Do not add either back.

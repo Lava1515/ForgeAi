@@ -171,3 +171,7 @@ output/*
 
 # CC0 asset library (fetched and built on the host by tools/asset_library*.py; never committed)
 blender_worker/codebuilt/assets/
+
+# Uploader (uploader/): its state holds YouTube sign-ins; the hand-over folder holds videos
+data/uploader/
+output/uploader-share/

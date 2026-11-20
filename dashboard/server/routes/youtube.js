@@ -7,6 +7,7 @@ import { sendGeneric5xx } from './redact.js';
 import { getAllChannels, getActiveChannel, getChannelToken, saveChannelToken, getChannelById, safeChildDir } from './channelsManager.js';
 import { readCostSummary } from '../perf/creationCost.js';
 import { autoReleaseTick, readReleaseLog } from './autoRelease.js';
+import { syncUploaderResults } from './uploader.js';
 
 // YouTube publishing: one-time OAuth sign-in (uploads need the channel owner's consent; API keys can't upload),
 // then resumable uploads of finished video drafts.
@@ -22,7 +23,7 @@ const MAX_SCHEDULE_DAYS = 60;
 export const PRIVACY = ['private', 'unlisted', 'public'];
 
 const pendingStates = new Map(); // OAuth CSRF guard: state -> channelId
-const publishing = new Set(); // drafts mid-upload, so a double click can't upload twice
+export const publishing = new Set(); // drafts mid-upload or mid-send (routes/uploader.js shares it), so one video never leaves twice
 
 const clientId = () => process.env.YOUTUBE_CLIENT_ID;
 const clientSecret = () => process.env.YOUTUBE_CLIENT_SECRET;
@@ -302,6 +303,8 @@ export async function youtubePublishHandler(req, res) {
   if (!meta) return res.status(404).json({ error: `Draft "${draftId}" not found` });
   if (!meta.video_file) return res.status(400).json({ error: 'This draft has no video to publish.' });
   if (meta.youtube?.video_id && req.body?.force !== true) return res.status(409).json({ error: 'Already published to YouTube. Set force to true to upload this draft again.', youtube: meta.youtube });
+  // A draft handed to the separate uploader goes out there, not here too.
+  if (meta.uploader && !['refused', 'removed'].includes(meta.uploader.state)) return res.status(409).json({ error: 'This video was sent to the uploader. Remove it on the uploader page before publishing it from here.' });
   // The same fallback chain buildSnippet uses; an empty typed title falls back to the draft's own.
   const requestedTitle = (typeof req.body?.title === 'string' && clean(req.body.title)) || meta.listing_copy?.title || meta.product?.title || meta.social?.caption;
   const titleError = uploadTitleError(requestedTitle, draftId);
@@ -380,6 +383,8 @@ async function reconcileNative(drafts, accessTokenFor) {
 }
 
 export async function releaseDue(now = Date.now()) {
+  // The separate uploader's answers (uploader/): read from its results folder, nothing is uploaded here.
+  try { syncUploaderResults(); } catch (err) { console.error('uploader results:', err.message); }
   const natives = dueNative(allDrafts(), now);
   if (natives.length) {
     const cache = new Map();
