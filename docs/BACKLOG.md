@@ -2,7 +2,17 @@
 
 ## Found, not built
 
-- F11: Dingo job mwns1inh-0cdbd0 replaces AUS kit materials with an opaque custom two-colour shader in build_map(); kit defaults cannot add relief beneath that authored override. Future author fix: retain map_land and tint through its fill controls. codex · gpt-6.1-sol · 2026-11-19 20:04 +02:00.
+### Owner fixes 2026-11-20 13:04 · MERGED 1b77359 · claude-pro · claude-fable-5-2 (review codex · gpt-6.1-sol)
+
+Decision: `ForgeBrain/decisions/2026-11-20-owner-answers-1304.md`. None proved by a real video run yet.
+
+- Exposure repair: its own 30 minute clock; a failed repair keeps the first finished video as the draft (`exposure_repair` on the job).
+- Pause and Kill Switch act on code-built batches and jobs; a paused or halted pipeline refuses a new batch, a single video and a resume.
+- Research form creates a teardown as a teardown.
+- Map: kit finding `map_material_replaced` goes to the author (blocks a pass in round 0 only); rule in the codebuilt-maps skill. Closes the F11 line below.
+- Cleanup: Growth page wording, old stills client code and the stale One author client test removed.
+
+- F11 (answered 2026-11-20, see above): Dingo job mwns1inh-0cdbd0 replaces AUS kit materials with an opaque custom two-colour shader in build_map(); kit defaults cannot add relief beneath that authored override. Future author fix: retain map_land and tint through its fill controls. codex · gpt-6.1-sol · 2026-11-19 20:04 +02:00.
 
 - 2026-11-19 15:54 +02:00 · codex · gpt-6.1-sol (C4): retained shared kit no-overlay modes, overlay schema fixtures, base buildPrompt/KIT_CONTRACT, and the channel engine enum where authored/direct callers still use them or removal is uncertain; the HyperFrames legacy overlay TEXT fallback is deliberately kept.
 
