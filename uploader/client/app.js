@@ -30,7 +30,7 @@ const STATE_TEXT = { queued: 'waiting', uploading: 'uploading', scheduled: 'on Y
 const STATE_CLASS = { public: 'ok', scheduled: 'ok', refused: 'bad', failed: 'bad', gone: 'bad', uploading: 'warn', unclear: 'bad' };
 
 function item(pkg, actions = []) {
-  const sub = [pkg.publish_at ? `goes public ${when(pkg.publish_at)}` : pkg.public_at ? `public since ${when(pkg.public_at)}` : `received ${when(pkg.received_at)}`, pkg.video_type, pkg.error].filter(Boolean).join(' · ');
+  const sub = [pkg.state === 'kept' ? `reserved slot ${when(pkg.publish_at)}; the real time is in YouTube Studio` : pkg.publish_at ? `goes public ${when(pkg.publish_at)}` : pkg.public_at ? `public since ${when(pkg.public_at)}` : `received ${when(pkg.received_at)}`, pkg.video_type, pkg.error].filter(Boolean).join(' · ');
   return el('li', { class: 'item' },
     el('div', { class: 't' }, el('b', { title: pkg.title || pkg.id }, pkg.title || pkg.id), el('span', { class: 'dim small' }, sub)),
     el('span', { class: `pill ${STATE_CLASS[pkg.state] || ''}` }, STATE_TEXT[pkg.state] || pkg.state),

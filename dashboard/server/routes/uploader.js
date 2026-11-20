@@ -89,7 +89,7 @@ const sha256File = (file) => new Promise((resolve, reject) => {
 });
 
 /** The manifest the uploader gets: everything YouTube needs, decided here. Throws an Error with .status 400 on a draft that cannot go. */
-export function buildManifest({ draftId, meta, channel, title, tags, sha256 }) {
+export function buildManifest({ draftId, meta, channel, title, tags, sha256, submissionId }) {
   const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
   if (!channel) fail('This draft has no channel in ForgeAi.');
   const youtubeChannelId = String(channel.youtube_channel_id || '').trim();
@@ -103,7 +103,7 @@ export function buildManifest({ draftId, meta, channel, title, tags, sha256 }) {
     package_id: draftId, sha256, youtube_channel_id: youtubeChannelId, forgeai_channel_id: channel.id,
     video_type: meta.generation_details?.video_type || meta.video_type || null,
     title: snippet.title, description: snippet.description, tags: snippet.tags, language, category_id: UPLOAD_CATEGORY,
-    made_for_kids: false, contains_synthetic_media: meta.ai_disclosure === true, submission_id: crypto.randomBytes(12).toString('hex'),
+    made_for_kids: false, contains_synthetic_media: meta.ai_disclosure === true, submission_id: submissionId || crypto.randomBytes(12).toString('hex'),
     checks: { fact_check: meta.generation_details?.fact_check?.verified === true, length: meta.generation_details?.length_check?.within_tolerance === true, visual: Number.isInteger(meta.generation_details?.visual_loop?.accepted_round) && meta.generation_details?.visual_check?.approved !== false },
     created_at: new Date().toISOString(),
   };
@@ -184,8 +184,15 @@ export function uploaderStatusHandler(req, res) {
 
 // Sent once. Again only after the uploader refused it or the owner removed it there (a new title can then go).
 export const canSendAgain = (sent) => !sent || sent.state === 'refused' || sent.state === 'removed';
-// A dashboard that died while copying leaves a draft marked "sent" and a folder without READY, which the uploader never takes.
-const strandedCopy = (sent, share) => sent?.state === 'sent' && fs.existsSync(path.join(share, 'inbox', sent.package_id)) && !fs.existsSync(path.join(share, 'inbox', sent.package_id, 'READY'));
+// "sent" with no answer yet: the package may wait in the inbox, or a crash mid-copy left nothing or half of it. Sending
+// again is safe because it reuses the SAME send id: the uploader takes one send once and ignores a second copy of it.
+// -> 'waiting' (a complete package is in the inbox: nothing to do) | 'resend' | null (not in this state)
+function unanswered(sent, share) {
+  if (sent?.state !== 'sent') return null;
+  let entries = null;
+  try { entries = fs.readdirSync(path.join(share, 'inbox', sent.package_id)); } catch { /* not in the inbox */ }
+  return entries?.includes('READY') ? 'waiting' : 'resend';
+}
 
 export async function uploaderSendHandler(req, res) {
   const first = readDraft(req.params.draftId);
@@ -202,12 +209,14 @@ export async function uploaderSendHandler(req, res) {
     if (applyResult(meta, readResult(share, meta.uploader?.package_id), key)) fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
     if (!meta.video_file) return res.status(400).json({ error: 'This draft has no video.' });
     if (meta.youtube?.video_id) return res.status(409).json({ error: 'This video is already on YouTube.' });
-    if (!canSendAgain(meta.uploader) && !strandedCopy(meta.uploader, share)) return res.status(409).json({ error: 'This video was already sent to the uploader.', sent: meta.uploader });
+    const open = unanswered(meta.uploader, share);
+    if (open === 'waiting') return res.status(409).json({ error: 'This video is in the uploader folder, waiting to be taken. Is the uploader running?', sent: meta.uploader });
+    if (!canSendAgain(meta.uploader) && open !== 'resend') return res.status(409).json({ error: 'This video was already sent to the uploader.', sent: meta.uploader });
     const videoFile = path.join(folder, path.basename(meta.video_file));
     const title = (typeof req.body?.title === 'string' && req.body.title.trim()) || meta.listing_copy?.title || meta.product?.title || meta.social?.caption || '';
     const tags = Array.isArray(req.body?.tags) ? req.body.tags.slice(0, 50) : undefined;
     const channel = getChannelById(meta.channel_id || 'default');
-    const manifest = JSON.parse(JSON.stringify(buildManifest({ draftId, meta, channel, title, tags, sha256: await sha256File(videoFile) })));
+    const manifest = JSON.parse(JSON.stringify(buildManifest({ draftId, meta, channel, title, tags, sha256: await sha256File(videoFile), submissionId: open === 'resend' ? meta.uploader.submission_id : undefined })));
     manifest.mac = sign(key, 'manifest', manifest);
     const target = path.join(share, 'inbox', draftId);
     if (!clearInboxFolder(target)) return res.status(409).json({ error: 'An earlier copy of this video is still in the uploader folder and could not be cleared.' });

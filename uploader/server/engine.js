@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ensureShare, shareDirs, intake, localPackage, deleteLocal, writeResult, writeJsonAtomic, readJson, claimShare, ownerId } from './share.js';
-import { planUploads, upcomingSlots, cleanSlots, cleanDailyLimit, isChannelId, isSafeId, holdsSlot, DEFAULT_SLOTS, DEFAULT_DAILY_LIMIT, DAY_MS } from './rules.js';
+import { planUploads, upcomingSlots, cleanSlots, cleanDailyLimit, isChannelId, isSafeId, holdsSlot, localDay, MIN_GAP_MS, DEFAULT_SLOTS, DEFAULT_DAILY_LIMIT, DAY_MS } from './rules.js';
 
 const RETRY_MS = 30 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -21,6 +21,8 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
   const owner = ownerId(stateDir);
   const dirs = shareDirs(share);
   const state = { paused: false, channels: {}, packages: {}, submissions: {}, ...(readJson(stateFile) || {}) };
+  // Every send this uploader ever took counts as taken, also those from before the list existed.
+  for (const pkg of Object.values(state.packages)) if (pkg.submission_id && !state.submissions[pkg.submission_id]) state.submissions[pkg.submission_id] = pkg.received_at || true;
   let tokens = readJson(tokensFile) || {};
   let problems = [];
   let busy = false;
@@ -50,7 +52,19 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
     Object.assign(pkg, { state: 'uploading', publish_at: publishAt, error: null });
     save(); // on disk before the first byte leaves: a crash now is seen as "unclear", never as "still waiting"
     try {
-      const stillWanted = () => state.paused !== true && state.channels[channel]?.paused !== true && pkg.state === 'uploading' && Boolean(tokens[channel]) && Date.parse(publishAt) > now();
+      // Asked right before the video leaves: still not paused, still this package's turn, and the slot still fits today's
+      // settings and calendar (the owner may have changed the slot times or the limit while we signed in).
+      const stillWanted = () => {
+        if (state.paused === true || state.channels[channel]?.paused === true || pkg.state !== 'uploading' || !tokens[channel]) return false;
+        const at = Date.parse(publishAt);
+        try {
+          const cfg = state.channels[channel];
+          const d = new Date(at);
+          if (at <= now() || !cleanSlots(cfg.slots).includes(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`)) return false;
+          const others = Object.values(state.packages).filter((p) => p !== pkg && p.youtube_channel_id === channel && holdsSlot(p)).map((p) => Date.parse(p.publish_at));
+          return !others.some((t) => Math.abs(t - at) < MIN_GAP_MS) && others.filter((t) => localDay(t) === localDay(at)).length < cleanDailyLimit(cfg.daily_limit);
+        } catch { return false; }
+      };
       const { video_id } = await youtube.upload({ refreshToken: tokens[channel].refresh_token, manifest: local.manifest, videoFile: local.videoFile, publishAt, stillWanted });
       Object.assign(pkg, { state: 'scheduled', video_id, uploaded_at: iso(), synthetic: local.manifest.contains_synthetic_media === true });
       log('scheduled', { id, channel, video_id, publish_at: publishAt });

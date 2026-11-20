@@ -148,10 +148,21 @@ export async function intake(dirs, { packages, key, owner, localDir, consumed = 
     if (!verified(key, 'manifest', manifest) || manifest.package_id !== id) { removePackageDir(folder); events.push({ id, state: 'ignored', reason: 'not signed by ForgeAi; removed from the inbox' }); return; }
     // A signed package is good for one intake. A copy of it put back later (after the owner removed it, say) is not a new send.
     if (consumed[manifest.submission_id]) { removePackageDir(folder); events.push({ id, state: 'ignored', reason: 'this send was already taken once; removed from the inbox' }); return; }
-    const refuse = (reason) => {
+    // The state must be on disk before the share copy goes. If the save fails, the change is taken back and the claim
+    // stays where it is, so the next pass starts this package again from the beginning.
+    const commit = (pkg, clean = () => {}) => {
+      const before = packages[id]; const had = consumed[manifest.submission_id];
+      packages[id] = pkg;
       if (isSafeId(manifest.submission_id)) consumed[manifest.submission_id] = now();
-      packages[id] = { id, state: 'refused', error: reason, received_at: now(), ended_at: now(), sha256: manifest.sha256, submission_id: isSafeId(manifest.submission_id) ? manifest.submission_id : null, title: String(manifest.title || '').slice(0, 100), youtube_channel_id: manifest.youtube_channel_id, result_due: true };
-      save();
+      try { save(); } catch (err) {
+        if (before) packages[id] = before; else delete packages[id];
+        if (had) consumed[manifest.submission_id] = had; else delete consumed[manifest.submission_id];
+        clean();
+        throw err;
+      }
+    };
+    const refuse = (reason) => {
+      commit({ id, state: 'refused', error: reason, received_at: now(), ended_at: now(), sha256: manifest.sha256, submission_id: isSafeId(manifest.submission_id) ? manifest.submission_id : null, title: String(manifest.title || '').slice(0, 100), youtube_channel_id: manifest.youtube_channel_id, result_due: true });
       fs.rmSync(path.join(localDir, id), { recursive: true, force: true });
       removePackageDir(folder);
       events.push({ id, state: 'refused', reason });
@@ -170,10 +181,8 @@ export async function intake(dirs, { packages, key, owner, localDir, consumed = 
     if (bytes > MAX_VIDEO_BYTES || await sha256File(path.join(local, 'video.mp4')) !== manifest.sha256) { refuse('the video file does not match the sha256 in the manifest (copy damaged?)'); return; }
     writeJsonAtomic(path.join(local, 'manifest.json'), manifest);
     const order = Math.max(0, ...Object.values(packages).map((p) => p.order ?? 0)) + 1;
-    packages[id] = { id, state: 'queued', order, received_at: now(), sha256: manifest.sha256, submission_id: manifest.submission_id, youtube_channel_id: manifest.youtube_channel_id,
-      title: manifest.title, video_type: typeof manifest.video_type === 'string' ? manifest.video_type.slice(0, 40) : null, bytes, result_due: true };
-    consumed[manifest.submission_id] = now();
-    save();
+    commit({ id, state: 'queued', order, received_at: now(), sha256: manifest.sha256, submission_id: manifest.submission_id, youtube_channel_id: manifest.youtube_channel_id,
+      title: manifest.title, video_type: typeof manifest.video_type === 'string' ? manifest.video_type.slice(0, 40) : null, bytes, result_due: true }, () => fs.rmSync(local, { recursive: true, force: true }));
     removePackageDir(folder);
     events.push({ id, state: 'queued', reason: null });
   }

@@ -32,10 +32,14 @@ const allowedHosts = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:$
 fs.mkdirSync(STATE_DIR, { recursive: true });
 const PID_FILE = path.join(STATE_DIR, 'uploader.pid');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; } };
-try { fs.writeFileSync(PID_FILE, String(process.pid), { flag: 'wx' }); } catch {
-  const other = Number(fs.readFileSync(PID_FILE, 'utf8'));
-  if (other && other !== process.pid && alive(other)) { console.error(`An uploader is already running with this state folder (process ${other}). Not starting.`); process.exit(1); }
-  fs.writeFileSync(PID_FILE, String(process.pid));
+const takePid = () => { try { fs.writeFileSync(PID_FILE, String(process.pid), { flag: 'wx' }); return true; } catch { return false; } };
+if (!takePid()) {
+  let other = 0;
+  try { other = Number(fs.readFileSync(PID_FILE, 'utf8')); } catch { /* being written by another start */ }
+  if (other && alive(other)) { console.error(`An uploader is already running with this state folder (process ${other}). Not starting.`); process.exit(1); }
+  // A dead process left the file. Remove it and create it again exclusively: of two starts at the same moment only one gets it.
+  try { fs.unlinkSync(PID_FILE); } catch { /* the other start removed it */ }
+  if (!takePid()) { console.error('Another uploader is starting with this state folder. Not starting.'); process.exit(1); }
 }
 const youtube = createYouTube({ clientId: process.env.YOUTUBE_CLIENT_ID, clientSecret: process.env.YOUTUBE_CLIENT_SECRET, redirectUri: REDIRECT });
 const engine = createEngine({ share: SHARE, stateDir: STATE_DIR, youtube, key: handoverKey(REPO), aheadMs: AHEAD_H * 60 * 60 * 1000 });

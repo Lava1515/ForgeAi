@@ -36,7 +36,12 @@ test('send, intake and the answer back work together; a second way out is refuse
   const sent = await call(uploaderSendHandler, { title: 'Why This Town Has Twenty Borders' });
   assert.equal(sent.code, 200, JSON.stringify(sent.data));
   assert.equal(meta().uploader.state, 'sent');
-  assert.equal((await call(uploaderSendHandler)).code, 409);
+  assert.equal((await call(uploaderSendHandler)).code, 409); // complete in the inbox: waiting, nothing to redo
+  // A copy that never finished (no READY) is sent again under the same send id.
+  const firstId = meta().uploader.submission_id;
+  fs.unlinkSync(path.join(process.env.UPLOADER_SHARE, 'inbox', 'cb-test1', 'READY'));
+  assert.equal((await call(uploaderSendHandler)).code, 200);
+  assert.equal(meta().uploader.submission_id, firstId);
   assert.equal((await call(youtubePublishHandler, { privacy: 'private' })).code, 409);
 
   const dirs = share.ensureShare(process.env.UPLOADER_SHARE);

@@ -163,6 +163,24 @@ test('intake: a signed package put back after the owner removed it is not taken 
   assert.equal(packages.r1.state, 'queued');
 });
 
+test('intake: when the state cannot be saved the package is not kept in memory and its claim stays for the next pass', async () => {
+  const root = scratch();
+  const dirs = ensureShare(path.join(root, 'share'));
+  const packages = {}; const consumed = {};
+  let broken = true;
+  const go = () => intake(dirs, { packages, consumed, key: KEY, owner: 'me', localDir: path.join(root, 'local'), save: () => { if (broken) throw new Error('disk full'); } });
+  drop(dirs, 'v1');
+  const events = await go();
+  assert.deepEqual(packages, {});
+  assert.deepEqual(consumed, {});
+  assert.ok(fs.existsSync(path.join(dirs.claimed, 'v1.me', 'video.mp4')));
+  assert.ok(events.some((e) => e.id === 'v1' && e.state === 'ignored'));
+  broken = false;
+  await go();
+  assert.equal(packages.v1.state, 'queued');
+  assert.deepEqual(fs.readdirSync(dirs.claimed), []);
+});
+
 test('one uploader per folder: a second one is told to stop until the first is silent for 3 minutes', () => {
   const dirs = ensureShare(path.join(scratch(), 'share'));
   const t0 = at(10);

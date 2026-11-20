@@ -140,6 +140,13 @@ export default function PublishYouTube({ product, onPublished }) {
         <div data-cy="uploader-sent" className="space-y-1">
           <p className="text-sm text-ink-100 flex items-center gap-1.5"><Send className="w-4 h-4 text-ember-400" /> Sent to the uploader{uploader.channel?.name ? ` for ${uploader.channel.name}` : ''}</p>
           <p className="text-xs text-ink-400">{UPLOADER_STATE[uploader.sent.state] || uploader.sent.state}{uploader.sent.reason ? `: ${uploader.sent.reason}` : ''}</p>
+          {uploader.sent.state === 'sent' && Date.now() - new Date(uploader.sent.sent_at).getTime() > 5 * 60 * 1000 && (
+            <p className="text-xs text-ink-400">
+              No answer for over 5 minutes. Check that the uploader is running, or{' '}
+              <button type="button" onClick={sendToUploader} disabled={sending} className="underline text-ember-400 disabled:opacity-50">{sending ? 'sending...' : 'send it again'}</button>
+              {' '}(the same send; it cannot go out twice).
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
