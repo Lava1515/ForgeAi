@@ -9,7 +9,8 @@ const el = (tag, props = {}, ...kids) => {
   for (const kid of kids.flat()) if (kid != null && kid !== false) node.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return node;
 };
-const when = (iso) => (iso ? new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+let zone; // the uploader machine's time zone: slot times are shown in it, wherever the page is opened
+const when = (iso) => (iso ? new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: zone }) : '');
 let editing = false; // true while a settings field has the cursor: the page does not redraw under the owner's hands
 
 function toast(text) { const t = $('toast'); t.textContent = text; t.style.display = 'block'; clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.style.display = 'none'; }, 6000); }
@@ -25,8 +26,8 @@ async function load() {
   try { const res = await fetch('/api/state'); if (res.ok) draw(await res.json()); } catch { toast('The uploader does not answer.'); }
 }
 
-const STATE_TEXT = { queued: 'waiting', uploading: 'uploading', scheduled: 'on YouTube, scheduled', public: 'public', refused: 'refused', failed: 'failed', removed: 'removed', cancelled: 'cancelled', gone: 'gone from YouTube' };
-const STATE_CLASS = { public: 'ok', scheduled: 'ok', refused: 'bad', failed: 'bad', gone: 'bad', uploading: 'warn' };
+const STATE_TEXT = { queued: 'waiting', uploading: 'uploading', scheduled: 'on YouTube, scheduled', public: 'public', refused: 'refused', failed: 'failed', unclear: 'cut off: check Studio', removed: 'removed', cancelled: 'cancelled', gone: 'gone from YouTube' };
+const STATE_CLASS = { public: 'ok', scheduled: 'ok', refused: 'bad', failed: 'bad', gone: 'bad', uploading: 'warn', unclear: 'bad' };
 
 function item(pkg, actions = []) {
   const sub = [pkg.publish_at ? `goes public ${when(pkg.publish_at)}` : pkg.public_at ? `public since ${when(pkg.public_at)}` : `received ${when(pkg.received_at)}`, pkg.video_type, pkg.error].filter(Boolean).join(' · ');
@@ -37,7 +38,8 @@ function item(pkg, actions = []) {
     actions);
 }
 const act = (pkg, name, label, cls = '') => el('button', { class: cls, on: { click: () => {
-  if (name === 'remove' && !confirm(`Remove "${pkg.title}" from the queue? It will not be uploaded.`)) return;
+  if (name === 'remove' && !confirm(`Remove "${pkg.title}"? It will not be uploaded.`)) return;
+  if (name === 'retry' && pkg.state === 'unclear' && !confirm(`Send "${pkg.title}" again? Do this only after you looked in YouTube Studio and the video is NOT there.`)) return;
   if (name === 'cancel' && !confirm(`Cancel the schedule of "${pkg.title}"? It stays private on YouTube.`)) return;
   post(`/api/packages/${pkg.id}/${name}`);
 } } }, label);
@@ -60,7 +62,7 @@ function channelCard(ch) {
       el('div', {}, el('h3', {}, `Waiting (${ch.queue.length})`),
         list(ch.queue.map((p, i) => item(p, [i > 0 ? act(p, 'up', 'Up') : null, i < ch.queue.length - 1 ? act(p, 'down', 'Down') : null, act(p, 'remove', 'Remove', 'danger')])), 'Nothing is waiting. An empty slot is skipped.'),
         el('h3', { style: 'margin-top:14px' }, 'Handed to YouTube'),
-        list(ch.scheduled.map((p) => item(p, p.state === 'scheduled' ? [act(p, 'cancel', 'Cancel', 'danger')] : [])), 'Nothing is scheduled.')),
+        list(ch.scheduled.map((p) => item(p, p.state === 'scheduled' ? [act(p, 'cancel', 'Cancel', 'danger')] : p.state === 'unclear' ? [act(p, 'retry', 'Retry'), act(p, 'remove', 'Remove', 'danger')] : [])), 'Nothing is scheduled.')),
       el('div', {}, el('h3', {}, 'Next slots'),
         list(ch.next_slots.map((s) => el('li', { class: 'item' }, el('div', { class: 't' }, el('b', {}, when(s.at)), el('span', { class: 'dim small' }, s.package || 'free')))), 'No slot times set.'),
         el('h3', { style: 'margin-top:14px' }, 'History'),
@@ -69,12 +71,13 @@ function channelCard(ch) {
       el('span', { class: 'dim small' }, 'Slot times'), slotsInput,
       el('span', { class: 'dim small' }, 'Videos a day'), limitInput,
       el('button', { on: { click: () => { editing = false; post(`/api/channels/${ch.id}`, { slots: slotsInput.value.split(/[,\s]+/).filter(Boolean), daily_limit: Number(limitInput.value) }); } } }, 'Save'),
-      el('span', { class: 'dim small' }, 'Local time of this machine. Slots are at least 4 hours apart.')));
+      el('span', { class: 'dim small' }, 'Time of the uploader machine. Slots are at least 4 hours apart.')));
 }
 
 function draw(s) {
   if (editing) return;
-  $('clock').textContent = when(s.now);
+  zone = s.time_zone || undefined;
+  $('clock').textContent = `${when(s.now)} (${s.time_zone || 'local time'})`;
   $('allState').textContent = s.paused ? 'everything paused' : 'running';
   $('allState').className = `pill ${s.paused ? 'warn' : 'ok'}`;
   $('pauseAll').textContent = s.paused ? 'Resume everything' : 'Pause everything';
@@ -84,7 +87,6 @@ function draw(s) {
     ...s.problems.map((p) => el('div', { class: 'card problem' }, p)),
     s.paused ? el('div', { class: 'card small dim' }, 'Paused: no new video is handed to YouTube. Videos already handed over still go public at their time; use Cancel on them to stop that.') : null,
     ...(s.channels.length ? s.channels.map(channelCard) : [el('div', { class: 'card dim' }, 'No channel yet. Press "Connect a channel" and pick the YouTube channel in Google\'s window.')]),
-    s.refused_without_channel.length ? el('section', { class: 'card' }, el('h3', {}, 'Refused packages with no readable channel'), list(s.refused_without_channel.map((p) => item(p)), '')) : null,
     el('div', { class: 'small dim' }, `Hand-over folder: ${s.share}`, ' · ', el('a', { href: '#', on: { click: (e) => { e.preventDefault(); post('/api/check'); } } }, 'Check the folder now')),
   ].filter(Boolean));
 }

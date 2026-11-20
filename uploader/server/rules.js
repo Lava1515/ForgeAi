@@ -42,6 +42,7 @@ export function manifestError(manifest, { folderId, knownHashes = new Set() } = 
   if (folderId !== undefined && m.package_id !== folderId) return 'package_id does not match its folder name';
   if (typeof m.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(m.sha256)) return 'sha256 is missing';
   if (!isChannelId(m.youtube_channel_id)) return 'youtube_channel_id is missing or not a YouTube channel id';
+  if (!isSafeId(m.submission_id)) return 'submission_id is missing';
   const title = titleError(m.title);
   if (title) return title;
   if (typeof m.description !== 'string' || m.description.length > 5000) return 'the description is missing or longer than 5000 characters';
@@ -90,7 +91,10 @@ export function upcomingSlots(slots, from, until) {
   const start = new Date(from);
   for (let day = 0; day <= Math.ceil((until - from) / DAY_MS) + 1; day += 1) {
     for (const slot of slots) {
-      const at = new Date(start.getFullYear(), start.getMonth(), start.getDate() + day, Number(slot.slice(0, 2)), Number(slot.slice(3)), 0, 0).getTime();
+      const [h, m] = [Number(slot.slice(0, 2)), Number(slot.slice(3))];
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + day, h, m, 0, 0);
+      if (date.getHours() !== h || date.getMinutes() !== m) continue; // a wall-clock time that does not exist that day (clocks go forward): skipped
+      const at = date.getTime();
       if (at > from && at <= until) out.push(at);
     }
   }
@@ -98,7 +102,7 @@ export function upcomingSlots(slots, from, until) {
 }
 
 // A package that holds a place on YouTube's calendar: handed over, being handed over, or already public.
-const HOLDS_SLOT = new Set(['uploading', 'scheduled', 'public']);
+const HOLDS_SLOT = new Set(['uploading', 'scheduled', 'public', 'unclear']); // unclear: a cut-off upload that may be on YouTube
 export const holdsSlot = (pkg) => HOLDS_SLOT.has(pkg.state) && Number.isFinite(Date.parse(pkg.publish_at || ''));
 
 /**

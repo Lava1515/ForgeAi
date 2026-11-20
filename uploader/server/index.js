@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createEngine } from './engine.js';
 import { createYouTube } from './youtube.js';
-import { releaseShare } from './share.js';
+import { releaseShare, handoverKey } from './share.js';
 import { isChannelId } from './rules.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -29,8 +29,10 @@ const allowedHosts = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:$
   ...(loopback ? [] : [`${HOST}:${PORT}`]), ...String(process.env.UPLOADER_PUBLIC_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)]);
 
 const youtube = createYouTube({ clientId: process.env.YOUTUBE_CLIENT_ID, clientSecret: process.env.YOUTUBE_CLIENT_SECRET, redirectUri: REDIRECT });
-const engine = createEngine({ share: SHARE, stateDir: STATE_DIR, youtube, aheadMs: AHEAD_H * 60 * 60 * 1000 });
+const engine = createEngine({ share: SHARE, stateDir: STATE_DIR, youtube, key: handoverKey(REPO), aheadMs: AHEAD_H * 60 * 60 * 1000 });
 const pendingStates = new Map(); // OAuth state -> expiry
+const STATE_COOKIE = 'uploader_oauth';
+const cookieOf = (req, name) => String(req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).find(([k]) => k === name)?.[1] || '';
 
 const STATIC = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'] };
 const SECURITY = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store',
@@ -80,13 +82,16 @@ const server = http.createServer(async (req, res) => {
       const state = crypto.randomBytes(16).toString('hex');
       for (const [k, exp] of pendingStates) if (exp < Date.now()) pendingStates.delete(k);
       pendingStates.set(state, Date.now() + 10 * 60 * 1000);
-      return send(res, 302, '', 'text/plain', { Location: youtube.connectUrl(state) });
+      // The sign-in must come back to the browser that started it.
+      return send(res, 302, '', 'text/plain', { Location: youtube.connectUrl(state), 'Set-Cookie': `${STATE_COOKIE}=${state}; HttpOnly; SameSite=Lax; Path=/api/youtube; Max-Age=600` });
     }
     if (req.method === 'GET' && route === '/api/youtube/callback') {
       const state = url.searchParams.get('state');
-      if (url.searchParams.get('error')) return send(res, 302, '', 'text/plain', { Location: '/?youtube=refused' });
-      if (!state || !pendingStates.has(state) || pendingStates.get(state) < Date.now()) return send(res, 400, 'This sign-in link expired. Press "Connect a channel" again.', 'text/plain; charset=utf-8');
-      pendingStates.delete(state);
+      const known = Boolean(state) && pendingStates.has(state) && pendingStates.get(state) >= Date.now() && cookieOf(req, STATE_COOKIE) === state;
+      if (state) pendingStates.delete(state); // used once, also when Google reports a refusal
+      const clear = { 'Set-Cookie': `${STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=/api/youtube; Max-Age=0` };
+      if (!known) return send(res, 400, 'This sign-in link expired or was started in another browser. Press "Connect a channel" again.', 'text/plain; charset=utf-8', clear);
+      if (url.searchParams.get('error')) return send(res, 302, '', 'text/plain', { Location: '/?youtube=refused', ...clear });
       try { engine.connect(await youtube.finishConnect(String(url.searchParams.get('code') || ''))); } catch (err) { return send(res, 502, String(err.message || err).slice(0, 300), 'text/plain; charset=utf-8'); }
       return send(res, 302, '', 'text/plain', { Location: '/?youtube=connected' });
     }
@@ -123,4 +128,4 @@ server.listen(PORT, HOST, () => {
   engine.tick();
   setInterval(() => engine.tick(), 60 * 1000);
 });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { releaseShare(engine.dirs); } catch { /* leaving anyway */ } process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { releaseShare(engine.dirs, engine.owner); } catch { /* leaving anyway */ } process.exit(0); });

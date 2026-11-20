@@ -1,7 +1,7 @@
 // Send to uploader: the manifest names the draft's own channel, and a draft that cannot be matched to a YouTube channel is not sent.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildManifest, applyResult, UPLOAD_CATEGORY } from '../routes/uploader.js';
+import { buildManifest, applyResult, sign, UPLOAD_CATEGORY } from '../routes/uploader.js';
 
 const meta = { video_file: 'video.mp4', script: 'A town has twenty borders. Here is why.', made_for_kids: false, ai_disclosure: true, listing_copy: { title: 'old', tags: ['baarle', 'borders'] }, generation_details: { fact_check: { verified: true } } };
 const channel = { id: 'ch_1', name: 'Forge Atlas', youtube_channel_id: 'UC' + 'a'.repeat(22), profile: { language: 'en' } };
@@ -27,20 +27,31 @@ test('no YouTube channel id, a kids draft or a date title: nothing is sent', () 
   assert.throws(() => buildManifest(args({ title: '20 November 2026' })), /date/);
 });
 
-test('a result file is untrusted: another package, another channel, a bad id or an unknown state changes nothing', () => {
-  const sent = { package_id: 'cb-1', youtube_channel_id: channel.youtube_channel_id, state: 'sent' };
-  const good = { package_id: 'cb-1', state: 'scheduled', video_id: 'abcDEF12345', publish_at: '2026-11-21T13:00:00.000Z', youtube_channel_id: channel.youtube_channel_id, url: 'https://evil.example/x', updated_at: '2026-11-20T16:00:00.000Z' };
-  for (const bad of [{ ...good, package_id: 'cb-2' }, { ...good, youtube_channel_id: 'UC' + 'b'.repeat(22) }, { ...good, state: 'published!!' }, null, [], 'x']) {
-    const m = { uploader: { ...sent } };
-    assert.equal(applyResult(m, bad), false);
-    assert.equal(m.youtube, undefined);
-  }
+test('a result counts only when the uploader signed it for exactly this send', () => {
+  const KEY = 'k'.repeat(40);
+  const sent = { package_id: 'cb-1', submission_id: 'sub1', sha256: 'f'.repeat(64), youtube_channel_id: channel.youtube_channel_id, state: 'sent' };
+  const signed = (over = {}, key = KEY) => { const r = { package_id: 'cb-1', submission_id: 'sub1', sha256: 'f'.repeat(64), state: 'scheduled', video_id: 'abcDEF12345', publish_at: '2026-11-21T13:00:00.000Z', public_at: null, reason: null, youtube_channel_id: channel.youtube_channel_id, updated_at: '2026-11-20T16:00:00.000Z', ...over }; r.mac = sign(key, 'result', r); return r; };
+  const unchanged = (result) => { const m = { uploader: { ...sent } }; assert.equal(applyResult(m, result, KEY), false); assert.equal(m.youtube, undefined); };
+  unchanged(signed({}, 'x'.repeat(40))); // not the uploader's key
+  unchanged({ ...signed(), state: 'public' }); // changed after signing
+  unchanged(signed({ package_id: 'cb-2' }));
+  unchanged(signed({ submission_id: 'older-send' }));
+  unchanged(signed({ sha256: 'e'.repeat(64) }));
+  unchanged(signed({ youtube_channel_id: 'UC' + 'b'.repeat(22) }));
+  unchanged(signed({ state: 'published!!' }));
+  for (const junk of [null, [], 'x', {}]) unchanged(junk);
   const noId = { uploader: { ...sent } };
-  applyResult(noId, { ...good, video_id: '../../etc' });
+  applyResult(noId, signed({ video_id: '../../etc' }), KEY);
   assert.equal(noId.youtube, undefined);
   const m = { uploader: { ...sent } };
-  assert.equal(applyResult(m, good), true);
+  assert.equal(applyResult(m, signed(), KEY), true);
   assert.equal(m.youtube.url, 'https://www.youtube.com/shorts/abcDEF12345');
   assert.equal(m.youtube.privacy, 'private');
-  assert.equal(m.uploader.state, 'scheduled');
+  assert.equal(applyResult(m, signed({ state: 'public', public_at: '2026-11-21T13:00:00.000Z', updated_at: '2026-11-21T13:05:00.000Z' }), KEY), true);
+  assert.equal(m.youtube.privacy, 'public');
+  // Public stays public, and a record made by the dashboard's own Publish button is never replaced.
+  assert.equal(applyResult(m, signed({ state: 'removed', video_id: null, updated_at: '2026-11-22T00:00:00.000Z' }), KEY), false);
+  const direct = { uploader: { ...sent }, youtube: { video_id: 'directPublish1', privacy: 'public' } };
+  assert.equal(applyResult(direct, signed(), KEY), false);
+  assert.equal(direct.youtube.video_id, 'directPublish1');
 });

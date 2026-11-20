@@ -62,11 +62,15 @@ export function createYouTube({ clientId, clientSecret, redirectUri, fetchFn = f
         body: JSON.stringify(body),
       });
       if (!init.ok) throw new Error(await googleError(init));
-      const put = await fetchFn(init.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: video });
-      if (!put.ok) throw new Error(await googleError(put));
-      const uploaded = await put.json();
-      if (!uploaded?.id) throw new Error('YouTube answered without a video id.');
-      return { video_id: uploaded.id };
+      // From here on video bytes leave this machine. Any failure is marked `sent`: YouTube may hold the video, so the
+      // caller must not send it again by itself.
+      try {
+        const put = await fetchFn(init.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: video });
+        if (!put.ok) throw new Error(await googleError(put));
+        const uploaded = await put.json();
+        if (typeof uploaded?.id !== 'string' || !/^[A-Za-z0-9_-]{6,20}$/.test(uploaded.id)) throw new Error('YouTube answered without a video id.');
+        return { video_id: uploaded.id };
+      } catch (err) { throw Object.assign(err instanceof Error ? err : new Error(String(err)), { sent: true }); }
     },
     /** -> 'public' | 'private' | 'unlisted' | 'gone' */
     async privacyOf({ refreshToken, videoId }) {
