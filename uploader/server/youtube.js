@@ -47,7 +47,7 @@ export function createYouTube({ clientId, clientSecret, redirectUri, fetchFn = f
      * Uploads private with status.publishAt: YouTube makes it public at that time by itself.
      * The sign-in must belong to the manifest's channel; that is checked against YouTube right before the upload.
      */
-    async upload({ refreshToken, manifest, videoFile, publishAt }) {
+    async upload({ refreshToken, manifest, videoFile, publishAt, stillWanted = () => true }) {
       const access = await accessToken(refreshToken);
       const me = await whoAmI(access);
       if (me.id !== manifest.youtube_channel_id) throw Object.assign(new Error(`This sign-in belongs to "${me.title}", not to the video's channel. Nothing was uploaded.`), { fatal: true });
@@ -62,6 +62,9 @@ export function createYouTube({ clientId, clientSecret, redirectUri, fetchFn = f
         body: JSON.stringify(body),
       });
       if (!init.ok) throw new Error(await googleError(init));
+      // The last look before the video leaves: a pause or a removal made while we signed in still stops it. The unused
+      // upload session is simply dropped.
+      if (!stillWanted()) throw Object.assign(new Error('Stopped before the video left.'), { stopped: true });
       // From here on video bytes leave this machine. Any failure is marked `sent`: YouTube may hold the video, so the
       // caller must not send it again by itself.
       try {

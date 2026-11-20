@@ -26,7 +26,7 @@ async function load() {
   try { const res = await fetch('/api/state'); if (res.ok) draw(await res.json()); } catch { toast('The uploader does not answer.'); }
 }
 
-const STATE_TEXT = { queued: 'waiting', uploading: 'uploading', scheduled: 'on YouTube, scheduled', public: 'public', refused: 'refused', failed: 'failed', unclear: 'cut off: check Studio', removed: 'removed', cancelled: 'cancelled', gone: 'gone from YouTube' };
+const STATE_TEXT = { queued: 'waiting', uploading: 'uploading', scheduled: 'on YouTube, scheduled', public: 'public', refused: 'refused', failed: 'failed', unclear: 'cut off: check Studio', kept: 'on YouTube (found by you)', removed: 'removed', cancelled: 'cancelled', gone: 'gone from YouTube' };
 const STATE_CLASS = { public: 'ok', scheduled: 'ok', refused: 'bad', failed: 'bad', gone: 'bad', uploading: 'warn', unclear: 'bad' };
 
 function item(pkg, actions = []) {
@@ -39,6 +39,7 @@ function item(pkg, actions = []) {
 }
 const act = (pkg, name, label, cls = '') => el('button', { class: cls, on: { click: () => {
   if (name === 'remove' && !confirm(`Remove "${pkg.title}"? It will not be uploaded.`)) return;
+  if (name === 'found' && !confirm(`You saw "${pkg.title}" in YouTube Studio? Its slot stays taken and it will not be sent again.`)) return;
   if (name === 'retry' && pkg.state === 'unclear' && !confirm(`Send "${pkg.title}" again? Do this only after you looked in YouTube Studio and the video is NOT there.`)) return;
   if (name === 'cancel' && !confirm(`Cancel the schedule of "${pkg.title}"? It stays private on YouTube.`)) return;
   post(`/api/packages/${pkg.id}/${name}`);
@@ -62,7 +63,7 @@ function channelCard(ch) {
       el('div', {}, el('h3', {}, `Waiting (${ch.queue.length})`),
         list(ch.queue.map((p, i) => item(p, [i > 0 ? act(p, 'up', 'Up') : null, i < ch.queue.length - 1 ? act(p, 'down', 'Down') : null, act(p, 'remove', 'Remove', 'danger')])), 'Nothing is waiting. An empty slot is skipped.'),
         el('h3', { style: 'margin-top:14px' }, 'Handed to YouTube'),
-        list(ch.scheduled.map((p) => item(p, p.state === 'scheduled' ? [act(p, 'cancel', 'Cancel', 'danger')] : p.state === 'unclear' ? [act(p, 'retry', 'Retry'), act(p, 'remove', 'Remove', 'danger')] : [])), 'Nothing is scheduled.')),
+        list(ch.scheduled.map((p) => item(p, p.state === 'scheduled' ? [act(p, 'cancel', 'Cancel', 'danger')] : p.state === 'unclear' ? [act(p, 'found', 'It is on YouTube'), act(p, 'retry', 'Retry')] : [])), 'Nothing is scheduled.')),
       el('div', {}, el('h3', {}, 'Next slots'),
         list(ch.next_slots.map((s) => el('li', { class: 'item' }, el('div', { class: 't' }, el('b', {}, when(s.at)), el('span', { class: 'dim small' }, s.package || 'free')))), 'No slot times set.'),
         el('h3', { style: 'margin-top:14px' }, 'History'),

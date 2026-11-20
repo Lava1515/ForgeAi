@@ -10,7 +10,7 @@ const MAX_ATTEMPTS = 3;
 const CHECK_EVERY_MS = 5 * 60 * 1000;
 const MAX_UPLOADS_PER_PASS = 10;
 const ENDED = new Set(['refused', 'removed', 'cancelled', 'gone', 'failed']);
-const UNCLEAR = 'The upload was cut off, so the video may or may not be on YouTube. Look in YouTube Studio first: if it is there, press Remove here; if not, press Retry. Its slot stays reserved until you choose.';
+const UNCLEAR = 'The upload was cut off, so the video may or may not be on YouTube. Look in YouTube Studio: if it is there, press "It is on YouTube" (its slot stays taken); if not, press Retry.';
 
 export function createEngine({ share, stateDir, youtube, key, now = () => Date.now(), aheadMs = 6 * 60 * 60 * 1000, keepDays = 7 }) {
   fs.mkdirSync(stateDir, { recursive: true });
@@ -20,7 +20,7 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
   const localDir = path.join(stateDir, 'packages'); // the verified copies; uploads read from here, never from the share
   const owner = ownerId(stateDir);
   const dirs = shareDirs(share);
-  const state = { paused: false, channels: {}, packages: {}, ...(readJson(stateFile) || {}) };
+  const state = { paused: false, channels: {}, packages: {}, submissions: {}, ...(readJson(stateFile) || {}) };
   let tokens = readJson(tokensFile) || {};
   let problems = [];
   let busy = false;
@@ -29,7 +29,9 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
   const save = () => writeJsonAtomic(stateFile, state);
   const log = (event, detail = {}) => { try { fs.appendFileSync(logFile, `${JSON.stringify({ at: iso(), event, ...detail })}\n`); } catch { /* the log never stops the work */ } };
   // The answer for ForgeAi. When the share is away the package is marked and the answer is written on a later pass.
-  const publish = (pkg) => { try { writeResult(dirs, key, pkg); pkg.result_due = false; } catch { pkg.result_due = true; } };
+  const publish = (pkg) => { pkg.result_due = true; try { writeResult(dirs, key, pkg); pkg.result_due = false; } catch { /* written on a later pass */ } };
+  // A change is saved with its answer still owed, then the answer is written: a crash in between loses neither.
+  const settle = (pkg) => { pkg.result_due = true; save(); publish(pkg); save(); };
   const channelOf = (id) => (state.channels[id] ??= { name: tokens[id]?.title || id, slots: [...DEFAULT_SLOTS], daily_limit: DEFAULT_DAILY_LIMIT, paused: false });
 
   // An upload that was cut off (power, crash) may have reached YouTube. It keeps its slot and is never sent again by itself.
@@ -43,17 +45,22 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
     const local = localPackage(localDir, id);
     if (!local || local.manifest.youtube_channel_id !== channel || local.manifest.sha256 !== pkg.sha256) {
       Object.assign(pkg, { state: 'failed', error: 'The uploader\'s copy of this video is missing or changed.', ended_at: iso(), publish_at: null });
-      log('failed', { id, reason: pkg.error }); save(); publish(pkg); return;
+      log('failed', { id, reason: pkg.error }); settle(pkg); return;
     }
     Object.assign(pkg, { state: 'uploading', publish_at: publishAt, error: null });
     save(); // on disk before the first byte leaves: a crash now is seen as "unclear", never as "still waiting"
     try {
-      const { video_id } = await youtube.upload({ refreshToken: tokens[channel].refresh_token, manifest: local.manifest, videoFile: local.videoFile, publishAt });
+      const stillWanted = () => state.paused !== true && state.channels[channel]?.paused !== true && pkg.state === 'uploading' && Boolean(tokens[channel]) && Date.parse(publishAt) > now();
+      const { video_id } = await youtube.upload({ refreshToken: tokens[channel].refresh_token, manifest: local.manifest, videoFile: local.videoFile, publishAt, stillWanted });
       Object.assign(pkg, { state: 'scheduled', video_id, uploaded_at: iso(), synthetic: local.manifest.contains_synthetic_media === true });
       log('scheduled', { id, channel, video_id, publish_at: publishAt });
     } catch (err) {
       const reason = String(err.message || err).slice(0, 400);
-      if (err.sent === true) {
+      if (err.stopped === true) {
+        // Paused or changed while signing in: nothing left this machine. Back to the queue, not counted as a failure.
+        if (pkg.state === 'uploading') Object.assign(pkg, { state: 'queued', publish_at: null });
+        log('stopped_before_send', { id, channel });
+      } else if (err.sent === true) {
         // Video bytes left this machine: YouTube may hold the video. Keep the slot, do not retry, let the owner decide.
         Object.assign(pkg, { state: 'unclear', error: `${UNCLEAR} (${reason})` });
         log('unclear', { id, channel, reason });
@@ -64,7 +71,7 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
         log(final ? 'failed' : 'retry_later', { id, channel, reason });
       }
     }
-    save(); publish(pkg);
+    settle(pkg);
   }
 
   async function reconcile() {
@@ -80,7 +87,7 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
         else if (privacy === 'gone') { Object.assign(pkg, { state: 'gone', error: 'The video is no longer on YouTube.', ended_at: iso() }); log('gone', { id: pkg.id }); }
         else if (now() > Date.parse(pkg.publish_at) + 6 * 60 * 60 * 1000) pkg.error = 'YouTube has not made it public yet. Check it in YouTube Studio.';
       } catch (err) { pkg.error = String(err.message || err).slice(0, 400); }
-      publish(pkg);
+      settle(pkg);
     }
   }
 
@@ -88,7 +95,7 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
     const keep = keepDays * DAY_MS;
     for (const pkg of Object.values(state.packages)) {
       if (pkg.deleted_at) continue;
-      const since = pkg.state === 'public' ? Date.parse(pkg.public_at) : ENDED.has(pkg.state) ? Date.parse(pkg.ended_at || pkg.received_at) : NaN;
+      const since = pkg.state === 'public' ? Date.parse(pkg.public_at) : pkg.state === 'kept' ? Date.parse(pkg.publish_at) : ENDED.has(pkg.state) ? Date.parse(pkg.ended_at || pkg.received_at) : NaN;
       if (Number.isFinite(since) && since + keep <= now()) {
         try { deleteLocal(localDir, pkg.id); pkg.deleted_at = iso(); log('copy_deleted', { id: pkg.id }); } catch { /* next pass */ }
       }
@@ -103,7 +110,7 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
       try { ensureShare(share); } catch (err) { found.push(`The hand-over folder is not usable: ${share} (${err.code || err.message}). Nothing is taken or uploaded until it is.`); return; }
       const clash = claimShare(dirs, owner, now());
       if (clash) { found.push(`Stopped: ${clash}.`); return; }
-      for (const e of await intake(dirs, { packages: state.packages, key, owner, localDir, save, now: iso })) {
+      for (const e of await intake(dirs, { packages: state.packages, consumed: state.submissions, key, owner, localDir, save, now: iso })) {
         log(e.state === 'queued' ? 'received' : e.state, { id: e.id, reason: e.reason });
         if (e.state === 'ignored') found.push(`Inbox folder "${e.id}": ${e.reason}.`);
       }
@@ -120,7 +127,9 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
           const [next] = planUploads({ state, connected: new Set(Object.keys(tokens)), now: now(), aheadMs });
           if (!next) break;
           if (claimShare(dirs, owner, now())) break;
-          await uploadOne(next);
+          // A long transfer keeps saying "still here", so another uploader never takes the folder for abandoned mid-upload.
+          const beat = setInterval(() => { try { claimShare(dirs, owner, now()); } catch { /* share away */ } }, 60 * 1000);
+          try { await uploadOne(next); } finally { clearInterval(beat); }
         }
         await reconcile();
       }
@@ -147,8 +156,8 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
       return {
         id, name: tokens[id]?.title || cfg.name || id, connected: Boolean(tokens[id]), paused: cfg.paused === true, slots: cfg.slots, daily_limit: cfg.daily_limit, next_slots: slots,
         queue: mine.filter((p) => p.state === 'queued').sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(brief),
-        scheduled: mine.filter((p) => ['scheduled', 'uploading', 'unclear'].includes(p.state)).sort((a, b) => String(a.publish_at).localeCompare(String(b.publish_at))).map(brief),
-        history: mine.filter((p) => p.state === 'public' || ENDED.has(p.state)).sort((a, b) => String(b.public_at || b.ended_at || b.received_at).localeCompare(String(a.public_at || a.ended_at || a.received_at))).slice(0, 30).map(brief),
+        scheduled: mine.filter((p) => ['scheduled', 'uploading', 'unclear', 'kept'].includes(p.state) && !(p.state === 'kept' && Date.parse(p.publish_at) + DAY_MS < now())).sort((a, b) => String(a.publish_at).localeCompare(String(b.publish_at))).map(brief),
+        history: mine.filter((p) => p.state === 'public' || ENDED.has(p.state) || (p.state === 'kept' && Date.parse(p.publish_at) + DAY_MS < now())).sort((a, b) => String(b.public_at || b.ended_at || b.received_at).localeCompare(String(a.public_at || a.ended_at || a.received_at))).slice(0, 30).map(brief),
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
     return { paused: state.paused === true, share, oauth_configured: youtube.configured, problems, channels, now: iso(), time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone };
@@ -170,7 +179,10 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
     async packageAction(id, action) {
       const pkg = isSafeId(id) ? state.packages[id] : null;
       if (!pkg) throw new Error('Unknown video');
-      if (action === 'remove' && ['queued', 'failed', 'unclear'].includes(pkg.state)) Object.assign(pkg, { state: 'removed', ended_at: iso(), publish_at: null });
+      if (action === 'remove' && ['queued', 'failed'].includes(pkg.state)) Object.assign(pkg, { state: 'removed', ended_at: iso(), publish_at: null });
+      // The owner looked in Studio and the cut-off upload is there: it keeps its slot and its place in the daily count,
+      // and ForgeAi keeps treating the draft as sent, so it cannot go out a second time.
+      else if (action === 'found' && pkg.state === 'unclear') Object.assign(pkg, { state: 'kept', error: 'The owner found this video on YouTube after a cut-off upload. Manage it in YouTube Studio.' });
       else if (action === 'retry' && ['failed', 'unclear'].includes(pkg.state)) Object.assign(pkg, { state: 'queued', attempts: 0, error: null, next_try_at: null, ended_at: null, publish_at: null });
       else if ((action === 'up' || action === 'down') && pkg.state === 'queued') {
         const line = Object.values(state.packages).filter((p) => p.state === 'queued' && p.youtube_channel_id === pkg.youtube_channel_id).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -183,7 +195,7 @@ export function createEngine({ share, stateDir, youtube, key, now = () => Date.n
         await youtube.cancelSchedule({ refreshToken: token.refresh_token, videoId: pkg.video_id, containsSyntheticMedia: pkg.synthetic === true });
         Object.assign(pkg, { state: 'cancelled', ended_at: iso(), publish_at: null, error: 'Schedule cancelled. The video stays private on YouTube.' });
       } else throw new Error('That is not possible for this video now.');
-      log(action, { id }); save(); publish(pkg);
+      log(action, { id }); settle(pkg);
     },
     connect({ refresh_token, scope, channel }) {
       tokens = { ...tokens, [channel.id]: { refresh_token, scope, title: channel.title } };

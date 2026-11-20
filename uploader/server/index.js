@@ -28,6 +28,15 @@ if (!loopback && UI_KEY.length < 16) {
 const allowedHosts = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`,
   ...(loopback ? [] : [`${HOST}:${PORT}`]), ...String(process.env.UPLOADER_PUBLIC_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)]);
 
+// One uploader per state folder on this machine: a second one would work from the same queue file.
+fs.mkdirSync(STATE_DIR, { recursive: true });
+const PID_FILE = path.join(STATE_DIR, 'uploader.pid');
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; } };
+try { fs.writeFileSync(PID_FILE, String(process.pid), { flag: 'wx' }); } catch {
+  const other = Number(fs.readFileSync(PID_FILE, 'utf8'));
+  if (other && other !== process.pid && alive(other)) { console.error(`An uploader is already running with this state folder (process ${other}). Not starting.`); process.exit(1); }
+  fs.writeFileSync(PID_FILE, String(process.pid));
+}
 const youtube = createYouTube({ clientId: process.env.YOUTUBE_CLIENT_ID, clientSecret: process.env.YOUTUBE_CLIENT_SECRET, redirectUri: REDIRECT });
 const engine = createEngine({ share: SHARE, stateDir: STATE_DIR, youtube, key: handoverKey(REPO), aheadMs: AHEAD_H * 60 * 60 * 1000 });
 const pendingStates = new Map(); // OAuth state -> expiry
@@ -103,7 +112,7 @@ const server = http.createServer(async (req, res) => {
       if (origin) { let o = ''; try { o = new URL(origin).host.toLowerCase(); } catch { /* not a URL */ } if (o !== host) return send(res, 403, { error: 'Wrong origin' }); }
       const body = await readBody(req);
       try {
-        const pkgHit = route.match(/^\/api\/packages\/([A-Za-z0-9_-]{1,120})\/(remove|retry|up|down|cancel)$/);
+        const pkgHit = route.match(/^\/api\/packages\/([A-Za-z0-9_-]{1,120})\/(remove|retry|up|down|cancel|found)$/);
         const chHit = route.match(/^\/api\/channels\/(UC[A-Za-z0-9_-]{22})$/);
         if (route === '/api/pause') {
           if (body.channel !== undefined && !isChannelId(body.channel)) throw new Error('Unknown channel');
@@ -128,4 +137,4 @@ server.listen(PORT, HOST, () => {
   engine.tick();
   setInterval(() => engine.tick(), 60 * 1000);
 });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { releaseShare(engine.dirs, engine.owner); } catch { /* leaving anyway */ } process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { releaseShare(engine.dirs, engine.owner); fs.rmSync(PID_FILE, { force: true }); } catch { /* leaving anyway */ } process.exit(0); });

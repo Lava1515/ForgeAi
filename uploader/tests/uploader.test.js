@@ -78,11 +78,11 @@ test('the manifest rules: a date title, a kids flag, a known file and a foreign 
   assert.match(manifestError(manifest({ package_id: '../x' })), /package_id/);
 });
 
-function drop(dirs, id, { title = `Video ${id} about a bridge`, channel = CH, bytes = `video-${id}`, ready = true, sha, key = KEY, tamper } = {}) {
+function drop(dirs, id, { title = `Video ${id} about a bridge`, channel = CH, bytes = `video-${id}`, ready = true, sha, key = KEY, tamper, submission } = {}) {
   const folder = path.join(dirs.inbox, id);
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(path.join(folder, 'video.mp4'), bytes);
-  const m = manifest({ package_id: id, title, youtube_channel_id: channel, sha256: sha || crypto.createHash('sha256').update(bytes).digest('hex') });
+  const m = manifest({ package_id: id, title, youtube_channel_id: channel, submission_id: submission || `sub-${id}`, sha256: sha || crypto.createHash('sha256').update(bytes).digest('hex') });
   m.mac = sign(key, 'manifest', m);
   if (tamper) Object.assign(m, tamper); // changed on the share after ForgeAi signed it
   fs.writeFileSync(path.join(folder, 'manifest.json'), JSON.stringify(m));
@@ -107,9 +107,7 @@ test('intake: the same file twice is refused, a half-copied package is left alon
   assert.match(packages.a4.error, /does not match/);
   assert.equal(fs.readFileSync(path.join(root, 'local', 'a1', 'video.mp4'), 'utf8'), 'video-a1');
   assert.deepEqual(fs.readdirSync(dirs.claimed), []); // nothing of ours is left on the share
-  const refused = readJson(path.join(dirs.results, 'a2.json'));
-  assert.equal(refused.state, 'refused');
-  assert.ok(verified(KEY, 'result', refused));
+  assert.equal(packages.a2.result_due, true); // the engine writes the signed answer on the same pass
   // Sending a1 again changes nothing.
   drop(dirs, 'a1', { bytes: 'other' });
   await take(dirs, packages, root);
@@ -147,6 +145,22 @@ test('intake: a folder with anything but the three plain files is left untouched
   assert.equal(packages.o2.state, 'queued');
   assert.equal(packages.o3, undefined);
   assert.ok(fs.existsSync(path.join(dirs.claimed, 'o3.other')));
+});
+
+test('intake: a signed package put back after the owner removed it is not taken a second time; a new send is', async () => {
+  const root = scratch();
+  const dirs = ensureShare(path.join(root, 'share'));
+  const packages = {}; const consumed = {};
+  const go = () => intake(dirs, { packages, consumed, key: KEY, owner: 'me', localDir: path.join(root, 'local') });
+  drop(dirs, 'r1');
+  await go();
+  packages.r1.state = 'removed';
+  drop(dirs, 'r1'); // the same signed send again
+  await go();
+  assert.equal(packages.r1.state, 'removed');
+  drop(dirs, 'r1', { submission: 'second-send' }); // the owner pressed Send again
+  await go();
+  assert.equal(packages.r1.state, 'queued');
 });
 
 test('one uploader per folder: a second one is told to stop until the first is silent for 3 minutes', () => {
@@ -198,7 +212,7 @@ test('engine: a package is handed to YouTube once, for its slot; paused hands ov
   const r2 = readJson(path.join(shareDirs(share).results, 'b2.json'));
   assert.equal(r2.video_id, 'yt-b2');
   assert.ok(verified(KEY, 'result', r2));
-  assert.equal(r2.submission_id, 'sub1');
+  assert.equal(r2.submission_id, 'sub-b2');
 });
 
 test('engine: a pause or a removal made while one video uploads stops the next one', async () => {
@@ -214,6 +228,39 @@ test('engine: a pause or a removal made while one video uploads stops the next o
     await engine.tick(); await engine.tick();
     assert.deepEqual(yt.calls.map((c) => c[0]), ['g1'], change);
   }
+});
+
+test('engine: a pause made while signing in stops the video before it leaves, without counting a failure', async () => {
+  const root = scratch();
+  const share = path.join(root, 'share');
+  const dirs = ensureShare(share);
+  let engine; let asked = 0; let wanted = null;
+  const yt = { configured: true, async privacyOf() { return 'public'; }, async cancelSchedule() {},
+    async upload({ stillWanted }) { asked += 1; engine.setPaused(true); wanted = stillWanted(); if (!wanted) throw Object.assign(new Error('stopped'), { stopped: true }); return { video_id: 'abcDEF12345' }; } };
+  engine = createEngine({ share, stateDir: path.join(root, 'state'), youtube: yt, key: KEY, now: () => at(10), aheadMs: 6 * 60 * 60 * 1000 });
+  engine.connect({ refresh_token: 'r', scope: 's', channel: { id: CH, title: 'Forge Atlas' } });
+  drop(dirs, 'p1');
+  await engine.tick(); await engine.tick();
+  assert.equal(asked, 1);
+  assert.equal(wanted, false);
+  const q = engine.view().channels[0].queue;
+  assert.deepEqual(q.map((p) => [p.id, p.state, p.error]), [['p1', 'queued', null]]);
+});
+
+test('engine: a cut-off upload the owner found on YouTube keeps its slot and cannot be removed or sent again', async () => {
+  const root = scratch();
+  const share = path.join(root, 'share');
+  const dirs = ensureShare(share);
+  const yt = fakeYouTube({ fail: Object.assign(new Error('socket hang up'), { sent: true }) });
+  const engine = createEngine({ share, stateDir: path.join(root, 'state'), youtube: yt, key: KEY, now: () => at(10), aheadMs: 6 * 60 * 60 * 1000 });
+  engine.connect({ refresh_token: 'r', scope: 's', channel: { id: CH, title: 'Forge Atlas' } });
+  drop(dirs, 'k1'); drop(dirs, 'k2');
+  await engine.tick();
+  await assert.rejects(engine.packageAction('k1', 'remove'));
+  await engine.packageAction('k1', 'found');
+  await engine.tick(); await engine.tick();
+  assert.deepEqual(yt.calls.map((c) => c[0]), ['k1']); // k2 does not get k1's 15:00 slot
+  assert.equal(readJson(path.join(dirs.results, 'k1.json')).state, 'kept');
 });
 
 test('engine: an upload that broke after bytes left keeps its slot and waits for the owner', async () => {

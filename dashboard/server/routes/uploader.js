@@ -109,7 +109,7 @@ export function buildManifest({ draftId, meta, channel, title, tags, sha256 }) {
   };
 }
 
-const RESULT_STATES = new Set(['queued', 'uploading', 'unclear', 'scheduled', 'public', 'refused', 'failed', 'removed', 'cancelled', 'gone']);
+const RESULT_STATES = new Set(['queued', 'uploading', 'unclear', 'kept', 'scheduled', 'public', 'refused', 'failed', 'removed', 'cancelled', 'gone']);
 const isoOrNull = (v) => (typeof v === 'string' && v.length <= 40 && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null);
 /** A result counts only with the uploader's signature, for exactly the package, file and channel that were sent. */
 export function cleanResult(result, sent, key) {
@@ -120,6 +120,8 @@ export function cleanResult(result, sent, key) {
   const updated = isoOrNull(result.updated_at);
   if (!updated) return null;
   const videoId = typeof result.video_id === 'string' && /^[A-Za-z0-9_-]{6,20}$/.test(result.video_id) ? result.video_id : null;
+  // "On YouTube" without a video id and a time is not an answer we can record.
+  if (['scheduled', 'public'].includes(result.state) && (!videoId || !isoOrNull(result.publish_at))) return null;
   return { state: result.state, reason: typeof result.reason === 'string' ? result.reason.replace(/[\u0000-\u001f<>]/g, ' ').slice(0, 500) : null,
     video_id: videoId, publish_at: isoOrNull(result.publish_at), public_at: isoOrNull(result.public_at), updated_at: updated };
 }
@@ -182,6 +184,8 @@ export function uploaderStatusHandler(req, res) {
 
 // Sent once. Again only after the uploader refused it or the owner removed it there (a new title can then go).
 export const canSendAgain = (sent) => !sent || sent.state === 'refused' || sent.state === 'removed';
+// A dashboard that died while copying leaves a draft marked "sent" and a folder without READY, which the uploader never takes.
+const strandedCopy = (sent, share) => sent?.state === 'sent' && fs.existsSync(path.join(share, 'inbox', sent.package_id)) && !fs.existsSync(path.join(share, 'inbox', sent.package_id, 'READY'));
 
 export async function uploaderSendHandler(req, res) {
   const first = readDraft(req.params.draftId);
@@ -198,7 +202,7 @@ export async function uploaderSendHandler(req, res) {
     if (applyResult(meta, readResult(share, meta.uploader?.package_id), key)) fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
     if (!meta.video_file) return res.status(400).json({ error: 'This draft has no video.' });
     if (meta.youtube?.video_id) return res.status(409).json({ error: 'This video is already on YouTube.' });
-    if (!canSendAgain(meta.uploader)) return res.status(409).json({ error: 'This video was already sent to the uploader.', sent: meta.uploader });
+    if (!canSendAgain(meta.uploader) && !strandedCopy(meta.uploader, share)) return res.status(409).json({ error: 'This video was already sent to the uploader.', sent: meta.uploader });
     const videoFile = path.join(folder, path.basename(meta.video_file));
     const title = (typeof req.body?.title === 'string' && req.body.title.trim()) || meta.listing_copy?.title || meta.product?.title || meta.social?.caption || '';
     const tags = Array.isArray(req.body?.tags) ? req.body.tags.slice(0, 50) : undefined;

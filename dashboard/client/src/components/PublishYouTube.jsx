@@ -16,7 +16,7 @@ const parseTags = (text) => text.split(/[\s,]+/).map((t) => t.replace(/^#+/, '')
 const isScheduled = (y) => Boolean(y?.publish_at) && (y.privacy === 'private' || y.privacy === 'unlisted');
 const whenText = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 // The separate uploader's words for a sent video.
-const UPLOADER_STATE = { sent: 'waiting for the uploader to take it', queued: 'in the uploader queue, waiting for its slot', uploading: 'being handed to YouTube', failed: 'failed in the uploader; open the uploader page', unclear: 'the upload was cut off; open the uploader page and check YouTube Studio', cancelled: 'schedule cancelled in the uploader', gone: 'no longer on YouTube' };
+const UPLOADER_STATE = { sent: 'waiting for the uploader to take it', queued: 'in the uploader queue, waiting for its slot', uploading: 'being handed to YouTube', failed: 'failed in the uploader; open the uploader page', unclear: 'the upload was cut off; open the uploader page and check YouTube Studio', kept: 'on YouTube (you confirmed it on the uploader page after a cut-off upload)', cancelled: 'schedule cancelled in the uploader', gone: 'no longer on YouTube' };
 const canSendAgain = (sent) => !sent || sent.state === 'refused' || sent.state === 'removed';
 
 // Publish a finished video draft to the connected YouTube channel (as a Short).

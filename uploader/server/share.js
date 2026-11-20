@@ -115,11 +115,11 @@ const onlyPackageFiles = (folder) => {
  * so a crash at any point leaves either the claimed folder or the saved state, never neither.
  * -> [{ id, state, reason }] for the log.
  */
-export async function intake(dirs, { packages, key, owner, localDir, save = () => {}, now = () => new Date().toISOString() }) {
+export async function intake(dirs, { packages, key, owner, localDir, consumed = {}, save = () => {}, now = () => new Date().toISOString() }) {
   const events = [];
   // 1. Claim: rename inbox/<id> to claimed/<id>.<owner>. On one file system the rename is atomic, so two uploaders cannot both take it.
   let names = [];
-  try { names = fs.readdirSync(dirs.inbox); } catch { return events; }
+  try { names = fs.readdirSync(dirs.inbox); } catch { /* the claims below are still worked through */ }
   for (const id of names) {
     const folder = path.join(dirs.inbox, id);
     if (!isSafeId(id) || !plain(folder, 'dir') || !plain(path.join(folder, 'READY'), 'file')) continue;
@@ -133,43 +133,50 @@ export async function intake(dirs, { packages, key, owner, localDir, save = () =
     const id = name.slice(0, -(owner.length + 1));
     const folder = path.join(dirs.claimed, name);
     if (!isSafeId(id) || !plain(folder, 'dir') || !onlyPackageFiles(folder)) continue;
+    // One package that cannot be read must not stop the others, or the uploads that follow intake.
+    try { await takeOne(id, folder); } catch (err) { events.push({ id, state: 'ignored', reason: `could not be read (${err.code || String(err.message).slice(0, 80)}); tried again on the next pass` }); }
+  }
+  return events;
+
+  async function takeOne(id, folder) {
     const prior = packages[id];
     // The same package sent again changes nothing, unless the earlier one ended without a video on YouTube.
-    if (prior && !['refused', 'removed'].includes(prior.state)) { removePackageDir(folder); events.push({ id, state: prior.state, reason: 'sent again; the first one stands' }); continue; }
+    if (prior && !['refused', 'removed'].includes(prior.state)) { removePackageDir(folder); events.push({ id, state: prior.state, reason: 'sent again; the first one stands' }); return; }
     const mst = plain(path.join(folder, 'manifest.json'), 'file');
     const manifest = mst && mst.size <= MAX_MANIFEST_BYTES ? readJson(path.join(folder, 'manifest.json')) : null;
     // Not signed by ForgeAi: not ours to act on. No result is written, so a stranger cannot overwrite a real answer either.
-    if (!verified(key, 'manifest', manifest) || manifest.package_id !== id) { removePackageDir(folder); events.push({ id, state: 'ignored', reason: 'not signed by ForgeAi; removed from the inbox' }); continue; }
+    if (!verified(key, 'manifest', manifest) || manifest.package_id !== id) { removePackageDir(folder); events.push({ id, state: 'ignored', reason: 'not signed by ForgeAi; removed from the inbox' }); return; }
+    // A signed package is good for one intake. A copy of it put back later (after the owner removed it, say) is not a new send.
+    if (consumed[manifest.submission_id]) { removePackageDir(folder); events.push({ id, state: 'ignored', reason: 'this send was already taken once; removed from the inbox' }); return; }
     const refuse = (reason) => {
-      packages[id] = { id, state: 'refused', error: reason, received_at: now(), ended_at: now(), sha256: manifest.sha256, submission_id: isSafeId(manifest.submission_id) ? manifest.submission_id : null, title: String(manifest.title || '').slice(0, 100), youtube_channel_id: manifest.youtube_channel_id };
+      if (isSafeId(manifest.submission_id)) consumed[manifest.submission_id] = now();
+      packages[id] = { id, state: 'refused', error: reason, received_at: now(), ended_at: now(), sha256: manifest.sha256, submission_id: isSafeId(manifest.submission_id) ? manifest.submission_id : null, title: String(manifest.title || '').slice(0, 100), youtube_channel_id: manifest.youtube_channel_id, result_due: true };
       save();
-      try { writeResult(dirs, key, packages[id]); } catch { /* the engine writes it again */ }
       fs.rmSync(path.join(localDir, id), { recursive: true, force: true });
       removePackageDir(folder);
       events.push({ id, state: 'refused', reason });
     };
     const knownHashes = new Set(Object.values(packages).filter((p) => p.id !== id && p.sha256 && !['refused', 'removed'].includes(p.state)).map((p) => p.sha256));
     const bad = manifestError(manifest, { folderId: id, knownHashes });
-    if (bad) { refuse(bad); continue; }
+    if (bad) { refuse(bad); return; }
     const vst = plain(path.join(folder, 'video.mp4'), 'file');
-    if (!vst || vst.size === 0 || vst.size > MAX_VIDEO_BYTES) { refuse('video.mp4 is missing, empty or larger than 512 MB'); continue; }
+    if (!vst || vst.size === 0 || vst.size > MAX_VIDEO_BYTES) { refuse('video.mp4 is missing, empty or larger than 512 MB'); return; }
     // Copy first, then check the copy: what was checked is exactly what will be uploaded.
     const local = path.join(localDir, id);
     fs.rmSync(local, { recursive: true, force: true });
     fs.mkdirSync(local, { recursive: true });
     fs.copyFileSync(path.join(folder, 'video.mp4'), path.join(local, 'video.mp4'));
     const bytes = fs.statSync(path.join(local, 'video.mp4')).size;
-    if (bytes > MAX_VIDEO_BYTES || await sha256File(path.join(local, 'video.mp4')) !== manifest.sha256) { refuse('the video file does not match the sha256 in the manifest (copy damaged?)'); continue; }
+    if (bytes > MAX_VIDEO_BYTES || await sha256File(path.join(local, 'video.mp4')) !== manifest.sha256) { refuse('the video file does not match the sha256 in the manifest (copy damaged?)'); return; }
     writeJsonAtomic(path.join(local, 'manifest.json'), manifest);
     const order = Math.max(0, ...Object.values(packages).map((p) => p.order ?? 0)) + 1;
     packages[id] = { id, state: 'queued', order, received_at: now(), sha256: manifest.sha256, submission_id: manifest.submission_id, youtube_channel_id: manifest.youtube_channel_id,
-      title: manifest.title, video_type: typeof manifest.video_type === 'string' ? manifest.video_type.slice(0, 40) : null, bytes };
+      title: manifest.title, video_type: typeof manifest.video_type === 'string' ? manifest.video_type.slice(0, 40) : null, bytes, result_due: true };
+    consumed[manifest.submission_id] = now();
     save();
-    try { writeResult(dirs, key, packages[id]); } catch { /* the engine writes it again */ }
     removePackageDir(folder);
     events.push({ id, state: 'queued', reason: null });
   }
-  return events;
 }
 
 /** The uploader's own verified copy of a package: { manifest, videoFile } or null. */

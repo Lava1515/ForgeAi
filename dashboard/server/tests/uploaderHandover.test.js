@@ -47,6 +47,8 @@ test('send, intake and the answer back work together; a second way out is refuse
   assert.equal(fs.readFileSync(path.join(root, 'local', 'cb-test1', 'video.mp4'), 'utf8'), 'the video bytes');
   assert.deepEqual(fs.readdirSync(dirs.inbox), []);
 
+  assert.equal(packages['cb-test1'].result_due, true);
+  share.writeResult(dirs, process.env.UPLOADER_KEY, packages['cb-test1']); // the uploader's loop writes the owed answer
   assert.equal((await call(uploaderStatusHandler)).data.sent.state, 'queued');
   share.writeResult(dirs, process.env.UPLOADER_KEY, { ...packages['cb-test1'], state: 'scheduled', video_id: 'abcDEF12345', publish_at: '2026-11-21T13:00:00.000Z' });
   const status = await call(uploaderStatusHandler);

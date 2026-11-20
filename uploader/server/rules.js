@@ -102,7 +102,7 @@ export function upcomingSlots(slots, from, until) {
 }
 
 // A package that holds a place on YouTube's calendar: handed over, being handed over, or already public.
-const HOLDS_SLOT = new Set(['uploading', 'scheduled', 'public', 'unclear']); // unclear: a cut-off upload that may be on YouTube
+const HOLDS_SLOT = new Set(['uploading', 'scheduled', 'public', 'unclear', 'kept']); // kept: the owner found a cut-off upload on YouTube // unclear: a cut-off upload that may be on YouTube
 export const holdsSlot = (pkg) => HOLDS_SLOT.has(pkg.state) && Number.isFinite(Date.parse(pkg.publish_at || ''));
 
 /**
