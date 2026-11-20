@@ -340,6 +340,9 @@ export function createCodebuiltRunCoordinator({
       // codex · gpt-6.1-sol · 2026-11-19 14:24 +02:00: each requested video owns at most two topic jobs.
       async function startVideo(i, topicAttempt = 0) {
         const video = rec.videos[i];
+        // Pause: the videos already in flight finish; the next one, and an automatic topic retry, wait for Start. Kill Switch: the run is aborted.
+        while (!ctl.aborted && haltNow() === 'pipeline_paused') await sleep(pollMs);
+        if (haltNow() === 'pipeline_halted') ctl.aborted = true;
         // codex · gpt-6.1-sol · 2026-11-19 14:38 +02:00: a retry may re-enter with this video still running.
         if (ctl.aborted) { if (topicAttempt > 0) stopInFlight(video, video.step); stopRest(i); return null; }
         video.status = 'resolving'; video.step = 'resolving';
@@ -399,9 +402,6 @@ export function createCodebuiltRunCoordinator({
       }
       for (let i = 0; i < rec.count; i += 1) {
         if (inFlight.length >= 2) await inFlight.shift();
-        // Pause: the videos already in flight finish, the next one waits for Start. Kill Switch: the run is aborted.
-        while (!ctl.aborted && haltNow() === 'pipeline_paused') await sleep(pollMs);
-        if (haltNow() === 'pipeline_halted') ctl.aborted = true;
         const started = await startVideo(i);
         if (started) inFlight.push(started.settled);
         if (ctl.aborted) { stopRest(i + 1); break; }

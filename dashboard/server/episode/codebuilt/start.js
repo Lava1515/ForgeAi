@@ -213,6 +213,10 @@ export function checkStartRequest(input) {
 }
 
 // The shape that leaves the server: no path, no stack, only the generic message.
+// The fenced job whose video is this job's result: the exposure repair's folder, unless that repair failed and the first video was kept.
+// One reading for the build, the draft and every resume, so a resume never renders a kept video again (review 2026-11-20).
+const finalJobOf = (rec) => (rec.exposure_return && !rec.exposure_return_failed ? `${rec.id}-expose` : rec.id);
+
 export function publicJob(rec) {
   if (!rec) return null;
   const { id, topic, duration, status, step, createdAt, updatedAt, error, draftId, steps, buildModel, length_check: lengthCheckRec, runId, batchIndex } = rec;
@@ -295,7 +299,7 @@ export function createCodebuiltStarter({
     const reused = [];
     if (scriptOk) reused.push('script');
     if (voiceOk) reused.push('voice');
-    const postOnly = postOnlyArtifacts(rec.exposure_return?`${id}-expose`:id, rec, stage, scriptOk && voiceOk, words ? frameCountFor(words) : 0);
+    const postOnly = postOnlyArtifacts(finalJobOf(rec), rec, stage, scriptOk && voiceOk, words ? frameCountFor(words) : 0);
     if (postOnly?.ok) reused.push('frames');
     const resumeFrom = postOnly?.ok ? (postOnly.completed ? 'drafting' : 'post') : !scriptOk ? 'scripting' : !voiceOk ? 'voicing' : 'planning';
     let scriptMeta = {}; try { scriptMeta = JSON.parse(readSafe(path.join(stage, 'script-meta.json')) || '{}'); } catch {}
@@ -497,7 +501,7 @@ export function createCodebuiltStarter({
     // 1a. Fix 2: a job that ended on overlay_layout_blocked finishes from the post step with a corrected overlay and its kept frames.
     // No script, voice, planner, look or render step runs; the runner re-checks the frames and every input before it posts.
     if (resume?.postOnlyRun) {
-      const post = resume.postOnly, finalJobId=rec.exposure_return?`${rec.id}-expose`:rec.id;
+      const post = resume.postOnly, finalJobId=finalJobOf(rec);
       step(rec, 'building');
       const correctedPair = overlayPair(post.buildScript, resume.postOnlyRun.overlaySpec, { videoSeconds: post.nframes / 30 });
       const correctionDir = path.dirname(postResumeFile(stage));
@@ -701,8 +705,10 @@ export function createCodebuiltStarter({
     }
     const pathPack = scripted.pathPack;
     // codex | gpt-6.1-sol | 2026-11-19 19:33 +02:00: persist one final-exposure return before another author attempt.
+    // Reached again only when the kept video cannot be reused: then the repair is tried once more.
+    if (rec.exposure_return_failed) { delete rec.exposure_return_failed; save(rec); }
     for (;;) {
-    const finalJobId=rec.exposure_return?`${rec.id}-expose`:rec.id;
+    const finalJobId=finalJobOf(rec);
     // claude-pro | claude-fable-5-2 | 2026-11-20 (owner 13:04): job mwo3d0mg-da7091 rendered fully, then its one exposure repair failed
     // and the finished video was lost. A failed repair now keeps the first video as the draft, with the finding on the record.
     try {
@@ -784,7 +790,7 @@ export function createCodebuiltStarter({
     const title = validateTitle(metadata) ? metadata.title : undefined;
     const tags = validateTags(metadata) ? metadata.tags : undefined;
     try {
-      const draftJobId=rec.exposure_return&&!rec.exposure_return_failed?`${rec.id}-expose`:rec.id;
+      const draftJobId=finalJobOf(rec);
       const out = toDraft({ videoType: rec.contentMode, jobId: draftJobId, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}), requestedDuration: rec.duration, ...(verifiedFactCheck ? { factCheck: verifiedFactCheck } : {}) });
       rec.draftId = out?.id ?? out?.draftId ?? draftIdForJob(draftJobId);
       // KAN-933: requested versus actual seconds. The probed video length (draft metadata) wins over the voice estimate; a miss is recorded, never patched by stretching audio.
