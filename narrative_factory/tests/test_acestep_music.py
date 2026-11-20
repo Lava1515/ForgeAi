@@ -39,6 +39,7 @@ def test_both_music_sources_keep_measured_level(tmp_path, monkeypatch, source):
 @pytest.mark.parametrize('apps,free_mb,render_pids,expected', [
     ('Processes: 123 C python.exe', 11000, '', 'card_busy'),
     ('Processes:', 11000, '456\n', 'card_busy'),
+    ('Processes: 123 C+G ollama.exe', 11000, '', 'card_busy'),
     ('Processes:', 4000, '', 'card_memory'),
     ('', 11000, '', 'card_unknown'),
     ('Processes: 14348 C+G msedge.exe  26376 C+G Discord.exe', 9600, '', None),

@@ -233,8 +233,10 @@ export async function runAuthorLoop(input,deps={}) {
  }catch(error){state(error.code??'author_failed');json(path.join(stage,'error.json'),{code:error.code??'author_failed'});throw error;}
 }
 // Integration adapter: direction is separate; all preview/sheet/transport effects remain injectable.
-// One redacted line of an error, for a saved failure cause (same rules as the topic pick's cause).
-const causeLine=e=>(String(e?.code??e?.name??'Error')+': '+String(e?.message??e).replace(/[A-Za-z]:[\\/][^ ]*/g,'<path>').replace(/(?:\/home|\/Users)\/[^ ]*/g,'<path>').replace(/[A-Za-z0-9_-]{32,}/g,'<redacted>').replace(/\s+/g,' ')).slice(0,300);
+// Why a call failed, as one fixed sentence: the error's own code or name (letters, digits and _ only) and the kind of failure read from
+// its message. The message itself is never saved or shown: it can carry a path, a token or model text (review 2026-11-20).
+const CAUSE_KINDS=[[/usage limit|rate limit|limit reached|quota|hit your limit/i,'the model reported a usage limit'],[/timed? ?out|ETIMEDOUT/i,'the call timed out'],[/not logged in|login|unauthor|credential/i,'the model CLI is not logged in'],[/ENOENT|not found|not recognized/i,'the model CLI was not found'],[/JSON|Unexpected token|Expected/i,'the answer was not valid JSON'],[/ECONNRESET|ENOTFOUND|EAI_AGAIN|socket|network|fetch failed/i,'the network call failed'],[/exit(?:ed)?(?: with)?(?: code)? \d+|exit code/i,'the model CLI exited with an error']];
+const causeLine=e=>{const name=String(e?.code??e?.name??'Error').replace(/[^A-Za-z0-9_]/g,'').slice(0,40)||'Error',text=String(e?.message??e??'');return `${name}: ${CAUSE_KINDS.find(([re])=>re.test(text)||re.test(name))?.[1]??'no known cause in the error'}`;};
 export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected={},addCall,onPhase,gpu}) {
  const {askAuthor,askAuthorSession,probeAuthorSupport,checkAuthorConfig}=await import('./authorCall.js');
  const {createPreviewSheetMaker}=await import('./previewSheet.js');

@@ -274,3 +274,19 @@ test('persistence failure aborts both in-flight jobs before a third can start', 
   assert.equal(done.videos[1].error.code, 'persistence_failed');
   assert.equal(done.videos[2].status, 'aborted');
 });
+
+// claude-pro · claude-fable-5-2 · 2026-11-20 (plan speed-and-faults, lane A; run-mwow3a91-f47cff): the author's text calls used to hold the card,
+// so the next video's 1.5 minute voice step waited 21 to 24 minutes. Reviewer codex · gpt-6.1-sol showed no test caught the outer lock coming back.
+test('an author text call holds no card: the next video voices meanwhile', async (t) => {
+  const root = scratch(t); const direction = deferred();
+  const { starter, events } = rig(root, { plan: async ({ topic }) => { if (topic === 'first') await direction.promise; } });
+  const first = starter.start({ topic: 'first', duration: 30 });
+  await until(() => events.some(([phase, topic]) => phase === 'plan' && topic === 'first'));
+  const second = starter.start({ topic: 'second', duration: 30 });
+  await until(() => events.filter(([phase]) => phase === 'voice').length === 2);
+  assert.equal(starter.get(first.id).step, 'planning');
+  direction.resolve();
+  await starter.idle();
+  assert.equal(starter.get(first.id).status, 'done');
+  assert.equal(starter.get(second.id).status, 'done');
+});

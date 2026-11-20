@@ -220,7 +220,7 @@ const finalJobOf = (rec) => (rec.exposure_return && !rec.exposure_return_failed 
 export function publicJob(rec) {
   if (!rec) return null;
   const { id, topic, duration, status, step, createdAt, updatedAt, error, draftId, steps, buildModel, length_check: lengthCheckRec, runId, batchIndex } = rec;
-  return { route: checkJobRoute(rec.route), id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message, ...(Array.isArray(error.blocking) ? { blocking: error.blocking } : {}) } : null, ...(rec.post_correction ? { post_correction: rec.post_correction } : {}), ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}), ...(rec.failure_cause && rec.status === 'failed' ? { failure_cause: String(rec.failure_cause).slice(0, 300) } : {}),
+  return { route: checkJobRoute(rec.route), id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message, ...(Array.isArray(error.blocking) ? { blocking: error.blocking } : {}) } : null, ...(rec.post_correction ? { post_correction: rec.post_correction } : {}), ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}), ...(rec.failure_cause && rec.error?.code === 'author_direction' ? { failure_cause: String(rec.failure_cause).slice(0, 300) } : {}),
     // A black-area repair that failed: the first finished video was kept. Findings are the check's own lines, capped.
     ...(rec.exposure_return_failed ? { exposure_repair: { failed: String(rec.exposure_return_failed).slice(0, 60), findings: (rec.exposure_check?.findings ?? []).filter(f => typeof f === 'string').slice(0, 5).map(f => f.slice(0, 200)) } } : {}) };
 }
@@ -899,7 +899,7 @@ export function createCodebuiltStarter({
       rec.route = route;
       rec.resumes = Array.isArray(rec.resumes) ? rec.resumes : [];
       rec.resumes.push({ at: clock(), fromStep: artifacts.resumeFrom, reused: artifacts.reused });
-      rec.status = 'queued'; rec.step = 'queued'; rec.error = null; rec.resumeFrom = artifacts.resumeFrom; resumeData.set(rec.id, { ...artifacts, ...(postOnlyRun ? { postOnlyRun } : {}) });
+      rec.status = 'queued'; rec.step = 'queued'; rec.error = null; delete rec.failure_cause; rec.resumeFrom = artifacts.resumeFrom; resumeData.set(rec.id, { ...artifacts, ...(postOnlyRun ? { postOnlyRun } : {}) });
       rec.steps = Array.isArray(rec.steps) ? rec.steps : [];
       rec.steps.push({ step: 'resume', at: clock() });
       save(rec); live.set(id, { rec, controller: new AbortController() }); waiting.push(id); void pump();
