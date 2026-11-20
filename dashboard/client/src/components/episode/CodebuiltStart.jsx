@@ -413,12 +413,14 @@ export default function CodebuiltStart() {
           <JobDetailArtifacts job={job} />
           {job.status === 'done' && job.draftId && <div>Draft: <code className="text-ink-200">{job.draftId}</code> (watch it in Library, Videos)</div>}
           {job.visual_check?.approved === false && <div className="text-amber-300">Visual check not approved: {(job.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</div>}
+          {job.exposure_repair && <div className="text-amber-300">Black areas were found and the one repair failed; the first video was kept. {(job.exposure_repair.findings || []).join('; ')}</div>}
         </div>
       )}
       {jobs.length > 0 && <div className="space-y-2" data-codebuilt-job-rows>{shownJobs.map((row) => <div key={row.id} className="rounded-lg border border-ink-800 p-3 text-xs text-ink-300" data-codebuilt-job={row.id} data-codebuilt-status={row.status}>
         <div className="flex items-center justify-between gap-3"><span>{row.topic} · {jobLabel(row)}</span>{(row.status === 'failed' || row.status === 'aborted') && <Button type="button" size="sm" variant="secondary" disabled={!row.resumable || otherActive || busy} onClick={() => resume(row.id)} data-codebuilt-resume={row.id}>Resume</Button>}</div>
         {((row.status === 'failed' || row.status === 'aborted') || row.resumes?.length > 0) && <p className="mt-1 text-ink-400">Resumes from {row.resumeFrom || 'the first missing step'}{row.reuses?.length ? ` · reuses ${row.reuses.join(', ')}` : ''}{row.resumeBlockedReason ? ` · ${row.resumeBlockedReason}` : ''}</p>}
         {row.visual_check?.approved === false && <p className="mt-1 text-amber-300">Visual check not approved: {(row.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</p>}
+        {row.exposure_repair && <p className="mt-1 text-amber-300">Black areas were found and the one repair failed; the first video was kept. {(row.exposure_repair.findings || []).join('; ')}</p>}
       </div>)}
         {jobs.length > RECENT_JOB_ROWS && <Button type="button" size="sm" variant="ghost" onClick={() => setAllJobs((all) => !all)} data-codebuilt-job-rows-toggle>{allJobs ? `Show only the last ${RECENT_JOB_ROWS}` : `Show all ${jobs.length} videos`}</Button>}
       </div>}

@@ -216,7 +216,9 @@ export function checkStartRequest(input) {
 export function publicJob(rec) {
   if (!rec) return null;
   const { id, topic, duration, status, step, createdAt, updatedAt, error, draftId, steps, buildModel, length_check: lengthCheckRec, runId, batchIndex } = rec;
-  return { route: checkJobRoute(rec.route), id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message, ...(Array.isArray(error.blocking) ? { blocking: error.blocking } : {}) } : null, ...(rec.post_correction ? { post_correction: rec.post_correction } : {}), ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}) };
+  return { route: checkJobRoute(rec.route), id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message, ...(Array.isArray(error.blocking) ? { blocking: error.blocking } : {}) } : null, ...(rec.post_correction ? { post_correction: rec.post_correction } : {}), ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}),
+    // A black-area repair that failed: the first finished video was kept. Findings are the check's own lines, capped.
+    ...(rec.exposure_return_failed ? { exposure_repair: { failed: String(rec.exposure_return_failed).slice(0, 60), findings: (rec.exposure_check?.findings ?? []).filter(f => typeof f === 'string').slice(0, 5).map(f => f.slice(0, 200)) } } : {}) };
 }
 
 export function createCodebuiltStarter({
@@ -701,6 +703,9 @@ export function createCodebuiltStarter({
     // codex | gpt-6.1-sol | 2026-11-19 19:33 +02:00: persist one final-exposure return before another author attempt.
     for (;;) {
     const finalJobId=rec.exposure_return?`${rec.id}-expose`:rec.id;
+    // claude-pro | claude-fable-5-2 | 2026-11-20 (owner 13:04): job mwo3d0mg-da7091 rendered fully, then its one exposure repair failed
+    // and the finished video was lost. A failed repair now keeps the first video as the draft, with the finding on the record.
+    try {
     let plan;
     {
       step(rec,'planning');
@@ -754,6 +759,11 @@ export function createCodebuiltStarter({
       checkAbort();
     });
 
+    } catch (error) {
+      if (!rec.exposure_return || signal.aborted || error?.code === 'aborted') throw error;
+      rec.exposure_return_failed = error instanceof StartError ? error.code : 'internal'; save(rec);
+      break;
+    }
     if (!rec.exposure_return && rec.exposure_check?.tiles?.some(tile=>tile.issues?.includes('black_region'))) {
       rec.exposure_return=true;save(rec);continue;
     }
@@ -774,7 +784,7 @@ export function createCodebuiltStarter({
     const title = validateTitle(metadata) ? metadata.title : undefined;
     const tags = validateTags(metadata) ? metadata.tags : undefined;
     try {
-      const draftJobId=rec.exposure_return?`${rec.id}-expose`:rec.id;
+      const draftJobId=rec.exposure_return&&!rec.exposure_return_failed?`${rec.id}-expose`:rec.id;
       const out = toDraft({ videoType: rec.contentMode, jobId: draftJobId, channelId: rec.channelId ?? defaultChannelId, topic: rec.topic, ...(rec.premise ? { premise: rec.premise } : {}), ...(title ? { title, metadataSource: 'light_router' } : {}), ...(tags ? { tags } : {}), jobsDir, ...(draftsDir ? { draftsDir } : {}), requestedDuration: rec.duration, ...(verifiedFactCheck ? { factCheck: verifiedFactCheck } : {}) });
       rec.draftId = out?.id ?? out?.draftId ?? draftIdForJob(draftJobId);
       // KAN-933: requested versus actual seconds. The probed video length (draft metadata) wins over the voice estimate; a miss is recorded, never patched by stretching audio.

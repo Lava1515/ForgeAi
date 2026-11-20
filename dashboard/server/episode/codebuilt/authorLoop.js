@@ -103,13 +103,15 @@ export async function runAuthorLoop(input,deps={}) {
  const attempt=Math.max(attempts.length?Math.max(...attempts)+1:0,input.previewAttempt??0),stage=path.join(root,`a${attempt}`);fs.mkdirSync(stage);
  // codex · gpt-6.1-sol · 2026-11-19 15:11 +02:00: same host gates and caps; only the author transport and edit protocol change.
  const session=input.sessionEnabled===true?createAuthorSession({stageDir:input.stageDir,attemptDir:stage}):null;
- // codex | gpt-6.1-sol | 2026-11-19 19:33 +02:00: the final repair shares the first attempt's caps and clock.
+ // codex | gpt-6.1-sol | 2026-11-19 19:33 +02:00: the final repair shares the first attempt's caps.
+ // claude-pro | claude-fable-5-2 | 2026-11-20 (owner 13:04): the repair has its own 30 minute clock. Job mwo3d0mg-da7091 used 60.0003
+ // minutes before its render, so the shared clock killed the repair on its first step.
  const priorState=input.finalExposureReturn===true?read(path.join(root,'session.json')):null,prior=priorState?.counters;
- const now=deps.now??Date.now,started=priorState?.startedAt??now()-(prior?.minutes??0)*60000,argvSha256=hash(JSON.stringify(session?sessionArgv(model,session.id,true):authorArgv(model))),calls=[],history=[];
+ const now=deps.now??Date.now,started=now(),limitMs=priorState?1800000:3600000,argvSha256=hash(JSON.stringify(session?sessionArgv(model,session.id,true):authorArgv(model))),calls=[],history=[];
  let spent=prior?.billableTotal??0,contextPeak=prior?.contextPeak??0,outputTotal=prior?.outputTotal??0,repairs=0,round=0,previews=0,code='',spec=null,feedback='',editRefusals=0,resynced=false;
  const journal=entry=>{const file=path.join(stage,'journal.jsonl');if(fs.existsSync(file))regular(file);fs.appendFileSync(file,JSON.stringify(entry)+'\n');};
  const state=status=>{const value={version:1,jobId:input.jobId,model,startedAt:started,cliVersion:input.probe?.cliVersion??null,argvSha256,switch:{env:true,job:'authored'},caps:measured.caps,counters:{calls:(prior?.calls??0)+calls.length,rounds:previews,minutes:(now()-started)/60000,billableTotal:spent,contextPeak,outputTotal},attempt,status};json(path.join(stage,'session.json'),value);json(path.join(root,'session.json'),value);};
- const guard=()=>{if(input.signal?.aborted)throw authorError('aborted');if(now()-started>3600000)throw authorError('author_time');if(spent>measured.caps.billableTotal)throw authorError('author_tokens');if(contextPeak>measured.caps.contextPeak)throw authorError('author_context_full');};
+ const guard=()=>{if(input.signal?.aborted)throw authorError('aborted');if(now()-started>limitMs)throw authorError('author_time');if(spent>measured.caps.billableTotal)throw authorError('author_tokens');if(contextPeak>measured.caps.contextPeak)throw authorError('author_context_full');};
  const timed=async(kind,fn)=>{guard();const t=now();try{return await fn();}finally{journal({kind,round,wallS:(now()-t)/1000});}};
  const ask=async(prompt,images,kind,dir)=>{
   guard(); if((prior?.calls??0)+calls.length>=12)throw authorError('author_calls');if(prompt.length>200000 || images.length>4)throw authorError('author_context_full');
@@ -119,7 +121,7 @@ export async function runAuthorLoop(input,deps={}) {
   let answer;
   const expectedArgv=session?sessionArgv(model,session.id,session.started):authorArgv(model);
   // F8: Opus a0 write mwncecq0-53c79e timed out at 1200.190s; 30 minutes leaves room under the same one-hour guard.
-  try {answer=await deps.askAuthor(prompt,images,{model,...(session?{session,maxBillableTokens:measured.caps.billableTotal-spent,maxContextTokens:measured.caps.contextPeak}:{}),signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?(model==='opus'?1800000:1200000):600000,3600000-(now()-started)))});}
+  try {answer=await deps.askAuthor(prompt,images,{model,...(session?{session,maxBillableTokens:measured.caps.billableTotal-spent,maxContextTokens:measured.caps.contextPeak}:{}),signal:input.signal,timeoutMs:Math.max(1,Math.min(kind==='write'?(model==='opus'?1800000:1200000):600000,limitMs-(now()-started)))});}
   catch(error){const usage=normalizeAuthorUsage(null,{promptChars:prompt.length,images:images.length,...measured.reserves});const entry={n,round,kind,status:'error',usage,reserve,spentBefore:spent,wallS:(now()-t)/1000};calls.push(entry);spent+=usage.billable;contextPeak=Math.max(contextPeak,usage.context);journal(entry);state('failed');deps.onCall?.(entry);throw error;}
   write(path.join(dir,`reply-${n}.txt`),answer.text);
   const usage=normalizeAuthorUsage(answer.rawUsage??answer.usage,{promptChars:prompt.length,images:images.length,...measured.reserves});
@@ -194,7 +196,7 @@ export async function runAuthorLoop(input,deps={}) {
     if(unused)journal({kind:'budget_unused',round,secondsPerFrame:timing,budget:input.renderBudget});
     const budgetText=unused?`budget_unused: ${timing.toFixed(2)} s/frame is under half of the ${input.renderBudget} s/frame budget while ${flatNums.join(', ')} measure as flat or plain. The budget is meant to be spent: enrich the single largest hero surface (bands, bump, a colour ramp, more geometry, light) until a preview costs near the budget. The ceiling is unchanged.`:'';
     const layoutText=layout?layoutRefusal(layout):'';
-    const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,60-(now()-started)/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+surfaceText+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}${budgetText?`\n${budgetText}`:''}${layoutText?`\n${layoutText}`:''}\n${feedback}`;
+    const makePrompt=()=>AUTHOR_HEADER+'\n'+authorState({buildScript:code,overlaySpec:spec,sha256,history:replay,round,minutesLeft:Math.max(0,(limitMs-(now()-started))/60000)})+'\n'+buildLookPrompt({brief:input.brief,script:input.script,shots,buildScript:code,kitContract:input.kitContract,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,previous:replay,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+surfaceText+`\nWrap that exact look object in {look,notes,overlay?}. ${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}${budgetText?`\n${budgetText}`:''}${layoutText?`\n${layoutText}`:''}\n${feedback}`;
     const sessionPrompt=()=>sessionLookPrompt({shots,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+surfaceText+`\n${budgetText}\n${layoutText}\n${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}\n${feedback}`;
     let prompt=session?sessionPrompt():makePrompt();while(prompt.length>200000&&replay.length){replay.shift();prompt=session?sessionPrompt():makePrompt();}
     const text=await ask(prompt,images,editRefusals>=2&&!resynced?'resync':'look',dir);if(editRefusals>=2)resynced=true;
