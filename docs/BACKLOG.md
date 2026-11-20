@@ -10,6 +10,17 @@ Decision: `ForgeBrain/decisions/2026-11-20-owner-separate-uploader-on-vm.md`. Pl
 - Dashboard: "Send to uploader" in the Publish box (`routes/uploader.js`), results read back in the schedule loop. Manifest category is Education (27); the direct Publish button still sends 24.
 - Not proved by a real upload yet. Owner steps before the first one: add the redirect address in Google Cloud, create the channels, connect them on the uploader page.
 
+### Speed and faults 2026-11-20 17:38 · MERGED 0f60c32 · claude-pro · claude-fable-5-2 (review codex · gpt-6.1-sol)
+
+Plan: `ForgeBrain/plans/2026-11-20-speed-and-faults-plan.md`; decision `ForgeBrain/decisions/2026-11-20-owner-answers-1740.md`. Not yet shown by a video run.
+
+- A: the card is reserved per voice step, preview render and final render, not for the whole author session; card waits do not count on the author clock.
+- B: a failed direction call is tried once more; after two failures the job ends `author_direction` with `failure_cause` (a fixed sentence).
+- C: ACE-Step no longer refuses on card use by desktop apps; fallback reasons `pin_mismatch`, `card_busy`, `card_memory`, `card_unknown`, `generation_failed`, `timeout`. Proof `output/agent-jobs/acestep-proof-1120`.
+- G: Openverse step removed (owner); register entry kept, marked not in use.
+- `scripts/start_dashboard.ps1` now sets the standing settings itself (author session, HyperFrames text, ACE-Step music and the C1 paths).
+- NEXT, on the owner's word: batch D (3 videos, Opus, Sol monitors). Then lane E (the first write costs 8 to 10 times its scene code) and F (final render).
+
 ### Owner fixes 2026-11-20 13:04 · MERGED 1b77359 · claude-pro · claude-fable-5-2 (review codex · gpt-6.1-sol)
 
 Decision: `ForgeBrain/decisions/2026-11-20-owner-answers-1304.md`. None proved by a real video run yet.
