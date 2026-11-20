@@ -2,6 +2,7 @@
 // (episode/codebuilt/start.js). Errors are generic. The optional key route is passed through unchanged; start.js checks it.
 import { getActiveChannel } from './channelsManager.js';
 import { codebuiltStarter, StartError } from '../episode/codebuilt/start.js';
+import { pipelineHalt } from './control.js';
 
 const BODY_CAP = 16 * 1024;
 
@@ -27,8 +28,12 @@ function fail(res, error) {
 
 const handler = (task) => async (req, res) => { try { await task(req, res); } catch (error) { fail(res, error); } };
 
+// Pause and the Kill Switch also refuse a single video and a resume (owner 2026-11-20).
+const refuseWhenHalted = (res) => { const code = pipelineHalt(); if (!code) return false; res.status(409).json({ error: code === 'pipeline_paused' ? 'The pipeline is paused. Press Start in the sidebar to make videos again' : 'The Kill Switch is on. Press Start in the sidebar to make videos again', code }); return true; };
+
 export const startCodebuiltHandler = handler(async (req, res) => {
   const input = body(req, ['topic', 'duration', 'voice', 'channelId', 'buildModel', 'route']);
+  if (refuseWhenHalted(res)) return;
   res.status(202).json(codebuiltStarter().start({ ...input, channelId: input.channelId ?? getActiveChannel(req)?.id }));
 });
 export const listCodebuiltHandler = handler(async (req, res) => {
@@ -40,4 +45,4 @@ export const listCodebuiltHandler = handler(async (req, res) => {
 export const getCodebuiltHandler = handler(async (req, res) => { res.json(codebuiltStarter().get(String(req.params.jobId))); });
 export const abortCodebuiltHandler = handler(async (req, res) => { body(req, []); res.json(codebuiltStarter().abort(String(req.params.jobId))); });
 // correctedOverlay (an overlay spec object) finishes a job that stopped on overlay_layout_blocked from the post step, without a new render.
-export const resumeCodebuiltHandler = handler(async (req, res) => { const input = body(req, ['correctedOverlay']); res.status(202).json(codebuiltStarter().resume(String(req.params.jobId), input.correctedOverlay === undefined ? {} : { correctedOverlay: input.correctedOverlay })); });
+export const resumeCodebuiltHandler = handler(async (req, res) => { const input = body(req, ['correctedOverlay']); if (refuseWhenHalted(res)) return; res.status(202).json(codebuiltStarter().resume(String(req.params.jobId), input.correctedOverlay === undefined ? {} : { correctedOverlay: input.correctedOverlay })); });

@@ -46,6 +46,19 @@ export function isWorkerUrl(value) {
   try { return isHttpUrl(value) && !isBlockedWorkerHost(new URL(value).hostname); } catch { return false; }
 }
 
+/**
+ * Why no new video may start now, or null. Pause: 'pipeline_paused'. Kill Switch or stop: 'pipeline_halted'.
+ * Start in the sidebar clears both. A state that cannot be read never blocks.
+ */
+export function pipelineHalt(state) {
+  let s = state;
+  if (s === undefined) { try { s = readLocalState(); } catch { return null; } }
+  if (!s || typeof s !== 'object') return null;
+  if (s.kill_switch_active === true || s.status === 'stopped') return 'pipeline_halted';
+  if (s.status === 'paused') return 'pipeline_paused';
+  return null;
+}
+
 export function onKillSwitch(hook) {
   killHooks.add(hook);
   return () => killHooks.delete(hook);

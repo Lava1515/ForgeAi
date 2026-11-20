@@ -1,8 +1,8 @@
 // KAN-928 (CB16): routes of the owner-started code-built batch; reads are open,
 // like the single-job routes. The body is checked against a fixed key list and a size cap, errors are generic (no path, stack or model text), and the
 // run belongs to the channel the owner has active unless the request names one. The single-job routes in episodes.js are untouched.
-import { codebuiltRunCoordinator, RunError } from '../episode/codebuilt/runCoordinator.js';
-import { StartError } from '../episode/codebuilt/start.js';
+import { codebuiltRunCoordinator, RunError, ACTIVE_RUN } from '../episode/codebuilt/runCoordinator.js';
+import { StartError, codebuiltStarter, ACTIVE } from '../episode/codebuilt/start.js';
 
 const BODY_CAP = 4 * 1024;
 export const RUN_BODY_KEYS = Object.freeze(['count', 'genre', 'theme', 'topic', 'type', 'voice', 'duration', 'buildModel', 'channelId', 'route']);
@@ -20,6 +20,17 @@ const fail = (res, error) => {
   return res.status(500).json({ error: 'The run failed', code: 'internal' });
 };
 const wrap = (task) => async (req, res) => { try { await task(req, res); } catch (error) { fail(res, error); } };
+
+/**
+ * Kill Switch (owner 2026-11-20): aborts the running batch and every queued or running video. Never throws; a run or job that is already
+ * final is skipped. Injectable for the test.
+ */
+export function stopAllCodebuilt({ coordinator = codebuiltRunCoordinator(), starter = codebuiltStarter() } = {}) {
+  const stopped = { runs: 0, jobs: 0 };
+  try { for (const run of coordinator.listRuns()) if (ACTIVE_RUN.includes(run.status)) { try { coordinator.abortRun(run.id); stopped.runs += 1; } catch { /* not live */ } } } catch { /* nothing to stop */ }
+  try { for (const job of starter.list()) if (ACTIVE.includes(job.status)) { try { starter.abort(job.id); stopped.jobs += 1; } catch { /* not live */ } } } catch { /* nothing to stop */ }
+  return stopped;
+}
 
 export const startCodebuiltRunHandler = wrap(async (req, res) => {
   const input = runBody(req);

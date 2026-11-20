@@ -26,6 +26,7 @@ import { cleanChannelVideoTypes, getAllChannels, getChannelById } from '../../ro
 import { createAutoTopicProvider, AutoTopicError, jobFormatsFor } from './autoTopic.js';
 import { sanitizeRouterCall } from './routerCalls.js';
 import { isWhatIfTopic } from './productionChoices.js';
+import { pipelineHalt } from '../../routes/control.js';
 
 export const RUN_VERSION = 'codebuilt-run-v1';
 export const MAX_COUNT = 15;
@@ -48,6 +49,7 @@ const MESSAGES = Object.freeze({
   theme_provider_failed: 'The topic pick could not reach a model', theme_no_candidates: 'The topic pick returned no usable topics',
   theme_all_rejected: 'Every proposed topic was rejected as a repeat or by the channel rules', theme_scoring_failed: 'The topic scoring failed',
   resolve_failed: 'The automatic choices could not be resolved', job_lost: 'The video job could not be found', aborted: 'Aborted',
+  pipeline_paused: 'The pipeline is paused. Press Start in the sidebar to make videos again', pipeline_halted: 'The Kill Switch is on. Press Start in the sidebar to make videos again',
   run_aborted: 'The run was aborted before this video started', interrupted: 'The server restarted while the run was going',
   not_started: 'The run ended before this video started', start_failed: 'The video job could not be queued',
 });
@@ -160,7 +162,10 @@ export function createCodebuiltRunCoordinator({
   pickTopic = createAutoTopicProvider({ getChannel: (id) => withoutLegacyLoopDefault(getChannel(id)) }),
   resolveAuto = resolveAutoChoices, autoInputs = loadAutoInputs,
   clock = now, newId = () => `run-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`, pollMs = 1000,
+  // The sidebar's Pause and Kill Switch (owner 2026-11-20). Off unless given: the shared coordinator passes the dashboard's own state.
+  halt = () => null,
 } = {}) {
+  const haltNow = () => { try { return halt() ?? null; } catch { return null; } };
   const theStarter = () => starter ?? codebuiltStarter();
   const recFile = (id) => path.join(runsDir, id, 'run.json');
   const live = new Map(); // id -> { rec, ctl }
@@ -394,6 +399,9 @@ export function createCodebuiltRunCoordinator({
       }
       for (let i = 0; i < rec.count; i += 1) {
         if (inFlight.length >= 2) await inFlight.shift();
+        // Pause: the videos already in flight finish, the next one waits for Start. Kill Switch: the run is aborted.
+        while (!ctl.aborted && haltNow() === 'pipeline_paused') await sleep(pollMs);
+        if (haltNow() === 'pipeline_halted') ctl.aborted = true;
         const started = await startVideo(i);
         if (started) inFlight.push(started.settled);
         if (ctl.aborted) { stopRest(i + 1); break; }
@@ -429,6 +437,8 @@ export function createCodebuiltRunCoordinator({
       if (!supportsRequestedTypes(channel, requested.type)) throw new RunError('channel_type_mismatch');
       const formats = cleanJobFormats([...(requested.formats ?? []), ...jobFormatsFor({ profile: channel.profile, type: requested.type })]);
       const req = { ...requested, route: effectiveJobRoute(requested.route, formats), channelId: channel.id };
+      const halted = haltNow();
+      if (halted) throw new RunError(halted, 409);
       if (activeId) throw new RunError('run_active', 409);
       const id = newId();
       if (!RUN_ID.test(id)) throw new RunError('internal', 500);
@@ -470,5 +480,5 @@ export function createCodebuiltRunCoordinator({
 
 let shared = null;
 /** The process-wide coordinator used by the routes. Tests pass their own through setCodebuiltRunCoordinator(). */
-export function codebuiltRunCoordinator() { return (shared ??= createCodebuiltRunCoordinator()); }
+export function codebuiltRunCoordinator() { return (shared ??= createCodebuiltRunCoordinator({ halt: pipelineHalt })); }
 export function setCodebuiltRunCoordinator(coordinator) { shared = coordinator; }

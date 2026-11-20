@@ -7,7 +7,7 @@ import http from 'node:http';
 import { format } from 'node:util';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { getStatusHandler, postControlHandler } from './routes/control.js';
+import { getStatusHandler, postControlHandler, onKillSwitch } from './routes/control.js';
 import { getProductsHandler, getMediaHandler, deleteProductHandler, updateProductHandler } from './routes/products.js';
 import { sseEventsHandler, activeRunsHandler, broadcastEvent } from './routes/runs.js';
 import { onGeminiFallback, clearLastGeminiFallback, resetAgyBlock } from './routes/gemini.js';
@@ -38,7 +38,7 @@ import {
   researchRulesHandler,
 } from './routes/channelsRoutes.js';
 import { startCodebuiltHandler, listCodebuiltHandler, getCodebuiltHandler, abortCodebuiltHandler, resumeCodebuiltHandler } from './routes/codebuilt.js';
-import { startCodebuiltRunHandler, listCodebuiltRunsHandler, getCodebuiltRunHandler, abortCodebuiltRunHandler } from './routes/codebuiltRuns.js';
+import { startCodebuiltRunHandler, listCodebuiltRunsHandler, getCodebuiltRunHandler, abortCodebuiltRunHandler, stopAllCodebuilt } from './routes/codebuiltRuns.js';
 import { mountJobArtifacts } from './routes/jobArtifacts.js';
 import { mountJobProgress } from './routes/jobProgress.js';
 import { researchCandidatesHandler } from './routes/videoResearch.js';
@@ -155,6 +155,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CLIENT_DIST = process.env.CLIENT_DIST || path.resolve(__dirname, '../client/dist');
 
+const killCodebuilt = () => stopAllCodebuilt(); // the hook is called with the reason text; it is not an option object
+
 export function createApp() {
   const app = express();
 
@@ -191,6 +193,7 @@ export function createApp() {
 
   // Status, kill switch, and the model CLI logins
   app.get('/api/status', getStatusHandler);
+  onKillSwitch(killCodebuilt); // the same function every time, so a second app adds no second hook
   app.post('/api/control', postControlHandler);
   app.post('/api/gemini/dismiss-fallback', (req, res) => {
     clearLastGeminiFallback();
