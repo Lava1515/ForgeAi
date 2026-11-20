@@ -150,3 +150,45 @@ test('surface report requires first-round fix, is recorded once and adds no surf
  assert.ok(fs.existsSync(path.join(r.stage,'author/a0/r0/surfaces.json')));
  assert.ok(!fs.existsSync(path.join(r.stage,'author/a0/r1/surfaces.json')));
 });
+
+// claude-pro · claude-fable-5-2 · 2026-11-20 (plan 2026-11-20-speed-and-faults, lanes A and B; run-mwow3a91-f47cff).
+function adapterRig(direction) {
+ const r=rig();
+ const config=path.join(root,'card-config');fs.mkdirSync(config,{recursive:true});
+ const capsFile=path.join(r.stage,'measured.json');fs.writeFileSync(capsFile,JSON.stringify({measuredAt:'2026-11-17',cliVersion:'2.1.322',model:'sonnet',runs:[{previews:3},{previews:3},{previews:3}],caps:{billableTotal:1472004,contextPeak:900000},reserves:{IMAGE_RESERVE:4000,OUTPUT_RESERVE:40000}}));
+ const wordsPath=path.join(r.stage,'words.json');fs.writeFileSync(wordsPath,JSON.stringify({dur:28,words:[]}));
+ const good={direction:{narrations:['spoken'],places:[{id:'p1',base:'custom',what:'world'}],shots:[{place:'p1',shows:'subject',action:'moves',camera:'orbit'}]},shotStarts:[0]};
+ const input={rec:{id:'card',topic:'Journey',duration:30,route:'authored',formats:['journey']},stage:r.stage,signal:new AbortController().signal,scripted:{script:'narration',brief:'brief'},voice:{wordsPath},pathPack:{rules:{routes:{overlay:{render:{RENDER_BUDGET_S_PER_FRAME:1.5}}}}},jobsDir:r.stage,runtime:{runner:{}},
+  pl:{planCodebuiltDirection:async()=>direction(good),frameCountFor:()=>900,authorBuildPrompt:()=> 'Write code',validateBuildScript:()=>[],pythonSyntaxCheck:()=>null,pythonQaStructureCheck:()=>[]},
+  injected:{...r.deps,capsFile,repoRoot:path.resolve(import.meta.dirname,'../../..'),configDir:config,probe:async()=>({passed:true}),sheetMaker:{makeSheets:r.deps.makeSheets}}};
+ return {r,input};
+}
+const withAuthorMode=async fn=>{const prior=process.env.FORGEAI_AUTHOR_MODE;process.env.FORGEAI_AUTHOR_MODE='1';try{return await fn();}finally{if(prior===undefined)delete process.env.FORGEAI_AUTHOR_MODE;else process.env.FORGEAI_AUTHOR_MODE=prior;}};
+
+test('the card is held for each preview render only, never during an author text call',()=>withAuthorMode(async()=>{
+ const {r,input}=adapterRig(good=>good);let holding=false,holds=0,textWhileHolding=0;
+ const ask=input.injected.askAuthor;input.injected.askAuthor=async(...a)=>{if(holding)textWhileHolding++;return ask(...a);};
+ const out=await runAuthorFor({...input,gpu:async action=>{holds++;holding=true;try{return await action();}finally{holding=false;}}});
+ assert.equal(out.accepted,true);assert.equal(holds,r.counts().previews);assert.ok(holds>=1);assert.equal(textWhileHolding,0);
+}));
+
+test('time spent waiting for the card does not count on the author clock',async()=>{
+ for(const reported of [true,false]){
+  const r=rig();let t=0;r.deps.now=()=>t;const render=r.deps.runPreview;
+  // 50 minutes behind another video's final render, then 20 minutes of this author's own preview.
+  r.deps.runPreview=async req=>{t+=50*60000;if(reported)req.onCardWait(50*60000);t+=20*60000;return render(req);};
+  if(reported){const out=await runAuthorLoop(r.input,r.deps);assert.equal(out.accepted,true);assert.match(fs.readFileSync(path.join(r.stage,'author/a0/journal.jsonl'),'utf8'),/"kind":"card_wait"/);}
+  else await assert.rejects(runAuthorLoop(r.input,r.deps),{code:'author_time'});
+ }
+});
+
+test('a failed direction call is tried once more; two failures save the cause',()=>withAuthorMode(async()=>{
+ {let n=0;const {input}=adapterRig(good=>{if(++n===1)throw Object.assign(Error('socket hang up'),{code:'ECONNRESET'});return good;});
+  const out=await runAuthorFor(input);assert.equal(out.accepted,true);assert.equal(n,2);}
+ {let n=0;const {r,input}=adapterRig(()=>{n++;throw Object.assign(Error('CLI exited 1 at C:\\Users\\someone\\claude.exe'),{code:'CLI_FAILED'});});
+  await assert.rejects(runAuthorFor(input),e=>e.code==='CLI_FAILED'&&/^CLI_FAILED: CLI exited 1 at <path>$/.test(e.causeText));
+  assert.equal(n,2);assert.equal(r.counts().calls,0);
+  assert.match(JSON.parse(fs.readFileSync(path.join(r.stage,'author/direction-error.json'),'utf8')).cause,/^CLI_FAILED/);}
+ {let n=0;const {input}=adapterRig(()=>{n++;throw Object.assign(Error('usage limit reached'),{quota:true});});
+  await assert.rejects(runAuthorFor(input),{quota:true});assert.equal(n,1,'a usage limit is not retried');}
+}));

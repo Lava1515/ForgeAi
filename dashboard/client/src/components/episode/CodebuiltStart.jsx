@@ -420,6 +420,7 @@ export default function CodebuiltStart() {
         <div className="flex items-center justify-between gap-3"><span>{row.topic} · {jobLabel(row)}</span>{(row.status === 'failed' || row.status === 'aborted') && <Button type="button" size="sm" variant="secondary" disabled={!row.resumable || otherActive || busy} onClick={() => resume(row.id)} data-codebuilt-resume={row.id}>Resume</Button>}</div>
         {((row.status === 'failed' || row.status === 'aborted') || row.resumes?.length > 0) && <p className="mt-1 text-ink-400">Resumes from {row.resumeFrom || 'the first missing step'}{row.reuses?.length ? ` · reuses ${row.reuses.join(', ')}` : ''}{row.resumeBlockedReason ? ` · ${row.resumeBlockedReason}` : ''}</p>}
         {row.visual_check?.approved === false && <p className="mt-1 text-amber-300">Visual check not approved: {(row.visual_check.findings || []).map((f) => f.issue).filter(Boolean).join('; ')}</p>}
+        {row.failure_cause && <p className="mt-1 text-ink-400">Cause: {row.failure_cause}</p>}
         {row.exposure_repair && <p className="mt-1 text-amber-300">Black areas were found and the one repair failed; the first video was kept. {(row.exposure_repair.findings || []).join('; ')}</p>}
       </div>)}
         {jobs.length > RECENT_JOB_ROWS && <Button type="button" size="sm" variant="ghost" onClick={() => setAllJobs((all) => !all)} data-codebuilt-job-rows-toggle>{allJobs ? `Show only the last ${RECENT_JOB_ROWS}` : `Show all ${jobs.length} videos`}</Button>}

@@ -107,7 +107,9 @@ export async function runAuthorLoop(input,deps={}) {
  // claude-pro | claude-fable-5-2 | 2026-11-20 (owner 13:04): the repair has its own 30 minute clock. Job mwo3d0mg-da7091 used 60.0003
  // minutes before its render, so the shared clock killed the repair on its first step.
  const priorState=input.finalExposureReturn===true?read(path.join(root,'session.json')):null,prior=priorState?.counters;
- const now=deps.now??Date.now,started=now(),limitMs=priorState?1800000:3600000,argvSha256=hash(JSON.stringify(session?sessionArgv(model,session.id,true):authorArgv(model))),calls=[],history=[];
+ // claude-pro | claude-fable-5-2 | 2026-11-20 (plan speed-and-faults, lane A): the card is reserved per preview, not for the whole session, so a
+ // preview can wait behind another video's final render. That wait is added to `started`: the author's clock counts its own work only.
+ const now=deps.now??Date.now,limitMs=priorState?1800000:3600000;let started=now();const argvSha256=hash(JSON.stringify(session?sessionArgv(model,session.id,true):authorArgv(model))),calls=[],history=[];
  let spent=prior?.billableTotal??0,contextPeak=prior?.contextPeak??0,outputTotal=prior?.outputTotal??0,repairs=0,round=0,previews=0,code='',spec=null,feedback='',editRefusals=0,resynced=false;
  const journal=entry=>{const file=path.join(stage,'journal.jsonl');if(fs.existsSync(file))regular(file);fs.appendFileSync(file,JSON.stringify(entry)+'\n');};
  const state=status=>{const value={version:1,jobId:input.jobId,model,startedAt:started,cliVersion:input.probe?.cliVersion??null,argvSha256,switch:{env:true,job:'authored'},caps:measured.caps,counters:{calls:(prior?.calls??0)+calls.length,rounds:previews,minutes:(now()-started)/60000,billableTotal:spent,contextPeak,outputTotal},attempt,status};json(path.join(stage,'session.json'),value);json(path.join(root,'session.json'),value);};
@@ -149,7 +151,7 @@ export async function runAuthorLoop(input,deps={}) {
    const dir=path.join(stage,`r${round}`);fs.mkdirSync(dir);write(path.join(dir,'build.py'),code);json(path.join(dir,'overlay.json'),pair);
    const sha256=hash(code),overlaySha256=hash(JSON.stringify(spec)),previewId=`${input.jobId}-a${attempt}-pv${round+1}`;
    previews++;deps.onPhase?.('previewing');let preview=null,crash=null;
-   try{preview=await timed('preview',()=>deps.runPreview({jobId:previewId,buildScript:code,overlaySpec:spec,spec:{frames,scale:50},signal:input.signal}));}
+   try{preview=await timed('preview',()=>deps.runPreview({jobId:previewId,buildScript:code,overlaySpec:spec,spec:{frames,scale:50},signal:input.signal,onCardWait:ms=>{if(Number.isFinite(ms)&&ms>0){started+=ms;journal({kind:'card_wait',round,wallS:ms/1000});}}}));}
    catch(error){if(!['FENCE_FAILED','AGENT_EARLY_STOP','MISSING_OUTPUT','TIMEOUT'].includes(error.code)||error.detail?.backstop)throw error;crash=String(error.diagnostic??error.code).slice(0,2000);}
    guard();let sheets=[],kit=null,timing=null,layout=null;
    if(preview){
@@ -231,7 +233,9 @@ export async function runAuthorLoop(input,deps={}) {
  }catch(error){state(error.code??'author_failed');json(path.join(stage,'error.json'),{code:error.code??'author_failed'});throw error;}
 }
 // Integration adapter: direction is separate; all preview/sheet/transport effects remain injectable.
-export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected={},addCall,onPhase}) {
+// One redacted line of an error, for a saved failure cause (same rules as the topic pick's cause).
+const causeLine=e=>(String(e?.code??e?.name??'Error')+': '+String(e?.message??e).replace(/[A-Za-z]:[\\/][^ ]*/g,'<path>').replace(/(?:\/home|\/Users)\/[^ ]*/g,'<path>').replace(/[A-Za-z0-9_-]{32,}/g,'<redacted>').replace(/\s+/g,' ')).slice(0,300);
+export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected={},addCall,onPhase,gpu}) {
  const {askAuthor,askAuthorSession,probeAuthorSupport,checkAuthorConfig}=await import('./authorCall.js');
  const {createPreviewSheetMaker}=await import('./previewSheet.js');
  const {createPreviewRunFn}=await import('../engines/codebuilt/composePreview.js');
@@ -248,7 +252,20 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  let directed;
  const directionFile=path.join(stage,'author','direction.json'), identity=hash(scripted.script+JSON.stringify(words));
  try{const saved=read(directionFile);if(saved.identity===identity)directed=saved.directed;}catch{}
- if(!directed) directed=await pl.planCodebuiltDirection({route:'authored',topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,beats:scripted.shots,words,pathPack,formats:rec.formats,choices:rec.choices,premise:rec.premise,signal},{onCall:addCall});
+ if(!directed){
+  // Lane B (job mwp149sk-acc1f6: the direction call errored after 3.6 s and nothing said why): one more try, then the cause is saved.
+  const askDirection=()=>pl.planCodebuiltDirection({route:'authored',topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,beats:scripted.shots,words,pathPack,formats:rec.formats,choices:rec.choices,premise:rec.premise,signal},{onCall:addCall});
+  const passThrough=e=>signal?.aborted||e?.aborted||e?.quota||e?.detail?.reason==='quota'||e?.unavailable; // start.js names these itself
+  try{directed=await askDirection();}catch(first){
+   if(passThrough(first))throw first;
+   try{directed=await askDirection();}catch(second){
+    if(passThrough(second))throw second;
+    const cause=causeLine(second);
+    try{json(path.join(stage,'author','direction-error.json'),{cause,first:causeLine(first)});}catch{ /* the failure itself is still reported */ }
+    throw Object.assign(second,{causeText:cause}); // the error itself, with its cause line; start.js reports it as author_direction
+   }
+  }
+ }
  json(directionFile,{identity,directed});
  const direction=directed.direction,shotStarts=directed.shotStarts,nframes=pl.frameCountFor(words),places=direction.places.map(p=>p.id);
  const plan={nframes,shotStarts,places,direction,directionMarkdown:directionMarkdown(direction,shotStarts,nframes/30),lookShots:direction.shots.map(s=>({subject:s.shows??s.action??'subject',narration:direction.narrations?.[direction.shots.indexOf(s)]??'recorded narration'})),kitContract:pl.AUTHOR_KIT_CONTRACT??pl.KIT_CONTRACT};
@@ -270,7 +287,13 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  const base=injected.runPreview??(request=>createPreviewRunFn({runner:{run:args=>runtime.runner.run({...args,route:'authored',overlaySpec:request.overlaySpec})},inputs:{script:scripted.script,voWav:voice.voPath,words:voice.wordsPath,pathPack,brief:scripted.brief},jobRoot:jobsDir})(request));
  const layoutCheck=injected.layoutCheck??createLayoutGate({execFileFn:hostExecFile}).check;
  const sessionAsk=injected.askAuthorSession??((p,i,o)=>askAuthorSession(p,i,{...injected,...o}));
- const outcome=await runAuthorLoop(input,{...injected,layoutCheck,askAuthor:input.sessionEnabled?sessionAsk:ask,runPreview:request=>base({...request,route:'authored'}),makeSheets:args=>sheetMaker.makeSheets(args),onCall:addCall,onPhase});
+ // Lane A: only the preview render holds the card. `gpu` is start.js's withGpu; the time spent waiting for it is reported to the loop's clock.
+ const cardPreview=({onCardWait,...request})=>{
+  if(typeof gpu!=='function')return base({...request,route:'authored'});
+  const asked=Date.now();
+  return gpu(()=>{onCardWait?.(Date.now()-asked);return base({...request,route:'authored'});});
+ };
+ const outcome=await runAuthorLoop(input,{...injected,layoutCheck,askAuthor:input.sessionEnabled?sessionAsk:ask,runPreview:cardPreview,makeSheets:args=>sheetMaker.makeSheets(args),onCall:addCall,onPhase});
  // codex - gpt-6.1-sol - 2026-11-18 11:57 +02:00: D2 is a forecast gate, including accepted final retries.
  const verifyReceipt=()=>{
   verifyAuthorReceipt(outcome,input);

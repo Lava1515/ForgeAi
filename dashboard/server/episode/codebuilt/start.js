@@ -99,7 +99,7 @@ const MESSAGES = Object.freeze({
   launch_not_approved: 'The code-built launch is not approved yet (waiting for the security activation); nothing was started',
   planner_unavailable: 'The code-built planner is not available', script_unavailable: 'The code-built script writer is not available',
   runner_unavailable: 'The code-built runner is not available', script_failed: 'The script step failed', voice_failed: 'The voice step failed',
-  author_caps_unmeasured: 'Author caps have not been measured', author_state_outside_code: 'Author config must resolve inside the repository', author_model_unavailable: 'Only Sonnet may author', author_transport_unavailable: 'Author transport probe failed', author_rounds: 'Author preview limit reached', author_time: 'Author time limit reached', author_calls: 'Author call limit reached', author_tokens: 'Author token limit reached', author_context_full: 'Author context limit reached', author_tool_event: 'Author tool event refused', tools_offered: 'Author tools refused', author_receipt: 'Author receipt mismatch', author_hash: 'Author accepted pair changed', author_reply: 'Author replies refused', author_failed: 'Author failed',
+  author_caps_unmeasured: 'Author caps have not been measured', author_state_outside_code: 'Author config must resolve inside the repository', author_model_unavailable: 'Only Sonnet may author', author_transport_unavailable: 'Author transport probe failed', author_rounds: 'Author preview limit reached', author_time: 'Author time limit reached', author_calls: 'Author call limit reached', author_tokens: 'Author token limit reached', author_context_full: 'Author context limit reached', author_tool_event: 'Author tool event refused', tools_offered: 'Author tools refused', author_receipt: 'Author receipt mismatch', author_hash: 'Author accepted pair changed', author_reply: 'Author replies refused', author_direction: 'The shot plan call failed twice', author_failed: 'Author failed',
   planner_failed: 'The planner step failed', too_short: 'The voice is too short for the requested video length', too_long: 'The voice is too long for the requested video length', build_failed: 'The build failed', draft_failed: 'The draft could not be written', aborted: 'Aborted by the owner', interrupted: 'The server restarted while the job ran', internal: 'The job failed', build_model_unavailable: 'The requested build model is not available',
   fact_check_blocked: 'The fact check did not verify the script', fact_check_failed: 'The fact check step failed', fact_check_unavailable: 'The fact check is not available',
   retrieval_unavailable: 'The fact check could not retrieve and validate independent sources; no voice or build was started',
@@ -220,7 +220,7 @@ const finalJobOf = (rec) => (rec.exposure_return && !rec.exposure_return_failed 
 export function publicJob(rec) {
   if (!rec) return null;
   const { id, topic, duration, status, step, createdAt, updatedAt, error, draftId, steps, buildModel, length_check: lengthCheckRec, runId, batchIndex } = rec;
-  return { route: checkJobRoute(rec.route), id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message, ...(Array.isArray(error.blocking) ? { blocking: error.blocking } : {}) } : null, ...(rec.post_correction ? { post_correction: rec.post_correction } : {}), ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}),
+  return { route: checkJobRoute(rec.route), id, topic, duration, status, step: step ?? null, createdAt, updatedAt, draftId: draftId ?? null, steps: steps ?? [], error: error ? { code: error.code, message: error.message, ...(Array.isArray(error.blocking) ? { blocking: error.blocking } : {}) } : null, ...(rec.post_correction ? { post_correction: rec.post_correction } : {}), ...(rec.visual_check ? { visual_check: rec.visual_check } : {}), ...(buildModel ? { buildModel } : {}), ...(lengthCheckRec ? { length_check: lengthCheckRec } : {}), ...(runId ? { runId, batchIndex } : {}), ...(rec.resumes?.length ? { resumes: rec.resumes } : {}), ...(rec.failure_cause && rec.status === 'failed' ? { failure_cause: String(rec.failure_cause).slice(0, 300) } : {}),
     // A black-area repair that failed: the first finished video was kept. Findings are the check's own lines, capped.
     ...(rec.exposure_return_failed ? { exposure_repair: { failed: String(rec.exposure_return_failed).slice(0, 60), findings: (rec.exposure_check?.findings ?? []).filter(f => typeof f === 'string').slice(0, 5).map(f => f.slice(0, 200)) } } : {}) };
 }
@@ -715,8 +715,11 @@ export function createCodebuiltStarter({
     let plan;
     {
       step(rec,'planning');
-      try { plan = await withGpu(signal,jobsDir,()=>runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected:authorLoop,addCall,onPhase:name=>step(rec,name)})); }
+      // Lane A (plan 2026-11-20-speed-and-faults): the author's text calls no longer hold the card; runAuthorFor takes it per preview render.
+      // In the Opus batch of 2026-11-20 the first write alone held it 16 to 21 minutes and the next video's 1.5 minute voice step waited 21 to 24.
+      try { plan = await runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected:authorLoop,addCall,onPhase:name=>step(rec,name),gpu:action=>withGpu(signal,jobsDir,action)}); }
       catch(error) {
+        if (typeof error?.causeText === 'string' && !signal.aborted) { rec.failure_cause = error.causeText.slice(0, 300); save(rec); throw new StartError('author_direction', 502); }
         if(signal.aborted || error.aborted) throw new StartError('aborted');
         if(error.quota || error.detail?.reason === 'quota') throw new StartError('claude_limit',502);
         if(error.unavailable || error.code === 'look_unavailable') throw new StartError('look_unavailable',502);
