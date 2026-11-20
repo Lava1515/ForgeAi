@@ -75,6 +75,13 @@ export async function intake(dirs, packages, now = () => new Date().toISOString(
   for (const id of names) {
     const folder = path.join(dirs.inbox, id);
     if (!isSafeId(id) || !plain(folder, 'dir') || !plain(path.join(folder, 'READY'), 'file')) continue;
+    // Exactly the three files and nothing else: a folder that holds a link or a subfolder is never moved or deleted by us.
+    let entries = [];
+    try { entries = fs.readdirSync(folder); } catch { continue; }
+    if (entries.some((name) => !['video.mp4', 'manifest.json', 'READY'].includes(name) || !plain(path.join(folder, name), 'file'))) {
+      events.push({ id, state: 'ignored', reason: 'the folder holds something other than video.mp4, manifest.json and READY; left untouched' });
+      continue;
+    }
     const prior = packages[id];
     // The same package sent again changes nothing, unless the earlier one ended without a video on YouTube.
     if (prior && !['refused', 'removed'].includes(prior.state)) {
