@@ -216,7 +216,12 @@ export async function uploaderSendHandler(req, res) {
     const title = (typeof req.body?.title === 'string' && req.body.title.trim()) || meta.listing_copy?.title || meta.product?.title || meta.social?.caption || '';
     const tags = Array.isArray(req.body?.tags) ? req.body.tags.slice(0, 50) : undefined;
     const channel = getChannelById(meta.channel_id || 'default');
-    const manifest = JSON.parse(JSON.stringify(buildManifest({ draftId, meta, channel, title, tags, sha256: await sha256File(videoFile), submissionId: open === 'resend' ? meta.uploader.submission_id : undefined })));
+    const fileHash = await sha256File(videoFile);
+    // The same send again must be the same video for the same channel; otherwise the first one's answer could never land.
+    if (open === 'resend' && (meta.uploader.sha256 !== fileHash || meta.uploader.youtube_channel_id !== String(channel?.youtube_channel_id || '').trim())) {
+      return res.status(409).json({ error: 'This draft was already sent with another video file or for another channel. Wait for the uploader to answer, or remove it on the uploader page first.', sent: meta.uploader });
+    }
+    const manifest = JSON.parse(JSON.stringify(buildManifest({ draftId, meta, channel, title, tags, sha256: fileHash, submissionId: open === 'resend' ? meta.uploader.submission_id : undefined })));
     manifest.mac = sign(key, 'manifest', manifest);
     const target = path.join(share, 'inbox', draftId);
     if (!clearInboxFolder(target)) return res.status(409).json({ error: 'An earlier copy of this video is still in the uploader folder and could not be cleared.' });

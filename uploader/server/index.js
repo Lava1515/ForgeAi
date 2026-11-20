@@ -41,6 +41,12 @@ if (!takePid()) {
   try { fs.unlinkSync(PID_FILE); } catch { /* the other start removed it */ }
   if (!takePid()) { console.error('Another uploader is starting with this state folder. Not starting.'); process.exit(1); }
 }
+// Two starts at the same moment can both clear a dead owner's file. Wait a moment and look again: only the one whose
+// number is still in the file goes on.
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 700);
+let holder = 0;
+try { holder = Number(fs.readFileSync(PID_FILE, 'utf8')); } catch { /* gone: not ours */ }
+if (holder !== process.pid) { console.error('Another uploader started with this state folder at the same moment. Not starting.'); process.exit(1); }
 const youtube = createYouTube({ clientId: process.env.YOUTUBE_CLIENT_ID, clientSecret: process.env.YOUTUBE_CLIENT_SECRET, redirectUri: REDIRECT });
 const engine = createEngine({ share: SHARE, stateDir: STATE_DIR, youtube, key: handoverKey(REPO), aheadMs: AHEAD_H * 60 * 60 * 1000 });
 const pendingStates = new Map(); // OAuth state -> expiry

@@ -68,8 +68,14 @@ uploader on another PC, set the same `UPLOADER_KEY` on both machines (or copy th
 
 ## Moving to another PC
 
-Copy `uploader/` and the state folder, set `UPLOADER_SHARE` to the NAS folder on both machines, start it there, and
-stop the old one. Two uploaders on one folder refuse to run together.
+In this order:
+
+1. Stop the old uploader.
+2. Copy `uploader/` and the WHOLE state folder (`state.json`, `tokens.json`, `owner-id`, `packages/`) to the new PC.
+   The state folder is the uploader's memory of what it already sent to YouTube. A new uploader that starts with an
+   empty state folder on the same share does not know those videos and could upload one again.
+3. Set `UPLOADER_SHARE` to the NAS folder on both machines and the same hand-over key (below).
+4. Start it on the new PC. Never start the old one again with its old state folder.
 
 ## Tests
 
