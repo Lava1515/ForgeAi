@@ -29,22 +29,34 @@ def mood_for(text):
     return 'wonder', 'soft felt piano, warm synth pad, light pulse, no drums', 100
 
 
-def gpu_free():
-    """Lease covers Forge jobs; also refuse outside render/compute activity. Unknown is busy."""
-    # On WDDM --query-compute-apps also lists every desktop C+G process. The table distinguishes C jobs.
+MIN_FREE_MB = 8500
+
+
+def card_block(apps, free_mb, render_pids=''):
+    """Why the card cannot take the music model now, or None. The dashboard's lease already keeps Forge jobs off the card, so this only
+    looks for an outside compute or render job and for memory. claude-pro | claude-fable-5-2 | 2026-11-20: the old test also refused
+    above 10 percent card use, which an ordinary desktop (browser, chat apps) reaches by itself; all three videos of run-mwow3a91-f47cff
+    fell back to the synth on it. Unknown is busy."""
+    # On WDDM the process table lists every desktop app as C+G. A plain C row is a compute job.
+    if 'Processes:' not in apps:
+        return 'card_unknown'
+    if re.search(r'\sC\s', apps) or re.search(r'(?:python|blender|render).*\.exe', apps, re.I) or str(render_pids).strip():
+        return 'card_busy'
+    if free_mb < MIN_FREE_MB:
+        return 'card_memory'
+    return None
+
+
+def gpu_block():
+    """card_block on the live card."""
     apps = subprocess.check_output(['nvidia-smi'], timeout=10, text=True)
-    if not 'Processes:' in apps or re.search(r'\sC\s', apps) or re.search(r'(?:python|blender|render).*\.exe', apps, re.I):
-        return False
-    stats = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.free,utilization.gpu', '--format=csv,noheader,nounits'], timeout=10, text=True)
-    free, usage = [int(v.strip()) for v in stats.strip().splitlines()[0].split(',')]
-    if free < 8500 or usage > 10:
-        return False
+    stats = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.free', '--format=csv,noheader,nounits'], timeout=10, text=True)
+    free = int(stats.strip().splitlines()[0].strip())
+    procs = ''
     if os.name == 'nt':
         procs = subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command',
             "Get-Process -Name '*blender*','*render*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id; exit 0"], timeout=10, text=True)
-        if procs.strip():
-            return False
-    return True
+    return card_block(apps, free, procs)
 
 
 def fit_bed(samples, source_sr, duration, sr=44100):
@@ -77,8 +89,11 @@ def generate(job, work):
     start = time.monotonic()
     repo = INSTALL / 'ace-step'
     head = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True, timeout=10).strip()
-    if head != COMMIT or not gpu_free():
-        raise RuntimeError('install pin mismatch or GPU busy')
+    if head != COMMIT:
+        raise RuntimeError('pin_mismatch')
+    blocked = gpu_block()
+    if blocked:
+        raise RuntimeError(blocked)     # the host reads this word from generation.log (acestepMusic.js)
     # Keep every runtime cache/output in this job; weights and code are read from the approved install.
     for key in ('HF_HOME', 'TORCH_HOME', 'XDG_CACHE_HOME', 'TRITON_CACHE_DIR', 'MPLCONFIGDIR'):
         os.environ[key] = str(work / key.lower())

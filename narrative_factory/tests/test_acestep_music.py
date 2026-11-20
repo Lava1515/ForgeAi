@@ -35,8 +35,19 @@ def test_both_music_sources_keep_measured_level(tmp_path, monkeypatch, source):
     assert report['audio']['music_source']['source'] == ('acestep' if source == 'acestep' else 'synth')
 
 
-@pytest.mark.parametrize('compute,stats,processes', [('Processes: 123 C python.exe', '', ''), ('Processes:', '11000, 55', ''), ('Processes:', '11000, 0', '456\n')])
-def test_busy_card_never_starts_generation(monkeypatch, compute, stats, processes):
-    replies = iter([compute, stats, processes])
+# claude-pro | claude-fable-5-2 | 2026-11-20: card use by desktop apps no longer refuses (run-mwow3a91-f47cff: 3 of 3 fell back on it).
+@pytest.mark.parametrize('apps,free_mb,render_pids,expected', [
+    ('Processes: 123 C python.exe', 11000, '', 'card_busy'),
+    ('Processes:', 11000, '456\n', 'card_busy'),
+    ('Processes:', 4000, '', 'card_memory'),
+    ('', 11000, '', 'card_unknown'),
+    ('Processes: 14348 C+G msedge.exe  26376 C+G Discord.exe', 9600, '', None),
+])
+def test_card_block_reasons(apps, free_mb, render_pids, expected):
+    assert acestep_music.card_block(apps, free_mb, render_pids) == expected
+
+
+def test_busy_card_never_starts_generation(monkeypatch):
+    replies = iter(['Processes: 123 C python.exe', '11000', ''])
     monkeypatch.setattr(acestep_music.subprocess, 'check_output', lambda *a, **k: next(replies))
-    assert acestep_music.gpu_free() is False
+    assert acestep_music.gpu_block() == 'card_busy'
