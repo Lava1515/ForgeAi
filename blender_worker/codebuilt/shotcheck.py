@@ -806,6 +806,24 @@ def _install_render_guard(probe):
     return True
 
 
+def map_material_findings():
+    """A finding for the author, never a failure (report["ok"] is untouched, so the final still renders): the build replaced the kit
+    material of a map country. Only looks when the build imported the map kit. Never raises."""
+    try:
+        import sys
+        maps = sys.modules.get(__package__ + ".maps")
+        replaced = maps.replaced_country_materials() if maps else []
+    except Exception:
+        return []
+    if not replaced:
+        return []
+    names = ", ".join(str(n)[:12] for n in replaced)
+    return [{"check": "map_material_replaced", "shot": None, "frames": [],
+             "text": f"the build replaced the map material of {names}: the relief and the fill controls are gone and the country renders "
+                     "as a flat slab. Remove the materials.clear()/append on the country object and colour it with wm.set_color(key, rgb) "
+                     "or wm.highlight(key, color=...); for two colours inside one country lay thin tinted patches a little above the map"}]
+
+
 def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
     """In Blender: the pre-render QA of a generated build. Call it once, as a plain statement, after the scene is
     built and before renderloop.render_frames(..., require_qa=True), which spends the pass: call it again before any further render_frames. shots: the (start_seconds, collection_name, fn) list
@@ -821,6 +839,7 @@ def run_qa(scene, cam, apply, nframes, shots, fps=30, hold=2):
                          overlay=overlay)
     report["bounds_source"] = getattr(probe, "bounds_source", None)
     report["mode"] = "preview" if preview else "final"
+    report["findings"] = list(report.get("findings") or []) + map_material_findings()
     _record_report(report, report["mode"])
     print("QA " + json.dumps({k: (v[:MAX_LISTED] if isinstance(v, list) else v) for k, v in report.items()}))
     if report["upper_warnings"] or not report["ok"]:

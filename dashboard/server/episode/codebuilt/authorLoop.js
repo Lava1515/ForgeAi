@@ -187,6 +187,8 @@ export async function runAuthorLoop(input,deps={}) {
     json(sessionPath(session,'findings.json'),{round,crash,layout,kit,surfaces,exposure:sheets.map(s=>s.tiles),exposureAdvice:exposureAdvice(sheets,input.exposureFindings)});
    }
    json(path.join(dir,'preview.json'),{sha256,overlaySha256,jobId:previewId,frames,rendered:preview?.frames??[],sheets:sheetRecords});
+   // A replaced map material blocks a pass in the first round only (one round to fix, like the surface report); later it is advice.
+   const kitFailures=(kit?.findings??[]).filter(f=>round===0||f.check!=='map_material_replaced').map(f=>f.check);
    let reply;
    for(;;){
     let replay=history.slice();
@@ -200,7 +202,7 @@ export async function runAuthorLoop(input,deps={}) {
     const sessionPrompt=()=>sessionLookPrompt({shots,sheets,shotStarts:input.shotStarts,round,finalRound:round===4,qaText:crash,kit,layoutFindings:sheets.flatMap(s=>s.layout_findings??[])})+exposureAdvice(sheets,input.exposureFindings)+surfaceText+`\n${budgetText}\n${layoutText}\n${timing>input.renderBudget?`render_too_slow: ${timing} s/frame`:''}\n${feedback}`;
     let prompt=session?sessionPrompt():makePrompt();while(prompt.length>200000&&replay.length){replay.shift();prompt=session?sessionPrompt():makePrompt();}
     const text=await ask(prompt,images,editRefusals>=2&&!resynced?'resync':'look',dir);if(editRefusals>=2)resynced=true;
-    try{reply=parseAuthorLook(text,{buildScript:code,overlaySpec:spec,validate:(c,s)=>{pairCheck(c,s,input);return [];},videoSeconds:input.nframes/30,shots,sheetCodes:[...new Set(sheets.map(s=>s.code))],finalRound:!!session||round===4,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),kitFailures:kit?.findings.map(f=>f.check)??[]});
+    try{reply=parseAuthorLook(text,{buildScript:code,overlaySpec:spec,validate:(c,s)=>{pairCheck(c,s,input);return [];},videoSeconds:input.nframes/30,shots,sheetCodes:[...new Set(sheets.map(s=>s.code))],finalRound:!!session||round===4,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),kitFailures});
      if(session){
       const next=readSessionPair(session);next.overlaySpec=pairCheck(next.buildScript,next.overlaySpec,input).spec;
       if(reply.look.verdict==='pass'){
@@ -216,7 +218,7 @@ export async function runAuthorLoop(input,deps={}) {
    feedback='';editRefusals=0;
    journal({kind:'validation',round,sha256,overlaySha256,verdict:reply.look.verdict});
    history.push({round,notes:reply.notes,findings:reply.look.findings,targets:reply.look.targets,verdict:reply.look.verdict,kitChecks:kit?.findings.map(f=>f.check)??[]});
-   json(path.join(dir,'look.json'),{sha256,overlaySha256,verdict:reply.look.verdict,sheets:sheetRecords,sheetCodes:[...new Set(sheets.map(s=>s.code))],kitFailures:kit?.findings.map(f=>f.check)??[],flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),layout,call:calls.at(-1),reply:reply.look});write(path.join(dir,'notes.txt'),reply.notes);
+   json(path.join(dir,'look.json'),{sha256,overlaySha256,verdict:reply.look.verdict,sheets:sheetRecords,sheetCodes:[...new Set(sheets.map(s=>s.code))],kitFailures,flatTiles:sheets.flatMap(s=>s.tiles.filter(t=>t.flag==='flat').map(t=>t.n)),layout,call:calls.at(-1),reply:reply.look});write(path.join(dir,'notes.txt'),reply.notes);
    if(reply.look.verdict==='pass'){
     guard();if(readBytes(path.join(dir,'build.py'),'utf8')!==code || JSON.stringify(read(path.join(dir,'overlay.json')))!==JSON.stringify(pair))throw authorError('author_hash');
     write(path.join(root,'accepted.build.py'),code);json(path.join(root,'accepted.overlay.json'),pair);

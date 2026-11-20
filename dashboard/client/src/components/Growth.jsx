@@ -253,7 +253,7 @@ export default function Growth({ activeChannel }) {
         channelId,
         growth_ab_channel: selectedAbChannel,
       });
-      setNotice(`A/B experiment target channel saved (${res.growth_ab_channel}).`);
+      setNotice('Test channel saved.');
       const freshAb = await api.getGrowthABChannel(channelId).catch(() => null);
       if (freshAb) {
         setAbData(freshAb);
@@ -353,9 +353,9 @@ export default function Growth({ activeChannel }) {
           <div className="flex items-center gap-2.5">
             <Radio className="w-5 h-5 text-ember-400 shrink-0" />
             <div>
-              <h3 className="text-sm font-semibold text-ink-50">A/B Experiment Target Channel (growth_ab_channel)</h3>
+              <h3 className="text-sm font-semibold text-ink-50">Channel for title and thumbnail tests</h3>
               <p className="text-xs text-ink-400">
-                Determines which channel is targeted for growth A/B experimentation (KAN-250). Defaults to the current channel.
+                The channel the growth tests run on. Defaults to the current channel.
               </p>
             </div>
           </div>
@@ -825,7 +825,7 @@ export default function Growth({ activeChannel }) {
           {/* Baseline Metrics Bar */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="label">Baseline Telemetry (KAN-245 Benchmark)</span>
+              <span className="label">Baseline numbers</span>
               <span className="text-[11px] font-mono text-ink-500">
                 Settled comparison cohort
               </span>

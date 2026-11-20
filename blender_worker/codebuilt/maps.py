@@ -348,6 +348,31 @@ def country_color(c, palette):
 
 
 # ------------------------------------------------------------------------------------------------ the map
+_BUILT = []     # every WorldMap of this build
+
+
+def replaced_country_materials(limit=8):
+    """Countries whose top material is no longer the one the kit gave them. A build that swaps it (job mwns1inh-0cdbd0 put its own
+    two-colour shader on Australia) loses the relief and the fill controls, and the map goes flat. Colour a country with set_color or
+    highlight instead. Returns up to `limit` country keys; never raises."""
+    out = []
+    for wm in _BUILT:
+        for iso, ob in list(wm.objs.items()):
+            kit = wm._kit_top.get(iso)
+            if kit is None:
+                continue
+            try:
+                mats = ob.data.materials
+                now = mats[0].name if len(mats) and mats[0] is not None else None
+            except Exception:   # the object is gone: not this check's business
+                continue
+            if now != kit:
+                out.append(str(iso))
+                if len(out) >= limit:
+                    return out
+    return out
+
+
 class WorldMap:
     """Flat map in the XY plane, north = +Y, centred on `origin` (the projection of 0 E / 0 N sits at the origin plus `shift`).
 
@@ -386,6 +411,8 @@ class WorldMap:
         self.sides, self.palette = sides, palette
         self.data = load(detail)
         self.objs, self._shape, self._info = {}, {}, {}
+        self._kit_top = {}      # iso -> name of the top material the kit gave the country (replaced_country_materials)
+        _BUILT.append(self)
         self._hl, self._labels, self._next_color = {}, [], 0
         self.land_glow = 0.2
         self.border_color = tuple(border_color) if border_color is not None else materials.MAP_BORDER
@@ -477,6 +504,10 @@ class WorldMap:
         ob = self._mesh(cty.iso, verts, shape, col, (float(cen[0]), float(cen[1]), self.origin[2]), meshes, materials,
                         fill=self.palette != "relief")
         self.objs[cty.iso] = ob
+        try:
+            self._kit_top[cty.iso] = ob.data.materials[0].name
+        except Exception:   # a stand-in mesh outside Blender
+            pass
         self._shape[cty.iso] = shape
         flat = np.concatenate(rings)
         self._info[cty.iso] = dict(box=(flat[:, 0].min(), flat[:, 1].min(), flat[:, 0].max(), flat[:, 1].max()), n=shape.n,

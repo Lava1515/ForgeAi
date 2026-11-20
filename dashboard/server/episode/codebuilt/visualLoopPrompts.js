@@ -83,7 +83,7 @@ function repeatedLegibilityNote(previous) {
 // measured framing of each preview frame to <preview job>/work/qa_report.json, and the look gets them next to the pictures.
 // The file is written inside the container by code that ran generated code, so every value is checked and bounded here.
 
-export const KIT_CHECKS = Object.freeze(['text_clipped', 'readout_too_wide', 'readout_behind_subject', 'same_composition', 'missing_target', 'uncheckable_shot', 'text_in_3d']);
+export const KIT_CHECKS = Object.freeze(['text_clipped', 'readout_too_wide', 'readout_behind_subject', 'same_composition', 'missing_target', 'uncheckable_shot', 'text_in_3d', 'map_material_replaced']);
 const EDGES = ['left', 'right', 'bottom', 'top', 'camera'];
 const plain = (text, max) => cleanDiagnostic([...String(text ?? '')].filter((ch) => ch >= ' ' && ch <= '~').join('')).slice(0, max);
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e7 ? v : null);

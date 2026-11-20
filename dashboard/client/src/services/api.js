@@ -94,34 +94,6 @@ export async function deleteProduct(draftId) {
   });
 }
 
-export async function getPendingStillReviews() {
-  return request('/api/studio/stills-pending');
-}
-
-export async function getStillsReview(runId) {
-  return request(`/api/studio/${encodeURIComponent(runId)}/stills`);
-}
-
-export async function approveStill(runId, scene) {
-  return request(`/api/studio/${encodeURIComponent(runId)}/stills/${encodeURIComponent(scene)}/approve`, {
-    method: 'POST',
-  });
-}
-
-export async function regenerateStill(runId, scene, { prompt } = {}) {
-  return request(`/api/studio/${encodeURIComponent(runId)}/stills/${encodeURIComponent(scene)}/regenerate`, {
-    method: 'POST',
-    body: JSON.stringify({ prompt }),
-  });
-}
-
-export async function animateApprovedScenes(runId, params = {}) {
-  return request(`/api/studio/${encodeURIComponent(runId)}/animate`, {
-    method: 'POST',
-    body: JSON.stringify(params),
-  });
-}
-
 // Standalone Voiceover Studio
 
 // Channels Management & Psychology Research
