@@ -446,7 +446,7 @@
     {
       "id": "openverse",
       "kind": "service",
-      "use": "search index for openly licensed media; only CC0 / public-domain items whose own page confirms it are used",
+      "use": "NOT IN USE: the Openverse step was removed from the pipeline on 2026-11-20 (owner; no author had used it). Was: search index for openly licensed media; only CC0 / public-domain items whose own page confirms it are used",
       "licence": "MIT (code); content index: CC0 / public-domain items only (independently verified per item)",
       "allowed": true,
       "source": "https://github.com/WordPress/openverse/blob/main/documentation/terms_of_service.md",
