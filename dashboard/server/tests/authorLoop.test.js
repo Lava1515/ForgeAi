@@ -195,5 +195,6 @@ test('a failed direction call is tried once more; two failures save the cause',(
  // 2026-11-21: the newer limit wording arrives without the quota flag; it is still a limit, not an unknown failure tried twice.
  for(const text of ["Claude CLI failed: You've hit your session limit · resets 9pm",'Claude CLI failed: 5-hour limit reached ∙ resets 9pm','Claude CLI failed: Weekly limit reached']){let n=0;const {input}=adapterRig(()=>{n++;throw Error(text);});
   await assert.rejects(runAuthorFor(input),{quota:true});assert.equal(n,1,text);}
- assert.equal(LIMIT_TEXT.test('Claude CLI failed: exit 1'),false);assert.equal(LIMIT_TEXT.test('the answer was not valid JSON'),false);
+ {let n=0;const {input}=adapterRig(()=>{n++;throw Error('place quota: a custom place needs a what');});await assert.rejects(runAuthorFor(input),e=>!e.quota);assert.equal(n,2,'a direction check that quotes model text is retried, not called a limit');}
+ assert.equal(LIMIT_TEXT.test('Claude CLI failed: resets 3 counters'),false);assert.equal(LIMIT_TEXT.test('Claude CLI failed: exit 1'),false);assert.equal(LIMIT_TEXT.test('the answer was not valid JSON'),false);
 }));

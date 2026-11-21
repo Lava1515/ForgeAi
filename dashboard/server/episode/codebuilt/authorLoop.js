@@ -258,7 +258,8 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  if(!directed){
   // Lane B (job mwp149sk-acc1f6: the direction call errored after 3.6 s and nothing said why): one more try, then the cause is saved.
   const askDirection=()=>pl.planCodebuiltDirection({route:'authored',topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,beats:scripted.shots,words,pathPack,formats:rec.formats,choices:rec.choices,premise:rec.premise,signal},{onCall:addCall});
-  const limited=e=>{if(e&&!e.quota&&LIMIT_TEXT.test(String(e.message??'')))e.quota=true;return e;}; // a limit worded in a way the caller did not flag
+  // A limit worded in a way the caller did not flag. Only the CLI's own failure line counts: a direction check's message can quote model text (a place named "quota").
+  const limited=e=>{const text=String(e?.message??'');if(e&&!e.quota&&text.startsWith('Claude CLI failed:')&&LIMIT_TEXT.test(text))e.quota=true;return e;};
   const passThrough=e=>signal?.aborted||e?.aborted||limited(e)?.quota||e?.detail?.reason==='quota'||e?.unavailable; // start.js names these itself
   try{directed=await askDirection();}catch(first){
    if(passThrough(first))throw first;

@@ -29,7 +29,7 @@ const CLAUDE_TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_S) * 1000 || 300000;
 // What a Claude usage limit looks like in the CLI's own words. One list for every caller. claude-pro | claude-fable-5-2 | 2026-11-21: the newer
 // wording ("hit your session limit", "resets 9pm") was not on it; two direction calls that failed in under 2 s on 2026-11-20 (jobs
 // mwp149sk-acc1f6 and mwp8scki-7fbd06) were reported as an unknown failure, and the same inputs worked the next morning.
-export const LIMIT_TEXT = /usage limit|rate limit|limit reached|quota|hit your (?:[a-z0-9-]+ ){0,3}limit|session limit|weekly limit|out of (?:extra )?usage|limit will reset|resets? (?:at|in) |resets \d/i;
+export const LIMIT_TEXT = /usage limit|rate limit|limit reached|quota|hit your (?:[a-z0-9-]+ ){0,3}limit|session limit|weekly limit|out of (?:extra )?usage|limit will reset|resets? (?:at|in) |resets \d{1,2}(?::\d{2})? ?[ap]m/i;
 let blockedUntil = 0;
 export const claudeBlocked = () => Date.now() < blockedUntil;
 
