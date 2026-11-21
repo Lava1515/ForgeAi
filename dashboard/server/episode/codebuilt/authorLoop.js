@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { authorArgv, hash, authorError, normalizeAuthorUsage, AUTHOR_REPO } from './authorCall.js';
+import { LIMIT_TEXT } from '../../routes/claudeCli.js';
 import { overlayPair, validateOverlayPair } from './overlaySpec.js';
 import { AUTHOR_HEADER, SESSION_HEADER, sessionLookPrompt, writePair, parseAuthorLook, authorState } from './authorPrompts.js';
 import { createAuthorSession, sessionArgv, sessionPath, readSessionPair, consumePreviewRequest, smallSessionFrames } from './authorSession.js';
@@ -235,7 +236,7 @@ export async function runAuthorLoop(input,deps={}) {
 // Integration adapter: direction is separate; all preview/sheet/transport effects remain injectable.
 // Why a call failed, as one fixed sentence: the error's own code or name (letters, digits and _ only) and the kind of failure read from
 // its message. The message itself is never saved or shown: it can carry a path, a token or model text (review 2026-11-20).
-const CAUSE_KINDS=[[/usage limit|rate limit|limit reached|quota|hit your limit/i,'the model reported a usage limit'],[/timed? ?out|ETIMEDOUT/i,'the call timed out'],[/not logged in|login|unauthor|credential/i,'the model CLI is not logged in'],[/ENOENT|not found|not recognized/i,'the model CLI was not found'],[/JSON|Unexpected token|Expected/i,'the answer was not valid JSON'],[/ECONNRESET|ENOTFOUND|EAI_AGAIN|socket|network|fetch failed/i,'the network call failed'],[/exit(?:ed)?(?: with)?(?: code)? \d+|exit code/i,'the model CLI exited with an error']];
+const CAUSE_KINDS=[[LIMIT_TEXT,'the model reported a usage limit'],[/timed? ?out|ETIMEDOUT/i,'the call timed out'],[/not logged in|login|unauthor|credential/i,'the model CLI is not logged in'],[/ENOENT|not found|not recognized/i,'the model CLI was not found'],[/JSON|Unexpected token|Expected/i,'the answer was not valid JSON'],[/ECONNRESET|ENOTFOUND|EAI_AGAIN|socket|network|fetch failed/i,'the network call failed'],[/exit(?:ed)?(?: with)?(?: code)? \d+|exit code/i,'the model CLI exited with an error']];
 const causeLine=e=>{const name=String(e?.code??e?.name??'Error').replace(/[^A-Za-z0-9_]/g,'').slice(0,40)||'Error',text=String(e?.message??e??'');return `${name}: ${CAUSE_KINDS.find(([re])=>re.test(text)||re.test(name))?.[1]??'no known cause in the error'}`;};
 export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,runtime,jobsDir,hostExecFile,injected={},addCall,onPhase,gpu}) {
  const {askAuthor,askAuthorSession,probeAuthorSupport,checkAuthorConfig}=await import('./authorCall.js');
@@ -257,13 +258,16 @@ export async function runAuthorFor({rec,stage,signal,scripted,voice,pathPack,pl,
  if(!directed){
   // Lane B (job mwp149sk-acc1f6: the direction call errored after 3.6 s and nothing said why): one more try, then the cause is saved.
   const askDirection=()=>pl.planCodebuiltDirection({route:'authored',topic:rec.topic,duration:rec.duration,script:scripted.script,brief:scripted.brief,beats:scripted.shots,words,pathPack,formats:rec.formats,choices:rec.choices,premise:rec.premise,signal},{onCall:addCall});
-  const passThrough=e=>signal?.aborted||e?.aborted||e?.quota||e?.detail?.reason==='quota'||e?.unavailable; // start.js names these itself
+  const limited=e=>{if(e&&!e.quota&&LIMIT_TEXT.test(String(e.message??'')))e.quota=true;return e;}; // a limit worded in a way the caller did not flag
+  const passThrough=e=>signal?.aborted||e?.aborted||limited(e)?.quota||e?.detail?.reason==='quota'||e?.unavailable; // start.js names these itself
   try{directed=await askDirection();}catch(first){
    if(passThrough(first))throw first;
    try{directed=await askDirection();}catch(second){
     if(passThrough(second))throw second;
     const cause=causeLine(second);
-    try{json(path.join(stage,'author','direction-error.json'),{cause,first:causeLine(first)});}catch{ /* the failure itself is still reported */ }
+    // `raw` is the error's own last line, kept ONLY in this file inside the job's private stage folder (never on the job record, the API or
+    // a page): without it the two failures of 2026-11-20 could not be explained afterwards.
+    try{json(path.join(stage,'author','direction-error.json'),{cause,first:causeLine(first),raw:String(second?.message??second??'').slice(0,300)});}catch{ /* the failure itself is still reported */ }
     throw Object.assign(second,{causeText:cause}); // the error itself, with its cause line; start.js reports it as author_direction
    }
   }

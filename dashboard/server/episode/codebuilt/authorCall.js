@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { askClaudeLook, lookArgv, PROBE_PROMPT, readCliVersion } from './lookCall.js';
 import { killTree } from './lookCall.js';
-import { binPath, claudeEnv, usageFrom } from '../../routes/claudeCli.js';
+import { binPath, claudeEnv, usageFrom, LIMIT_TEXT } from '../../routes/claudeCli.js';
 import { sessionArgv, SESSION_TOOLS, sessionPath } from './authorSession.js';
 export const AUTHOR_REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const hash = data => crypto.createHash('sha256').update(data).digest('hex');
@@ -133,7 +133,7 @@ export async function askAuthorSession(prompt,images,{session,model='sonnet',tim
    if(!init) return finish(authorError('tools_offered'));
    if(code!==0||!result||result.is_error||result.session_id!==session.id){
     const error=authorError('author_transport_unavailable');
-    if(/usage limit|rate limit|quota|hit your limit|out of .*usage/i.test(String(result?.result)))error.quota=true;
+    if(LIMIT_TEXT.test(String(result?.result)))error.quota=true;
     return finish(error);
    }
    session.started=true;

@@ -26,6 +26,10 @@ export const claudeEnabled = () => Boolean(home() && readJson(settingsFile())?.u
 export const claudeModel = () => String(readJson(settingsFile())?.model || process.env.CLAUDE_MODEL || 'sonnet');
 const CLAUDE_TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_S) * 1000 || 300000;
 // Usage limit hit: don't pay claude's startup on every call until it might work again. ponytail: flat 30 min, no reset time parsed.
+// What a Claude usage limit looks like in the CLI's own words. One list for every caller. claude-pro | claude-fable-5-2 | 2026-11-21: the newer
+// wording ("hit your session limit", "resets 9pm") was not on it; two direction calls that failed in under 2 s on 2026-11-20 (jobs
+// mwp149sk-acc1f6 and mwp8scki-7fbd06) were reported as an unknown failure, and the same inputs worked the next morning.
+export const LIMIT_TEXT = /usage limit|rate limit|limit reached|quota|hit your (?:[a-z0-9-]+ ){0,3}limit|session limit|weekly limit|out of (?:extra )?usage|limit will reset|resets? (?:at|in) |resets \d/i;
 let blockedUntil = 0;
 export const claudeBlocked = () => Date.now() < blockedUntil;
 
@@ -120,7 +124,7 @@ Answer directly from your own knowledge with only the JSON object described abov
       const why = timedOut ? `timed out after ${Math.round(timeoutMs / 1000)}s` : (text || String(out).trim().split('\n').pop() || `exit ${code}`).slice(0, 300);
       const err = Object.assign(new Error(`Claude CLI failed: ${why}`), { timedOut });
       if (/not logged in|\/login|authenticat/i.test(why)) err.unavailable = true;
-      if (/usage limit|rate limit|limit reached|quota|hit your limit|out of (?:extra )?usage|limit will reset|resets? at/i.test(why)) { err.quota = true; blockedUntil = Date.now() + 30 * 60000; }
+      if (LIMIT_TEXT.test(why)) { err.quota = true; blockedUntil = Date.now() + 30 * 60000; }
       reject(err);
     });
     child.stdin?.end(prompt);

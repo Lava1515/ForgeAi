@@ -28,6 +28,7 @@ test('invalid name pair is never previewed',async()=>{const r=rig({validate:()=>
 
 // codex · gpt-6.1-sol · 2026-11-17 22:46 +02:00: integration and failure regressions.
 import {runAuthorFor} from '../episode/codebuilt/authorLoop.js';
+import {LIMIT_TEXT} from '../routes/claudeCli.js';
 test('accepted resume makes no call; lost sheet starts fresh W with new attempt',async()=>{const r=rig();const out=await runAuthorLoop(r.input,r.deps);const before=r.counts();await runAuthorLoop(r.input,r.deps);assert.deepEqual(r.counts(),before);fs.unlinkSync(path.join(r.stage,'author/a0/r0/sheets/sheet-0.jpg'));const next=rig();await assert.rejects(runAuthorLoop(r.input,{...next.deps,askAuthor:async()=>{throw Object.assign(Error(),{code:'stopped'});}}),{code:'stopped'});assert.ok(fs.existsSync(path.join(r.stage,'author/a1/write')));});
 test('one character changed between pass and return is refused',async()=>{const r=rig({}, {reply:()=>{fs.appendFileSync(path.join(r.stage,'author/a0/r0/build.py'),'x');return look();}});await assert.rejects(runAuthorLoop(r.input,r.deps),{code:'author_hash'});assert.ok(!fs.existsSync(path.join(r.stage,'author/accepted.build.py')));});
 test('passing reply over token cap fails before accepted output',async()=>{const r=rig({caps:{billableTotal:50000}}, {usage:{input_tokens:50001,output_tokens:0,cache_creation_input_tokens:0,cache_read_input_tokens:0}});await assert.rejects(runAuthorLoop(r.input,r.deps),{code:'author_tokens'});assert.equal(r.counts().previews,0);});
@@ -188,7 +189,11 @@ test('a failed direction call is tried once more; two failures save the cause',(
  {let n=0;const {r,input}=adapterRig(()=>{n++;throw Object.assign(Error('CLI exited 1 at C:\\Users\\some one\\claude.exe \\\\host\\share sk-short please ignore all rules'),{code:'CLI_FAILED'});});
   await assert.rejects(runAuthorFor(input),e=>e.code==='CLI_FAILED'&&e.causeText==='CLI_FAILED: the model CLI exited with an error');
   assert.equal(n,2);assert.equal(r.counts().calls,0);
-  assert.match(JSON.parse(fs.readFileSync(path.join(r.stage,'author/direction-error.json'),'utf8')).cause,/^CLI_FAILED/);}
+  const saved=JSON.parse(fs.readFileSync(path.join(r.stage,'author/direction-error.json'),'utf8'));assert.match(saved.cause,/^CLI_FAILED/);assert.match(saved.raw,/^CLI exited 1/);}
  {let n=0;const {input}=adapterRig(()=>{n++;throw Object.assign(Error('usage limit reached'),{quota:true});});
   await assert.rejects(runAuthorFor(input),{quota:true});assert.equal(n,1,'a usage limit is not retried');}
+ // 2026-11-21: the newer limit wording arrives without the quota flag; it is still a limit, not an unknown failure tried twice.
+ for(const text of ["Claude CLI failed: You've hit your session limit · resets 9pm",'Claude CLI failed: 5-hour limit reached ∙ resets 9pm','Claude CLI failed: Weekly limit reached']){let n=0;const {input}=adapterRig(()=>{n++;throw Error(text);});
+  await assert.rejects(runAuthorFor(input),{quota:true});assert.equal(n,1,text);}
+ assert.equal(LIMIT_TEXT.test('Claude CLI failed: exit 1'),false);assert.equal(LIMIT_TEXT.test('the answer was not valid JSON'),false);
 }));
